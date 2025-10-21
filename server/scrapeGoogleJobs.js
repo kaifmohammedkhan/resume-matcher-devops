@@ -1,8 +1,13 @@
 import axios from 'axios';
 
 export async function scrapeGoogleJobs(query = '"developer"', location = '', workMode = 'All') {
-  const apiKey = 'AIzaSyBExXAVBbzwhpWmjguzfAp3OxlQPy5ibjk'; // 🔁 Replace with your actual key
-  const cx = '7303434811acf48fb'; // 🔁 Replace with your Programmable Search Engine ID
+  const apiKey = process.env.GOOGLE_API_KEY;
+  const cx = process.env.GOOGLE_CX_ID;
+
+  if (!apiKey || !cx) {
+    console.error('❌ Missing Google API credentials');
+    return [];
+  }
 
   // 🧼 Sanitize query string
   const sanitizedQuery = typeof query === 'string'
