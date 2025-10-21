@@ -1,7 +1,7 @@
 import formidable from 'formidable';
 import fs from 'fs/promises';
 
-import { scrapeLinkedInJobs } from '../../server/scrapeLinkedInJobs.js';
+import { scrapeLinkedInJobs } from '../../server/scrapeLinkedInJobs_v2.js';
 import { scrapeGoogleJobs } from '../../server/scrapeGoogleJobs.js';
 import { extractResumeText } from '../../server/extractResumeText.js';
 import { scoreJobs } from '../../server/semanticMatch.js';
