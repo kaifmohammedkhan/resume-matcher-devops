@@ -31,7 +31,7 @@ export default function Home() {
       formData.append('workMode', workMode);
       formData.append('source', source);
 
-      const res = await fetch('/api/upload-resume', {
+      const res = await fetch('/api/upload-resume-clean', {
         method: 'POST',
         body: formData
       });
