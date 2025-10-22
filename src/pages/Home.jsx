@@ -9,7 +9,7 @@ export default function Home() {
   const [fileName, setFileName] = useState('');
   const [location, setLocation] = useState('');
   const [workMode, setWorkMode] = useState('All');
-  const [source, setSource] = useState('LinkedIn');
+  const source = 'LinkedIn'; // 🔒 Hardcoded to exclude LinkedIn
   const navigate = useNavigate();
 
   const handleFileUpload = (e) => {
@@ -108,22 +108,12 @@ export default function Home() {
           <select
             value={workMode}
             onChange={(e) => setWorkMode(e.target.value)}
-            className="w-full bg-dark border border-gray-600 text-white px-4 py-2 rounded mb-4"
+            className="w-full bg-dark border border-gray-600 text-white px-4 py-2 rounded mb-6"
           >
             <option value="All">All Modes</option>
             <option value="Remote">Remote</option>
             <option value="Onsite">Onsite</option>
             <option value="Hybrid">Hybrid</option>
-          </select>
-
-          <label className="block text-sm text-gray-300 mb-2">Source</label>
-          <select
-            value={source}
-            onChange={(e) => setSource(e.target.value)}
-            className="w-full bg-dark border border-gray-600 text-white px-4 py-2 rounded mb-6"
-          >
-            <option value="LinkedIn">LinkedIn</option>
-            <option value="Google">Other Sources</option>
           </select>
 
           <button

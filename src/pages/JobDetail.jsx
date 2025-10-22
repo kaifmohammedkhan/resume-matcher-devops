@@ -63,8 +63,6 @@ export default function JobDetail() {
 
   const {
     title = 'Untitled Role',
-    company = 'Unknown Company',
-    location = 'Unknown Location',
     description = 'No description available.',
     link = '#',
     source = 'External Site'
@@ -84,8 +82,7 @@ export default function JobDetail() {
 
       {/* Job Detail Section */}
       <div className="bg-dark text-white p-6 min-h-screen">
-        <h1 className="text-3xl font-bold mb-2">{title}</h1>
-        <p className="text-sm mb-4">{company} — {location}</p>
+        <h1 className="text-3xl font-bold mb-4">{title}</h1>
         <p className="mb-6 text-gray-300 whitespace-pre-line">{description}</p>
         <a
           href={link}
