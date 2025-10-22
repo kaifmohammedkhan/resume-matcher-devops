@@ -109,15 +109,9 @@ function Results() {
           {paginatedJobs.map((job, index) => {
             const score = getMatchScore(job.job_description, job.title + ' ' + job.company);
             const key = job.job_id || job.job_apply_link || `job-${index}`;
-
-            const locationParts = job.location?.split(',').map(s => s.trim()) || [];
-            const city = job.job_city || locationParts[0] || 'Unknown City';
-            const country = job.job_country || locationParts[1] || 'Unknown Country';
-
             const matchedKeywords = normalizedKeywords.filter(k =>
               (job.job_description || job.title + ' ' + job.company).toLowerCase().includes(k)
             );
-
             const sourceLabel = job.source === 'Google' ? 'Other Sources' : job.source || 'Unknown';
 
             return (
@@ -136,12 +130,13 @@ function Results() {
                     {score} keyword{score !== 1 ? 's' : ''}
                   </span>
                 </div>
-                <p className="text-sm text-gray-300 mb-2">
-                  {job.employer_name || job.company || 'Unknown Company'} — {city}, {country}
-                </p>
+
+                {/* Company and location removed for cleaner UI */}
+
                 <p className="text-xs text-gray-500 mb-2">
                   Source: <span className="font-semibold text-accent">{sourceLabel}</span>
                 </p>
+
                 <div
                   className="text-sm text-gray-400 mb-2"
                   dangerouslySetInnerHTML={{
@@ -151,9 +146,11 @@ function Results() {
                     )
                   }}
                 />
+
                 <p className="text-xs text-gray-500 mb-4">
                   Matched: {matchedKeywords.join(', ')}
                 </p>
+
                 <a
                   href={job.job_apply_link || job.url || '#'}
                   target="_blank"
