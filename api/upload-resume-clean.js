@@ -48,10 +48,17 @@ export default async function handler(req, res) {
 
     console.log('📄 Resume received in memory');
     console.log('📍 Location:', location);
+    console.log('🧠 Starting resume text extraction...');
 
-    const resumeData = await extractResumeText(resumeBuffer);
+    let resumeData;
+    try {
+      resumeData = await extractResumeText(resumeBuffer);
+    } catch (err) {
+      console.error('❌ Failed to extract resume text:', err);
+      return res.status(500).json({ error: 'Resume text extraction failed' });
+    }
+
     const rawText = resumeData.rawText;
-
     let keywords = extractFrequentKeywords(rawText, 5);
 
     const titleHint = rawText.match(/(developer|designer|analyst|manager|consultant|engineer|architect|specialist)/i)?.[0];
@@ -67,14 +74,34 @@ export default async function handler(req, res) {
     const query = buildOrQuery(keywords);
     console.log('🔍 Query:', query);
     console.log('🔑 Keywords:', keywords);
+    console.log('🌐 Starting job scrape...');
 
-    const jobs = await scrapeGoogleJobs({ query, location, workMode });
+    let jobs;
+    try {
+      jobs = await scrapeGoogleJobs({ query, location, workMode });
+    } catch (err) {
+      console.error('❌ Job scraping failed:', err);
+      return res.status(500).json({ error: 'Job scraping failed' });
+    }
+
+    if (!Array.isArray(jobs)) {
+      console.error('❌ Scraper returned invalid job list:', jobs);
+      return res.status(500).json({ error: 'Invalid job data returned' });
+    }
+
     console.log(`📦 Google scraped jobs: ${jobs.length}`);
 
     const validJobs = jobs.filter(j => (j.job_description || '').length > 50);
     console.log(`✅ Valid jobs after filtering: ${validJobs.length}`);
+    console.log('🧠 Starting job scoring...');
 
-    const scoredJobs = await scoreJobs(rawText, validJobs);
+    let scoredJobs;
+    try {
+      scoredJobs = await scoreJobs(rawText, validJobs);
+    } catch (err) {
+      console.error('❌ Job scoring failed:', err);
+      return res.status(500).json({ error: 'Job scoring failed' });
+    }
 
     scoredJobs.forEach(j => {
       const score = typeof j.score === 'number' ? j.score.toFixed(3) : 'N/A';
@@ -83,7 +110,7 @@ export default async function handler(req, res) {
 
     res.status(200).json({ keywords, query, jobs: scoredJobs });
   } catch (err) {
-    console.error('❌ Resume scrape failed:', err.message);
+    console.error('❌ Resume scrape failed:', err);
     res.status(500).json({ error: 'Resume processing failed' });
   }
 }
