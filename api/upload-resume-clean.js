@@ -1,6 +1,5 @@
 import { Writable } from 'stream';
 import formidable from 'formidable';
-import { scrapeLinkedInJobs } from '../lib/scrapeLinkedInJobs_v2.js';
 import { scrapeGoogleJobs } from '../lib/scrapeGoogleJobs.js';
 import { extractResumeText } from '../lib/extractResumeText.js';
 import { scoreJobs } from '../lib/semanticMatch.js';
