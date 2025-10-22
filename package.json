@@ -1,13 +1,16 @@
 {
   "name": "resume-matcher",
-  "private": true,
   "version": "1.0.0",
+  "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently \"npm run dev:client\" \"npm run dev:server\"",
+    "dev:client": "vite",
+    "dev:server": "nodemon api/server.js",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "start": "node api/server.js"
   },
   "dependencies": {
     "@sparticuz/chromium": "^141.0.0",
@@ -15,12 +18,14 @@
     "axios": "^1.12.2",
     "cheerio": "^1.1.2",
     "compromise": "^14.14.4",
+    "concurrently": "^9.0.0",
     "cors": "^2.8.5",
     "express": "^5.1.0",
     "formidable": "^3.5.4",
     "framer-motion": "^12.23.22",
     "mammoth": "^1.11.0",
     "multer": "^2.0.2",
+    "nodemon": "^3.1.9",
     "pdf-parse": "^1.1.1",
     "pdfjs-dist": "^5.4.296",
     "puppeteer": "^24.23.0",
