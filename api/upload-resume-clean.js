@@ -19,13 +19,13 @@ export default async function handler(req, res) {
     const form = formidable({
       keepExtensions: true,
       multiples: false,
-      fileWriteStreamHandler: () => null, // ⛔ prevent disk writes
+      plugins: [formidable.plugins.memory()], // ✅ buffer-safe for Vercel
     });
 
     const [fields, files] = await form.parse(req);
     const resumeFile = files?.resume?.[0];
 
-    const resumeBuffer = resumeFile?._writeStream?.buffer;
+    const resumeBuffer = resumeFile?.buffer;
     if (!resumeBuffer || !Buffer.isBuffer(resumeBuffer)) {
       console.error('❌ Resume buffer missing or invalid');
       return res.status(400).json({ error: 'Resume file missing or unreadable' });
