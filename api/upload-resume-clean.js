@@ -1,7 +1,4 @@
-import path from 'path';
 import formidable from 'formidable';
-import fs from 'fs/promises';
-
 import { scrapeLinkedInJobs } from '../lib/scrapeLinkedInJobs_v2.js';
 import { scrapeGoogleJobs } from '../lib/scrapeGoogleJobs.js';
 import { extractResumeText } from '../lib/extractResumeText.js';
@@ -20,36 +17,29 @@ export default async function handler(req, res) {
 
   try {
     const form = formidable({
-      uploadDir: path.join(process.cwd(), 'tmp'),
       keepExtensions: true,
       multiples: false,
+      fileWriteStreamHandler: () => null, // ⛔ prevent disk writes
     });
 
     const [fields, files] = await form.parse(req);
     const resumeFile = files?.resume?.[0];
 
-    if (!resumeFile?.filepath) {
-      console.error('❌ No resume file path found');
+    const resumeBuffer = resumeFile?._writeStream?.buffer;
+    if (!resumeBuffer || !Buffer.isBuffer(resumeBuffer)) {
+      console.error('❌ Resume buffer missing or invalid');
       return res.status(400).json({ error: 'Resume file missing or unreadable' });
     }
 
-    const filePath = resumeFile.filepath;
     const location = fields.location?.[0] || '';
     const workMode = fields.workMode?.[0] || 'All';
     const source = fields.source?.[0] || 'All';
 
-    console.log('📄 Resume path:', filePath);
+    console.log('📄 Resume received in memory');
     console.log('📍 Location:', location);
     console.log('🌐 Source:', source);
 
-    try {
-      await fs.access(filePath);
-    } catch {
-      console.error('❌ Resume file not found at:', filePath);
-      return res.status(404).json({ error: 'Resume file not found' });
-    }
-
-    const resumeData = await extractResumeText(filePath);
+    const resumeData = await extractResumeText(resumeBuffer);
     const rawText = resumeData.rawText;
 
     let keywords = extractFrequentKeywords(rawText, 5);
@@ -73,10 +63,10 @@ export default async function handler(req, res) {
     const scrapeTasks = [];
 
     if (source === 'All' || source === 'LinkedIn') {
-      scrapeTasks.push(scrapeLinkedInJobs(query, location, workMode));
+      scrapeTasks.push(scrapeLinkedInJobs({ query, location, workMode }));
     }
     if (source === 'All' || source === 'Google') {
-      scrapeTasks.push(scrapeGoogleJobs(query, location, workMode));
+      scrapeTasks.push(scrapeGoogleJobs({ query, location, workMode }));
     }
 
     const results = await Promise.allSettled(scrapeTasks);
