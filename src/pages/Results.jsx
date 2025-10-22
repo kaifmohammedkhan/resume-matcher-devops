@@ -25,15 +25,15 @@ function Results() {
   };
 
   const filteredJobs = jobs.filter(job => {
-    const score = getMatchScore(job.job_description, job.title + ' ' + job.company);
+    const score = getMatchScore(job.job_description, job.title);
     return score >= minScore;
   });
 
   const sortedJobs = [...filteredJobs].sort((a, b) => {
     if (sortBy === 'score') {
       return (
-        getMatchScore(b.job_description, b.title + ' ' + b.company) -
-        getMatchScore(a.job_description, a.title + ' ' + a.company)
+        getMatchScore(b.job_description, b.title) -
+        getMatchScore(a.job_description, a.title)
       );
     }
     if (sortBy === 'date') {
@@ -100,17 +100,31 @@ function Results() {
         </div>
 
         {!hasAnyMatch && (
-          <p className="text-center text-yellow-400 mb-6">
-            No strong matches found. Try lowering the match threshold or uploading a more detailed resume.
-          </p>
+          <div className="text-center text-yellow-400 mb-6">
+            <p className="mb-2 font-semibold">No matching jobs found.</p>
+            <p className="text-sm text-gray-400">
+              This may be due to low keyword overlap or a temporary issue with job scraping. Try:
+            </p>
+            <ul className="text-sm text-gray-400 list-disc list-inside mt-2">
+              <li>Lowering the match threshold</li>
+              <li>Uploading a resume with more technical detail</li>
+              <li>Waiting a few minutes and retrying (Too many requests to server)</li>
+            </ul>
+            <button
+              onClick={() => window.location.reload()}
+              className="mt-4 bg-accent text-black px-4 py-2 rounded-full font-bold text-sm hover:bg-yellow-300 transition"
+            >
+              Retry Search
+            </button>
+          </div>
         )}
 
         <div className="grid gap-6 max-w-4xl mx-auto">
           {paginatedJobs.map((job, index) => {
-            const score = getMatchScore(job.job_description, job.title + ' ' + job.company);
+            const score = getMatchScore(job.job_description, job.title);
             const key = job.job_id || job.job_apply_link || `job-${index}`;
             const matchedKeywords = normalizedKeywords.filter(k =>
-              (job.job_description || job.title + ' ' + job.company).toLowerCase().includes(k)
+              (job.job_description || job.title).toLowerCase().includes(k)
             );
             const sourceLabel = job.source === 'Google' ? 'Other Sources' : job.source || 'Unknown';
 
@@ -131,8 +145,6 @@ function Results() {
                   </span>
                 </div>
 
-                {/* Company and location removed for cleaner UI */}
-
                 <p className="text-xs text-gray-500 mb-2">
                   Source: <span className="font-semibold text-accent">{sourceLabel}</span>
                 </p>
@@ -141,7 +153,7 @@ function Results() {
                   className="text-sm text-gray-400 mb-2"
                   dangerouslySetInnerHTML={{
                     __html: highlightKeywords(
-                      (job.job_description || job.title + ' ' + job.company).slice(0, 200),
+                      (job.job_description || job.title).slice(0, 200),
                       normalizedKeywords
                     )
                   }}
