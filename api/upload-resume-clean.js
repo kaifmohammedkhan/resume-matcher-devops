@@ -1,3 +1,4 @@
+import { Writable } from 'stream';
 import formidable from 'formidable';
 import { scrapeLinkedInJobs } from '../lib/scrapeLinkedInJobs_v2.js';
 import { scrapeGoogleJobs } from '../lib/scrapeGoogleJobs.js';
@@ -19,13 +20,25 @@ export default async function handler(req, res) {
     const form = formidable({
       keepExtensions: true,
       multiples: false,
-      plugins: [formidable.plugins.memory()], // ✅ buffer-safe for Vercel
+      fileWriteStreamHandler: () => {
+        const chunks = [];
+        const writable = new Writable({
+          write(chunk, encoding, callback) {
+            chunks.push(chunk);
+            callback();
+          }
+        });
+        writable.on('finish', function () {
+          writable.buffer = Buffer.concat(chunks);
+        });
+        return writable;
+      }
     });
 
     const [fields, files] = await form.parse(req);
     const resumeFile = files?.resume?.[0];
+    const resumeBuffer = resumeFile?._writeStream?.buffer;
 
-    const resumeBuffer = resumeFile?.buffer;
     if (!resumeBuffer || !Buffer.isBuffer(resumeBuffer)) {
       console.error('❌ Resume buffer missing or invalid');
       return res.status(400).json({ error: 'Resume file missing or unreadable' });
