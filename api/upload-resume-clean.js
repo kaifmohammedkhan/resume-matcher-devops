@@ -5,7 +5,7 @@ import { extractResumeText } from '../lib/extractResumeText.js';
 import { scoreJobs } from '../lib/semanticMatch.js';
 import { extractFrequentKeywords } from '../lib/extractFrequentKeywords.js';
 import { buildOrQuery } from '../lib/buildOrQuery.js';
-import { saveResumeLocally } from '../lib/saveResumeLocally.js'; // ✅ Local file storage
+import { supabase } from '../lib/supabase-client.js'; // ✅ Supabase client
 
 export const config = {
   api: {
@@ -109,17 +109,23 @@ export default async function handler(req, res) {
       console.log(`🔢 ${j.title} → ${score}`);
     });
 
-    // ✅ Save resume locally
+    // ✅ Save resume to Supabase
     try {
-      await saveResumeLocally({
-        name: resumeData.name,
-        email: resumeData.email,
-        skills: keywords.join(', '),
-        uploaded_at: new Date().toISOString()
-      });
-      console.log('📁 Resume saved to local folder');
+      const { data, error } = await supabase
+        .from('resumes')
+        .insert([
+          {
+            name: resumeData.name,
+            email: resumeData.email,
+            skills: keywords.join(', '),
+            uploaded_at: new Date().toISOString()
+          }
+        ]);
+
+      if (error) throw error;
+      console.log('📤 Resume saved to Supabase');
     } catch (err) {
-      console.error('⚠️ Local resume save failed:', err.message);
+      console.error('⚠️ Supabase resume save failed:', err.message);
     }
 
     res.status(200).json({ keywords, query, jobs: scoredJobs });
