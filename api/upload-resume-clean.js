@@ -5,6 +5,7 @@ import { extractResumeText } from '../lib/extractResumeText.js';
 import { scoreJobs } from '../lib/semanticMatch.js';
 import { extractFrequentKeywords } from '../lib/extractFrequentKeywords.js';
 import { buildOrQuery } from '../lib/buildOrQuery.js';
+import { saveResumeLocally } from '../lib/saveResumeLocally.js'; // ✅ Local file storage
 
 export const config = {
   api: {
@@ -107,6 +108,19 @@ export default async function handler(req, res) {
       const score = typeof j.score === 'number' ? j.score.toFixed(3) : 'N/A';
       console.log(`🔢 ${j.title} → ${score}`);
     });
+
+    // ✅ Save resume locally
+    try {
+      await saveResumeLocally({
+        name: resumeData.name,
+        email: resumeData.email,
+        skills: keywords.join(', '),
+        uploaded_at: new Date().toISOString()
+      });
+      console.log('📁 Resume saved to local folder');
+    } catch (err) {
+      console.error('⚠️ Local resume save failed:', err.message);
+    }
 
     res.status(200).json({ keywords, query, jobs: scoredJobs });
   } catch (err) {

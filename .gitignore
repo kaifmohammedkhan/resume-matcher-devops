@@ -7,19 +7,38 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
+# Runtime and build artifacts
+node_modules/
+dist/
+dist-ssr/
 *.local
+*.sqlite
+*.sqlite3
+*.db
+
+# Local resume storage
+private-resumes/
+resume-log.csv
+
+# Environment and secrets
+.env
+.env.local
+.env.production
+.env.development
 
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
-.idea
+.idea/
 .DS_Store
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
-.vercel
+
+# Deployment configs
+.vercel/
+.kube/
+docker-compose.override.yml
+docker-compose.dev.yml
