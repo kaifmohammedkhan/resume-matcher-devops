@@ -20,11 +20,9 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Set up QEMU
-        description: Enables support for multi-platform builds (like arm64)
         uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
-        description: Configures the advanced Docker build engine
         uses: docker/setup-buildx-action@v3
 
       - name: Log in to GitHub Container Registry
