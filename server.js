@@ -1,112 +1,136 @@
 import express from 'express';
 import path from 'path';
-import fs from 'fs';
+import fs, { createWriteStream } from 'fs';
 import { fileURLToPath } from 'url';
 import dotenv from 'dotenv';
 import handler from './api/upload-resume-clean.js';
 import rateLimit from 'express-rate-limit';
 import morgan from 'morgan';
+import helmet from 'helmet';
+import client from 'prom-client';   // ✅ Prometheus client
 
-dotenv.config(); // ✅ Load .env early
+dotenv.config();
 
 const app = express();
 const port = process.env.PORT || 3000;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// 🔍 Debug loaded env vars
-console.log('🔍 GOOGLE_API_KEY:', process.env.GOOGLE_API_KEY || '❌ Missing');
-console.log('🔍 GOOGLE_CX_ID:', process.env.GOOGLE_CX_ID || '❌ Missing');
-console.log('🔍 DB_TYPE:', process.env.DB_TYPE || '❌ Missing');
+// ✅ Security Hardening
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+      "img-src": ["'self'", "data:", "https:"],
+      "script-src": ["'self'", "'unsafe-inline'"], 
+    },
+  },
+}));
+app.disable('x-powered-by');
 
-// ✅ DB setup: PostgreSQL or SQLite
+// ✅ Logging setup
+const logDir = path.join(process.cwd(), 'logs');
+if (!fs.existsSync(logDir)) fs.mkdirSync(logDir);
+const accessLogStream = createWriteStream(path.join(logDir, 'access.log'), { flags: 'a' });
+
+app.use(morgan('combined', { stream: accessLogStream }));
+app.use(morgan('dev')); 
+
+// ✅ Prometheus metrics (must be before catch-all)
+const collectDefaultMetrics = client.collectDefaultMetrics;
+collectDefaultMetrics({ prefix: 'resume_matcher_' });
+
+app.get('/metrics', async (req, res) => {
+  res.set('Content-Type', client.register.contentType);
+  res.end(await client.register.metrics());
+});
+
+// ✅ Global DB variables
 let useSqlite = process.env.DB_TYPE === 'sqlite';
 let db, seed;
 
-if (useSqlite) {
-  console.log('🧩 Using SQLite');
-  ({ db } = await import('./lib/sqlite-db.js'));
-  ({ seedSqliteDatabase: seed } = await import('./lib/sqlite-seed.js'));
-} else {
-  console.log('🧩 Using PostgreSQL');
-  ({ pool: db } = await import('./lib/db.js'));
-  ({ seedDatabase: seed } = await import('./lib/seed.js'));
-}
+// ✅ DB Initialization with Exponential Backoff
+const initDB = async (retries = 5) => {
+  while (retries) {
+    try {
+      if (useSqlite) {
+        console.log('🧩 Environment: LOCAL (SQLite)');
+        ({ db } = await import('./lib/sqlite-db.js'));
+        ({ seedSqliteDatabase: seed } = await import('./lib/sqlite-seed.js'));
+      } else {
+        console.log('🧩 Environment: KUBERNETES (PostgreSQL)');
+        ({ pool: db } = await import('./lib/db.js'));
+        ({ seedDatabase: seed } = await import('./lib/seed.js'));
+      }
+      
+      await seed();
+      console.log('✅ Database connected and seeded');
+      return;
+    } catch (err) {
+      console.error(`❌ DB init failed: ${err.message}. Retries left: ${retries - 1}`);
+      retries -= 1;
+      if (retries === 0) process.exit(1);
+      await new Promise(res => setTimeout(res, 5000));
+    }
+  }
+};
 
-// ✅ Seed DB on startup
-seed().catch(err => console.error('❌ DB seed error:', err.message));
-
-// ✅ Logging middleware
-app.use(morgan('combined'));
-
-// ✅ Rate limiting middleware
-const limiter = rateLimit({
-  windowMs: 1 * 60 * 1000,
-  max: 30,
-});
-app.use(limiter);
-
-// ✅ Parse incoming JSON
+// ✅ Middleware
+app.use(rateLimit({
+  windowMs: 60 * 1000,
+  max: 100, 
+  standardHeaders: true,
+  legacyHeaders: false,
+}));
 app.use(express.json());
 
-// ✅ Serve static frontend files
-const staticPath = path.resolve(__dirname, 'dist');
-console.log('📁 Serving static files from:', staticPath);
-
-app.use(express.static(staticPath, {
-  extensions: ['html'],
-  setHeaders: (res, filePath) => {
-    res.setHeader('X-Served-By', 'resume-matcher');
+// ✅ Health check
+app.get('/health', async (req, res) => {
+  try {
+    if (!db) return res.status(503).json({ status: 'STARTING' });
+    useSqlite ? db.prepare('SELECT 1').get() : await db.query('SELECT 1');
+    res.status(200).json({ status: 'UP', database: 'connected' });
+  } catch (err) {
+    res.status(503).json({ status: 'DOWN', error: err.message });
   }
+});
+
+// ✅ Routes
+const staticPath = path.resolve(__dirname, 'dist');
+app.use(express.static(staticPath, {
+  maxAge: '1d',
+  setHeaders: (res) => res.setHeader('X-Served-By', 'resume-matcher-devops')
 }));
 
-// ✅ Resume upload API
-app.post('/api/upload-resume-clean', (req, res) => {
-  console.log('📨 Incoming resume upload');
-  handler(req, res);
-});
+app.post('/api/upload-resume-clean', handler);
 
-// ✅ Resume fetch API
 app.get('/api/resumes', async (req, res) => {
   try {
-    let rows;
-    if (useSqlite) {
-      rows = db.prepare('SELECT * FROM resumes').all();
-    } else {
-      const result = await db.query('SELECT * FROM resumes');
-      rows = result.rows;
-    }
+    let rows = useSqlite 
+      ? db.prepare('SELECT * FROM resumes ORDER BY uploaded_at DESC').all() 
+      : (await db.query('SELECT * FROM resumes ORDER BY uploaded_at DESC')).rows;
     res.json(rows);
   } catch (err) {
-    console.error('❌ DB query failed:', err.message);
-    res.status(500).send('Database error');
+    res.status(500).json({ error: 'Database query failed' });
   }
 });
 
-// ✅ Health check
-app.get('/health', (req, res) => res.status(200).send('OK'));
-
-// ✅ SPA fallback route (GET-only, Node.js v22-safe)
-app.use((req, res, next) => {
-  if (req.method !== 'GET') return next();
-
-  const indexPath = path.join(staticPath, 'index.html');
-
-  fs.access(indexPath, fs.constants.F_OK, (err) => {
-    if (err) {
-      console.error('❌ index.html not found at:', indexPath);
-      return res.status(404).send('Frontend not found');
-    }
-
-    res.sendFile(indexPath, (err) => {
-      if (err) {
-        console.error('❌ Error sending index.html:', err);
-        res.status(500).send('Internal Server Error');
-      }
-    });
+// ✅ Catch-all for frontend (must be last!)
+app.get('*', (req, res) => {
+  res.sendFile(path.join(staticPath, 'index.html'), (err) => {
+    if (err) res.status(404).send('Frontend build not found');
   });
 });
 
-// ✅ Start server
-app.listen(port, () => {
-  console.log(`🚀 Server running on port ${port}`);
+// ✅ Graceful Shutdown
+const server = app.listen(port, '0.0.0.0', async () => {
+  await initDB();
+  console.log(`🚀 Production server ready at http://0.0.0.0:${port}`);
+});
+
+process.on('SIGTERM', () => {
+  console.log('👋 SIGTERM received. Shutting down gracefully...');
+  server.close(() => {
+    console.log('Process terminated.');
+    process.exit(0);
+  });
 });

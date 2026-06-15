@@ -1,0 +1,7 @@
+# glibc: No fixed version available for Debian 12.13 yet. 
+# Mitigation: Distroless image lacks shell access.
+CVE-2026-0861
+
+# TaffyDB: Abandoned package. 
+# Mitigation: Logic migrated to better-sqlite3.
+CVE-2019-10790

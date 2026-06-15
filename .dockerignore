@@ -1,6 +1,55 @@
-node_modules
-dist
-tmp
-.vercel
+\# REMOVED: package-lock.json (Docker needs this for npm ci)
+yarn.lock
+pnpm-lock.yaml
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Build output
+dist/
+build/
+out/
+tmp/
+
+# Environment & secrets
 .env
+.env.*
+.env.local
+*.pem
+*.key
+
+# Logs
 *.log
+logs/
+
+# Git
+.git/
+.gitignore
+.gitattributes
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE/editor configs
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Tests & Coverage
+tests/
+__tests__/
+*.test.js
+*.spec.js
+coverage/
+.github/
+
+# Security & Scanning
+.trivy/
+trivy-results.json
+
+# Deployment-specific
+.vercel
+.now

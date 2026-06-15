@@ -1,0 +1,74 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: resume-matcher-ghcr
+  labels:
+    app: resume-matcher-ghcr
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: resume-matcher-ghcr
+  template:
+    metadata:
+      labels:
+        app: resume-matcher-ghcr
+    spec:
+      imagePullSecrets:
+        - name: ghcr-secret
+      initContainers:
+        - name: wait-for-db
+          image: postgres:15
+          command: ['sh', '-c', 'until pg_isready -h db -p 5432; do echo waiting for db; sleep 2; done;']
+      containers:
+        - name: resume-matcher-ghcr
+          image: ghcr.io/kaifmohammedkhan/resume-matcher-devops:latest
+          imagePullPolicy: Always
+          ports:
+            - containerPort: 3000
+          volumeMounts:
+            - name: uploads
+              mountPath: /app/uploads
+            - name: logs
+              mountPath: /app/logs
+            - name: config-volume
+              mountPath: /app/config
+              readOnly: true
+            - name: secret-volume
+              mountPath: /app/secrets
+              readOnly: true
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+      volumes:
+        - name: uploads
+          emptyDir: {}
+        - name: logs
+          emptyDir: {}
+        - name: config-volume
+          configMap:
+            name: resume-config
+        - name: secret-volume
+          secret:
+            secretName: db-secret
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: resume-matcher-ghcr-service
+  labels:
+    app: resume-matcher-ghcr
+spec:
+  selector:
+    app: resume-matcher-ghcr
+  ports:
+    - name: http
+      protocol: TCP
+      port: 3000
+      targetPort: 3000
+      nodePort: 30080
+  type: NodePort
