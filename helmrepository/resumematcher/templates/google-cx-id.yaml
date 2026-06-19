@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: {{ .Values.secrets.googleCxSecretName }}
+type: Opaque
+stringData:
+  CX_ID: {{ .Values.secrets.googleCxId | quote }}

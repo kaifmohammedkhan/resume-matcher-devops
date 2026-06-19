@@ -1,0 +1,54 @@
+app:
+  replicas: 2
+  image:
+    repository: ghcr.io/kaifmohammedkhan/resume-matcher-devops
+    tag: latest
+    pullPolicy: Always
+  ports:
+    http: 3000
+    metrics: 51113
+  nodePorts:
+    http: 30080
+    metrics: 30081
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+db:
+  image: postgres:15
+  servicePort: 5432
+  pvc:
+    name: postgres-pvc
+    storage: 2Gi
+    storageClass: standard
+
+secrets:
+  dbSecretName: db-secret
+  dbUser: CHANGEME
+  dbPassword: CHANGEME
+  dbName: resume_db
+  googleApiSecretName: google-api-key
+  googleApiKey: CHANGEME
+  googleCxSecretName: google-cx-id
+  googleCxId: CHANGEME
+
+
+configmap:
+  name: resume-config
+  dbType: postgres
+  initSql: |
+    -- Create table if it doesn't exist
+    CREATE TABLE IF NOT EXISTS resumes (
+        id SERIAL PRIMARY KEY,
+        name TEXT,
+        email TEXT UNIQUE,
+        skills TEXT,
+        uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );
+
+service:
+  type: NodePort
