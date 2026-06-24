@@ -1,0 +1,64 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}-db
+  labels:
+    app: db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: db
+  template:
+    metadata:
+      labels:
+        app: db
+    spec:
+      containers:
+        - name: postgres
+          image: "{{ .Values.db.image }}"
+          ports:
+            - containerPort: {{ .Values.db.servicePort }}
+          env:
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.dbSecretName }}
+                  key: DB_USER
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.dbSecretName }}
+                  key: DB_PASSWORD
+            - name: POSTGRES_DB
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secrets.dbSecretName }}
+                  key: DB_NAME
+          volumeMounts:
+            - name: pgdata
+              mountPath: /var/lib/postgresql/data
+            - name: init-script
+              mountPath: /docker-entrypoint-initdb.d
+      volumes:
+        - name: pgdata
+          persistentVolumeClaim:
+            claimName: {{ .Values.db.pvc.name }}
+        - name: init-script
+          configMap:
+            name: {{ .Values.configmap.name }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}-db
+  labels:
+    app: db
+spec:
+  selector:
+    app: db
+  ports:
+    - protocol: TCP
+      port: {{ .Values.db.servicePort }}
+      targetPort: {{ .Values.db.servicePort }}
+  type: ClusterIP

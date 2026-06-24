@@ -1,0 +1,113 @@
+app:
+  replicas: 2
+  image:
+    repository: ghcr.io/kaifmohammedkhan/resume-matcher-devops
+    tag: latest
+    pullPolicy: Always
+  imagePullSecrets:
+    - name: ghcr-secret
+  ports:
+    http: 3000
+    metrics: 51113
+  nodePorts:
+    http: 30080
+    metrics: 30081
+  # Core runtime environment configuration overrides to activate natural job population
+  env:
+    - name: APP_ENV
+      value: "production"
+    - name: NODE_ENV
+      value: "production"
+    - name: SEED_JOBS
+      value: "true"
+    - name: ENABLE_JOB_SCRAPER
+      value: "true"
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "128Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+db:
+  image: pgvector/pgvector:pg15
+  servicePort: 5432
+  pvc:
+    name: postgres-pvc
+    storage: 2Gi
+    storageClass: "standard"
+
+secrets:
+  dbSecretName: "db-secret"
+  googleApiSecretName: "google-api-secret"
+  googleCxSecretName: "google-cx-secret"
+  dbUser: "resume"
+  dbPassword: "CHANGEME"  # Placeholder
+  dbName: "resume_db"
+  googleApiKey: "CHANGEME" # Placeholder
+  googleCxId: "CHANGEME"   # Placeholder
+
+
+configmap:
+  name: resume-config
+  dbType: postgres
+  initSql: |
+    DO $$ 
+    BEGIN
+        -- Enable Vector support for semantic matching features
+        CREATE EXTENSION IF NOT EXISTS vector;
+
+        -- Create table architecture if it doesn't exist
+        IF NOT EXISTS (SELECT FROM pg_tables WHERE tablename = 'resumes') THEN
+            CREATE TABLE resumes (
+                id SERIAL PRIMARY KEY,
+                name TEXT,
+                email TEXT UNIQUE,
+                skills TEXT,
+                score FLOAT,
+                match_results TEXT,
+                uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+        END IF;
+
+        IF NOT EXISTS (SELECT FROM pg_tables WHERE tablename = 'jobs') THEN
+            CREATE TABLE jobs (
+                id SERIAL PRIMARY KEY,
+                title TEXT NOT NULL,
+                company TEXT,
+                description TEXT,
+                skills TEXT[],
+                embedding vector(384)
+            );
+        END IF;
+
+        -- [Fix Error 1] Safe guard column addition if tables pre-existed
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='resumes' AND column_name='uploaded_at') THEN
+            ALTER TABLE resumes ADD COLUMN uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+        END IF;
+
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='resumes' AND column_name='score') THEN
+            ALTER TABLE resumes ADD COLUMN score FLOAT;
+        END IF;
+
+        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='resumes' AND column_name='match_results') THEN
+            ALTER TABLE resumes ADD COLUMN match_results TEXT;
+        END IF;
+    END $$;
+
+    -- [Fix Error 2] Native SQL patch to silently convert conflicting inserts to updates
+    CREATE OR REPLACE RULE rw_resumes_upsert AS
+    ON INSERT TO resumes
+    WHERE EXISTS (SELECT 1 FROM resumes WHERE email = NEW.email)
+    DO INSTEAD 
+        UPDATE resumes 
+        SET name = NEW.name,
+            skills = NEW.skills,
+            score = NEW.score,
+            match_results = NEW.match_results,
+            uploaded_at = CURRENT_TIMESTAMP
+        WHERE email = NEW.email;
+
+service:
+  type: NodePort

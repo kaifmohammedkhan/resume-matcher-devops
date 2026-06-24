@@ -1,0 +1,135 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: resumematcher-service-app
+spec:
+  replicas: {{ .Values.app.replicas | default 1 }}
+  selector:
+    matchLabels:
+      app: resumematcher-service-app
+  template:
+    metadata:
+      labels:
+        app: resumematcher-service-app
+    spec:
+      imagePullSecrets:
+        {{- toYaml .Values.app.imagePullSecrets | nindent 8 }}
+      initContainers:
+        - name: db-migrator
+          image: postgres:15-alpine
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              # Dynamic service hostname matching your database service declaration
+              until pg_isready -h {{ .Release.Name }}-db -p 5432; do echo "waiting for db..."; sleep 2; done;
+              psql -h {{ .Release.Name }}-db -U $DB_USER -d $DB_NAME <<EOF
+              CREATE EXTENSION IF NOT EXISTS vector;
+              
+              CREATE TABLE IF NOT EXISTS resumes (
+                  id SERIAL PRIMARY KEY,
+                  name VARCHAR(255),
+                  email VARCHAR(255) UNIQUE,
+                  skills TEXT,
+                  score FLOAT,
+                  match_results TEXT,
+                  uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+              );
+
+              -- [Fix Error 1] Ensure column alterations occur if table pre-existed
+              ALTER TABLE resumes ADD COLUMN IF NOT EXISTS uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+              ALTER TABLE resumes ADD COLUMN IF NOT EXISTS score FLOAT;
+              ALTER TABLE resumes ADD COLUMN IF NOT EXISTS match_results TEXT;
+              
+              CREATE TABLE IF NOT EXISTS jobs (
+                  id SERIAL PRIMARY KEY,
+                  title TEXT NOT NULL,
+                  company TEXT,
+                  description TEXT,
+                  skills TEXT[]
+              );
+              ALTER TABLE jobs ADD COLUMN IF NOT EXISTS embedding vector(384);
+
+              -- [Fix Error 2] Native SQL patch to silently convert conflicting inserts to updates
+              CREATE OR REPLACE RULE rw_resumes_upsert AS
+              ON INSERT TO resumes
+              WHERE EXISTS (SELECT 1 FROM resumes WHERE email = NEW.email)
+              DO INSTEAD 
+                  UPDATE resumes 
+                  SET name = NEW.name,
+                      skills = NEW.skills,
+                      score = NEW.score,
+                      match_results = NEW.match_results,
+                      uploaded_at = CURRENT_TIMESTAMP
+                  WHERE email = NEW.email;
+              EOF
+          env:
+            - name: DB_USER
+              valueFrom: { secretKeyRef: { name: {{ .Values.secrets.dbSecretName | quote }}, key: DB_USER } }
+            - name: DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ .Values.secrets.dbSecretName | quote }}, key: DB_PASSWORD } }
+            - name: DB_NAME
+              valueFrom: { secretKeyRef: { name: {{ .Values.secrets.dbSecretName | quote }}, key: DB_NAME } }
+            - name: PGPASSWORD
+              value: "$(DB_PASSWORD)"
+      containers:
+        - name: resumematcher-service-app
+          image: "{{ .Values.app.image.repository }}:{{ .Values.app.image.tag }}"
+          imagePullPolicy: {{ .Values.app.image.pullPolicy | quote }}
+          ports:
+            - containerPort: {{ .Values.app.ports.http | default 3000 }}
+              protocol: TCP
+            - containerPort: {{ .Values.app.ports.metrics | default 9090 }}
+              protocol: TCP
+          env:
+            - name: GOOGLE_API_KEY
+              valueFrom: { secretKeyRef: { name: {{ .Values.secrets.googleApiSecretName | quote }}, key: API_KEY } }
+            - name: GOOGLE_CX_ID
+              valueFrom: { secretKeyRef: { name: {{ .Values.secrets.googleCxSecretName | quote }}, key: CX_ID } }
+            
+            # --- Standard Application Aliases ---
+            - name: DB_USER
+              valueFrom: { secretKeyRef: { name: {{ .Values.secrets.dbSecretName | quote }}, key: DB_USER } }
+            - name: DB_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ .Values.secrets.dbSecretName | quote }}, key: DB_PASSWORD } }
+            - name: DB_NAME
+              valueFrom: { secretKeyRef: { name: {{ .Values.secrets.dbSecretName | quote }}, key: DB_NAME } }
+            - name: DB_HOST
+              value: "{{ .Release.Name }}-db"
+            - name: DB_PORT
+              value: {{ .Values.db.servicePort | default 5432 | quote }}
+
+            # --- Official Postgres Runtime Aliases ---
+            - name: POSTGRES_USER
+              valueFrom: { secretKeyRef: { name: {{ .Values.secrets.dbSecretName | quote }}, key: DB_USER } }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: {{ .Values.secrets.dbSecretName | quote }}, key: DB_PASSWORD } }
+            - name: POSTGRES_DB
+              valueFrom: { secretKeyRef: { name: {{ .Values.secrets.dbSecretName | quote }}, key: DB_NAME } }
+            - name: POSTGRES_HOST
+              value: "{{ .Release.Name }}-db"
+
+            # --- Comprehensive Database Connection String Mapping ---
+            - name: DATABASE_URL
+              value: "postgresql://$(DB_USER):$(DB_PASSWORD)@{{ .Release.Name }}-db:5432/$(DB_NAME)?sslmode=disable"
+
+            # --- Explicit Natural Seeding Overrides ---
+            - name: APP_ENV
+              value: "production"
+            - name: NODE_ENV
+              value: "production"
+            - name: SEED_JOBS
+              value: "true"
+            - name: ENABLE_JOB_SCRAPER
+              value: "true"
+          resources:
+            {{- toYaml .Values.app.resources | nindent 12 }}
+          volumeMounts:
+            - name: uploads
+              mountPath: /app/uploads
+            - name: logs
+              mountPath: /app/logs
+      volumes:
+        - name: uploads
+          emptyDir: {}
+        - name: logs
+          emptyDir: {}
