@@ -55,11 +55,10 @@ function Results() {
   const hasAnyMatch = sortedJobs.length > 0;
   const allSources = sortedJobs.map(job => job.source?.toLowerCase() || '');
   const isLinkedInOnly = allSources.every(src => src === 'linkedin');
-  const sectionLabel = isLinkedInOnly ? 'Matched Jobs' : 'Other Relevant Results';
+  const sectionLabel = isLinkedInOnly ? 'Matched Jobs' : 'Matched Jobs';
 
   return (
     <>
-      {/* Top Navigation Bar */}
       <nav className="w-full bg-dark border-b border-gray-700 px-6 py-4 flex justify-between items-center text-white font-sans">
         <h1 className="text-xl font-bold text-accent">Resume Matcher</h1>
         <div className="flex gap-6 text-sm">
@@ -69,7 +68,6 @@ function Results() {
         </div>
       </nav>
 
-      {/* Results Section */}
       <main className="min-h-screen bg-dark text-white px-4 py-8 font-sans">
         <h2 className="text-3xl font-bold text-accent mb-6 text-center">{sectionLabel}</h2>
 
@@ -103,13 +101,8 @@ function Results() {
           <div className="text-center text-yellow-400 mb-6">
             <p className="mb-2 font-semibold">No matching jobs found.</p>
             <p className="text-sm text-gray-400">
-              This may be due to low keyword overlap or a temporary issue with job scraping. Try:
+              This may be due to low keyword overlap or a temporary issue with job scraping.
             </p>
-            <ul className="text-sm text-gray-400 list-disc list-inside mt-2">
-              <li>Lowering the match threshold</li>
-              <li>Uploading a resume with more technical detail</li>
-              <li>Waiting a few minutes and retrying (Too many requests to server)</li>
-            </ul>
             <button
               onClick={() => window.location.reload()}
               className="mt-4 bg-accent text-black px-4 py-2 rounded-full font-bold text-sm hover:bg-yellow-300 transition"
@@ -126,7 +119,9 @@ function Results() {
             const matchedKeywords = normalizedKeywords.filter(k =>
               (job.job_description || job.title).toLowerCase().includes(k)
             );
-            const sourceLabel = job.source === 'Google' ? 'Other Sources' : job.source || 'Unknown';
+            
+            // UI Update: Prioritize Company name, fallback to source, then Unknown
+            const sourceLabel = job.company || job.source || 'Unknown';
 
             return (
               <motion.div
@@ -146,7 +141,7 @@ function Results() {
                 </div>
 
                 <p className="text-xs text-gray-500 mb-2">
-                  Source: <span className="font-semibold text-accent">{sourceLabel}</span>
+                  Company: <span className="font-semibold text-accent">{sourceLabel}</span>
                 </p>
 
                 <div
@@ -164,19 +159,25 @@ function Results() {
                 </p>
 
                 <a
-                  href={job.job_apply_link || job.url || '#'}
+                  href={job.job_apply_link || job.url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-block bg-accent text-black px-4 py-2 rounded-full font-bold text-sm hover:bg-yellow-300 transition"
+                  className={`inline-block px-4 py-2 rounded-full font-bold text-sm transition ${
+                    (job.job_apply_link || job.url)
+                      ? 'bg-accent text-black hover:bg-yellow-300'
+                      : 'bg-gray-500 text-gray-300 cursor-not-allowed pointer-events-none'
+                  }`}
+                  onClick={(e) => {
+                    if (!job.job_apply_link && !job.url) e.preventDefault();
+                  }}
                 >
-                  Apply Now
+                  {(job.job_apply_link || job.url) ? 'Apply Now' : 'Link Unavailable'}
                 </a>
               </motion.div>
             );
           })}
         </div>
 
-        {/* Pagination Controls */}
         {totalPages > 1 && (
           <div className="flex justify-center gap-2 mt-10">
             {Array.from({ length: totalPages }, (_, i) => (
@@ -195,11 +196,9 @@ function Results() {
           </div>
         )}
       </main>
-
-      {/* Footer */}
       <Footer />
     </>
   );
 }
 
-export default Results;
+export default Results; 

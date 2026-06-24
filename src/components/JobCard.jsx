@@ -10,12 +10,34 @@ export default function JobCard({ job }) {
         </p>
       </div>
 
-      <Link
-        to={`/job/${job.id}`}
-        className="bg-accent text-dark px-4 py-2 rounded font-semibold text-sm hover:bg-yellow-300 transition"
-      >
-        View Full Job
-      </Link>
+      <div className="flex gap-3">
+        {/* Internal navigation to detail view */}
+        <Link
+          to={`/job/${job.id}`}
+          className="bg-accent text-dark px-4 py-2 rounded font-semibold text-sm hover:bg-yellow-300 transition"
+        >
+          View Full Job
+        </Link>
+
+        {/* External apply link */}
+        {job.url ? (
+          <a
+            href={job.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="bg-green-400 text-dark px-4 py-2 rounded font-semibold text-sm hover:bg-green-500 transition"
+          >
+            Apply Now
+          </a>
+        ) : (
+          <button
+            disabled
+            className="bg-gray-500 text-dark px-4 py-2 rounded font-semibold text-sm cursor-not-allowed"
+          >
+            No Link
+          </button>
+        )}
+      </div>
     </div>
   );
 }

@@ -64,7 +64,7 @@ export default function JobDetail() {
   const {
     title = 'Untitled Role',
     description = 'No description available.',
-    link = '#',
+    url = '#',   // ✅ use url instead of link
     source = 'External Site'
   } = job;
 
@@ -84,14 +84,23 @@ export default function JobDetail() {
       <div className="bg-dark text-white p-6 min-h-screen">
         <h1 className="text-3xl font-bold mb-4">{title}</h1>
         <p className="mb-6 text-gray-300 whitespace-pre-line">{description}</p>
-        <a
-          href={link}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="bg-accent text-dark px-4 py-2 rounded hover:bg-yellow-300 font-bold text-sm"
-        >
-          Apply on {source}
-        </a>
+        {url && url !== '#' ? (
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="bg-accent text-dark px-4 py-2 rounded hover:bg-yellow-300 font-bold text-sm"
+          >
+            Apply on {source}
+          </a>
+        ) : (
+          <button
+            disabled
+            className="bg-gray-500 text-dark px-4 py-2 rounded font-bold text-sm cursor-not-allowed"
+          >
+            No external link available
+          </button>
+        )}
       </div>
 
       {/* Footer */}
