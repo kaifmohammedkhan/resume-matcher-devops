@@ -83,8 +83,6 @@ spec:
           env:
             - name: GOOGLE_API_KEY
               valueFrom: { secretKeyRef: { name: {{ .Values.secrets.googleApiSecretName | quote }}, key: API_KEY } }
-            - name: GOOGLE_CX_ID
-              valueFrom: { secretKeyRef: { name: {{ .Values.secrets.googleCxSecretName | quote }}, key: CX_ID } }
             
             # --- Standard Application Aliases ---
             - name: DB_USER
