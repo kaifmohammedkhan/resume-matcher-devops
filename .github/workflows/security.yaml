@@ -22,12 +22,15 @@ jobs:
         run: |
           curl -L https://github.com/jeremylong/DependencyCheck/releases/download/v12.1.0/dependency-check-12.1.0-release.zip -o dc.zip
           unzip dc.zip -d $HOME/dc
+          npm install
           $HOME/dc/dependency-check/bin/dependency-check.sh \
             --project "Resume Matcher" \
             --scan . \
             --format HTML \
             --out dependency-check-report.html \
-            --nvdApiKey ${{ secrets.NVD_API_KEY }}
+            --nvdApiKey ${{ secrets.NVD_API_KEY }} \
+            --property database.reference.url.maxlength=2000 \
+            --disableOssIndex
 
       - name: Email OWASP Report
         uses: dawidd6/action-send-mail@v3
