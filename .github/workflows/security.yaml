@@ -14,7 +14,7 @@ jobs:
 
       - name: Install OWASP Dependency Check
         run: |
-          curl -L https://github.com/jeremylong/DependencyCheck/releases/download/v8.4.0/dependency-check-8.4.0-release.zip -o dc.zip
+          curl -L https://github.com/jeremylong/DependencyCheck/releases/download/v12.1.0/dependency-check-12.1.0-release.zip -o dc.zip
           unzip dc.zip -d $HOME/dc
           $HOME/dc/dependency-check/bin/dependency-check.sh \
             --project "Resume Matcher" \
