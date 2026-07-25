@@ -29,8 +29,7 @@ jobs:
             --format HTML \
             --out dependency-check-report.html \
             --nvdApiKey ${{ secrets.NVD_API_KEY }} \
-            --disableOssIndex \
-            -Ddatabase.reference.url.maxlength=2000
+            --disableOssIndex
 
       - name: Email OWASP Report
         uses: dawidd6/action-send-mail@v3
