@@ -1,0 +1,138 @@
+name: Security Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  owasp:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Install OWASP Dependency Check
+        run: |
+          curl -L https://github.com/jeremylong/DependencyCheck/releases/download/v8.4.0/dependency-check-8.4.0-release.zip -o dc.zip
+          unzip dc.zip -d $HOME/dc
+          $HOME/dc/dependency-check/bin/dependency-check.sh \
+            --project "Resume Matcher" \
+            --scan . \
+            --format HTML \
+            --out dependency-check-report.html
+
+      - name: Email OWASP Report
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.EMAIL_USER }}
+          password: ${{ secrets.EMAIL_PASS }}
+          subject: OWASP Report - Resume Matcher
+          to: ${{ secrets.EMAIL_USER }}
+          from: ${{ secrets.EMAIL_USER }}
+          body: |
+            OWASP Dependency Check completed.
+            Summary: see attached report.
+          attachments: dependency-check-report.html
+
+  trivy-fs:
+    runs-on: ubuntu-latest
+    needs: owasp
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Run Trivy FS Scan
+        uses: aquasecurity/trivy-action@0.12.0
+        with:
+          scan-type: fs
+          format: json
+          output: trivy-fs-report.json
+          ignore-unfixed: true
+          vuln-type: os,library
+
+      - name: Email Trivy FS Report
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.EMAIL_USER }}
+          password: ${{ secrets.EMAIL_PASS }}
+          subject: Trivy FS Report - Resume Matcher
+          to: ${{ secrets.EMAIL_USER }}
+          from: ${{ secrets.EMAIL_USER }}
+          body: |
+            Trivy filesystem scan completed.
+            Summary: see attached report.
+          attachments: trivy-fs-report.json
+
+  sonarcloud:
+    runs-on: ubuntu-latest
+    needs: trivy-fs
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: SonarCloud Scan
+        uses: SonarSource/sonarcloud-github-action@v2
+        with:
+          args: >
+            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
+            -Dsonar.organization=${{ secrets.SONAR_ORG }}
+            -Dsonar.sources=api,lib,src
+            -Dsonar.host.url=${{ secrets.SONAR_HOST }}
+            -Dsonar.login=${{ secrets.SONAR_TOKEN }}
+
+      - name: Export SonarCloud Report
+        run: |
+          curl -u ${{ secrets.SONAR_TOKEN }}: \
+            "https://sonarcloud.io/api/issues/search?projectKeys=${{ secrets.SONAR_PROJECT_KEY }}" \
+            -o sonar-report.json
+
+      - name: Email SonarCloud Report
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.EMAIL_USER }}
+          password: ${{ secrets.EMAIL_PASS }}
+          subject: SonarCloud Report - Resume Matcher
+          to: ${{ secrets.EMAIL_USER }}
+          from: ${{ secrets.EMAIL_USER }}
+          body: |
+            SonarCloud analysis completed.
+            Summary: see attached report.
+          attachments: sonar-report.json
+
+  trivy-img:
+    runs-on: ubuntu-latest
+    needs: sonarcloud
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Build Docker Image
+        run: docker build -t resume-matcher:local .
+
+      - name: Run Trivy Image Scan
+        uses: aquasecurity/trivy-action@0.12.0
+        with:
+          image-ref: resume-matcher:local
+          format: json
+          output: trivy-img-report.json
+          ignore-unfixed: true
+          vuln-type: os,library
+
+      - name: Email Trivy Image Report
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.EMAIL_USER }}
+          password: ${{ secrets.EMAIL_PASS }}
+          subject: Trivy Image Report - Resume Matcher
+          to: ${{ secrets.EMAIL_USER }}
+          from: ${{ secrets.EMAIL_USER }}
+          body: |
+            Trivy image scan completed.
+            Summary: see attached report.
+          attachments: trivy-img-report.json
