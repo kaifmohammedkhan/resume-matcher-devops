@@ -1,0 +1,21 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: resume-matcher-ghcr
+  namespace: default
+spec:
+  replicas: 1   # ✅ override base replicas
+  template:
+    spec:
+      imagePullSecrets:
+        - name: ghcr-secret   # reference the secret
+      containers:
+        - name: resume-matcher-ghcr
+          image: ghcr.io/kaifmohammedkhan/resume-matcher-devops:latest
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"

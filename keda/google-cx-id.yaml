@@ -1,0 +1,7 @@
+apiVersion: v1
+kind: Secret
+metadata:
+  name: google-cx-id
+type: Opaque
+data:
+  CX_ID: NzMwMzQzNDgxMWFjZjQ4ZmI=

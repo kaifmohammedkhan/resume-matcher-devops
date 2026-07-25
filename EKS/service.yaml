@@ -1,0 +1,43 @@
+# -------------------------
+# PostgreSQL Service
+# -------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: db
+  namespace: default
+  labels:
+    app: db
+spec:
+  selector:
+    app: db
+  ports:
+    - name: postgres
+      protocol: TCP
+      port: 5432
+      targetPort: 5432
+  type: ClusterIP   # ✅ Internal-only service for Postgres
+---
+# -------------------------
+# Resume Matcher Service
+# -------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: resume-matcher-service
+  namespace: default
+  labels:
+    app: resume-matcher
+spec:
+  selector:
+    app: resume-matcher-ghcr   # ✅ Match Deployment label
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80        # ✅ ALB will forward traffic here
+      targetPort: 3000
+    - name: metrics
+      protocol: TCP
+      port: 51113
+      targetPort: 51113
+  type: NodePort   # ✅ Internal-only, Ingress/ALB handles external traffic

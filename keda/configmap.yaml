@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: resume-config
+data:
+  DB_TYPE: "postgres"
+  init.sql: |
+    -- Create table if it doesn't exist
+    CREATE TABLE IF NOT EXISTS resumes (
+        id SERIAL PRIMARY KEY,
+        name TEXT,
+        email TEXT UNIQUE,
+        skills TEXT,
+        uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    );

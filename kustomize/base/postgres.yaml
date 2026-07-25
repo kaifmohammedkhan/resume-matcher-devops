@@ -1,0 +1,39 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: db
+  labels:
+    app: db
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: db
+  template:
+    metadata:
+      labels:
+        app: db
+    spec:
+      # ✅ Ensure pod runs on the node where PVC was provisioned
+      nodeSelector:
+        kubernetes.io/hostname: kind-node-worker
+      containers:
+        - name: postgres
+          image: postgres:15
+          ports:
+            - containerPort: 5432
+          envFrom:
+            - secretRef:
+                name: db-secret   # pulls POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB
+          volumeMounts:
+            - name: pgdata
+              mountPath: /var/lib/postgresql/data
+            - name: init-script
+              mountPath: /docker-entrypoint-initdb.d
+      volumes:
+        - name: pgdata
+          persistentVolumeClaim:
+            claimName: postgres-pvc  # PVC for persistence
+        - name: init-script
+          configMap:
+            name: resume-config      # init.sql script ConfigMap

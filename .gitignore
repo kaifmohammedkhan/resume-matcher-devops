@@ -45,3 +45,9 @@ resume-log.csv
 docker-compose.override.yml
 docker-compose.dev.yml
 docker-compose.test.yml
+
+
+ghcr-secret.yaml
+google-api-secret.yaml
+
+db-secret.yaml

@@ -1,0 +1,45 @@
+# -------------------------
+# PostgreSQL Service
+# -------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: db
+  namespace: default
+  labels:
+    app: db
+spec:
+  selector:
+    app: db
+  ports:
+    - name: postgres
+      protocol: TCP
+      port: 5432
+      targetPort: 5432
+      nodePort: 30082
+  type: NodePort
+---
+# -------------------------
+# Resume Matcher Service
+# -------------------------
+apiVersion: v1
+kind: Service
+metadata:
+  name: resume-matcher-service
+  namespace: default
+  labels:
+    app: resume-matcher
+spec:
+  selector:
+    app: resume-matcher
+  ports:
+    - name: http
+      protocol: TCP
+      port: 3000
+      targetPort: 3000
+      nodePort: 30080
+    - name: metrics
+      protocol: TCP
+      port: 51113
+      targetPort: 51113
+  type: NodePort

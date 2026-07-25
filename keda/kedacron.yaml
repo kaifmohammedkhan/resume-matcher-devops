@@ -1,0 +1,37 @@
+# ⏰ Cron ScaledObject for resume-matcher-ghcr
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: resume-matcher-cron
+spec:
+  scaleTargetRef:
+    name: resume-matcher-ghcr
+  minReplicaCount: 0
+  maxReplicaCount: 3
+  triggers:
+  - type: cron
+    metadata:
+      timezone: Asia/Kolkata
+      start: "0 0 * * *"     # 12 AM IST
+      end: "0 12 * * *"      # 12 NOON IST
+      desiredReplicas: "1"
+
+---
+
+# ⏰ Cron ScaledObject for db
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: db-cron
+spec:
+  scaleTargetRef:
+    name: db
+  minReplicaCount: 0
+  maxReplicaCount: 1
+  triggers:
+  - type: cron
+    metadata:
+      timezone: Asia/Kolkata
+      start: "0 0 * * *"     # 12 AM IST
+      end: "0 12 * * *"      # 12 NOON IST
+      desiredReplicas: "1"
