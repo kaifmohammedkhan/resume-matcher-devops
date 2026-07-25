@@ -12,6 +12,12 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      - name: Cache OWASP DB
+        uses: actions/cache@v3
+        with:
+          path: $HOME/.dependency-check/data
+          key: owasp-db
+
       - name: Install OWASP Dependency Check
         run: |
           curl -L https://github.com/jeremylong/DependencyCheck/releases/download/v12.1.0/dependency-check-12.1.0-release.zip -o dc.zip
@@ -20,7 +26,8 @@ jobs:
             --project "Resume Matcher" \
             --scan . \
             --format HTML \
-            --out dependency-check-report.html
+            --out dependency-check-report.html \
+            --nvdApiKey ${{ secrets.NVD_API_KEY }}
 
       - name: Email OWASP Report
         uses: dawidd6/action-send-mail@v3
