@@ -127,7 +127,7 @@ jobs:
           subject: SonarCloud Report - Resume Matcher
           to: ${{ secrets.EMAIL_USER }}
           from: ${{ secrets.EMAIL_USER }}
-          content_type: text/html
+          content_type: text/html   # ensures Gmail renders HTML
           body: ${{ steps.convert.outputs.html }}
 
   # trivy-img:
