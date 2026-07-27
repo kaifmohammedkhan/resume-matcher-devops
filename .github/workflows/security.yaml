@@ -78,13 +78,14 @@ jobs:
 
       - name: SonarCloud Scan
         uses: SonarSource/sonarcloud-github-action@v2
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}   # ✅ pass token correctly
         with:
           args: >
             -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
             -Dsonar.organization=${{ secrets.SONAR_ORG }}
             -Dsonar.sources=api,lib,src
             -Dsonar.host.url=${{ secrets.SONAR_HOST }}
-            -Dsonar.login=${{ secrets.SONAR_TOKEN }}
 
       - name: Export SonarCloud Report
         run: |
