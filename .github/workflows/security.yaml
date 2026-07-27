@@ -124,7 +124,10 @@ jobs:
           subject: SonarCloud Report - Resume Matcher
           to: ${{ secrets.EMAIL_USER }}
           from: ${{ secrets.EMAIL_USER }}
-          html_body: file://sonar-summary.html
+          body: |
+            SonarCloud analysis completed.
+            Summary: see attached report.
+          attachments: sonar-summary.html
 
   # trivy-img:
   #   runs-on: ubuntu-latest
