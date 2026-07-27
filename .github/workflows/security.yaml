@@ -82,15 +82,20 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
-      - name: SonarCloud Scan
-        uses: SonarSource/sonarcloud-github-action@v2
+      - name: Install SonarScanner CLI
+        run: |
+          curl -sSLo sonar-scanner.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006.zip
+          unzip sonar-scanner.zip -d $HOME
+          echo "$HOME/sonar-scanner-5.0.1.3006/bin" >> $GITHUB_PATH
+
+      - name: Run SonarScanner
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        with:
-          args: >
-            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }}
-            -Dsonar.organization=${{ secrets.SONAR_ORG }}
-            -Dsonar.sources=api,lib,src
+        run: |
+          sonar-scanner \
+            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }} \
+            -Dsonar.organization=${{ secrets.SONAR_ORG }} \
+            -Dsonar.sources=api,lib,src \
             -Dsonar.host.url=${{ secrets.SONAR_HOST }}
 
       - name: Export SonarCloud Report
