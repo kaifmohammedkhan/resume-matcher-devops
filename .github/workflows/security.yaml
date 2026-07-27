@@ -44,34 +44,34 @@ jobs:
   #           Summary: see attached report.
   #         attachments: dependency-check-report.html
 
-trivy-fs:
-  runs-on: ubuntu-latest
-  steps:
-    - uses: actions/checkout@v3
+  trivy-fs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
 
-    - name: Run Trivy FS Scan
-      uses: aquasecurity/trivy-action@v0.36.0
-      with:
-        scan-type: fs
-        format: json
-        output: trivy-fs-report.json
-        ignore-unfixed: true
-        vuln-type: os,library
+      - name: Run Trivy FS Scan
+        uses: aquasecurity/trivy-action@v0.36.0   # ✅ latest valid version
+        with:
+          scan-type: fs
+          format: json
+          output: trivy-fs-report.json
+          ignore-unfixed: true
+          vuln-type: os,library
 
-    - name: Email Trivy FS Report
-      uses: dawidd6/action-send-mail@v3
-      with:
-        server_address: smtp.gmail.com
-        server_port: 465
-        username: ${{ secrets.EMAIL_USER }}
-        password: ${{ secrets.EMAIL_PASS }}
-        subject: Trivy FS Report - Resume Matcher
-        to: ${{ secrets.EMAIL_USER }}
-        from: ${{ secrets.EMAIL_USER }}
-        body: |
-          Trivy filesystem scan completed.
-          Summary: see attached report.
-        attachments: trivy-fs-report.json
+      - name: Email Trivy FS Report
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.EMAIL_USER }}
+          password: ${{ secrets.EMAIL_PASS }}
+          subject: Trivy FS Report - Resume Matcher
+          to: ${{ secrets.EMAIL_USER }}
+          from: ${{ secrets.EMAIL_USER }}
+          body: |
+            Trivy filesystem scan completed.
+            Summary: see attached report.
+          attachments: trivy-fs-report.json
 
   # sonarcloud:
   #   runs-on: ubuntu-latest
@@ -113,7 +113,7 @@ trivy-fs:
   #     - name: Build Docker Image
   #       run: docker build -t resume-matcher:local .
   #     - name: Run Trivy Image Scan
-  #       uses: aquasecurity/trivy-action@0.20.0
+  #       uses: aquasecurity/trivy-action@v0.36.0
   #       with:
   #         image-ref: resume-matcher:local
   #         format: json
