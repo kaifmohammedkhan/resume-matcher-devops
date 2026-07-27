@@ -53,7 +53,7 @@ jobs:
   #       with:
   #         scan-type: fs
   #         format: template
-  #         template: '@contrib/html.tpl'
+  #         template: 'https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl'
   #         output: trivy-fs-report.html
   #         ignore-unfixed: true
   #         vuln-type: os,library
@@ -145,7 +145,7 @@ jobs:
         with:
           image-ref: resume-matcher:local
           format: template
-          template: '@contrib/html.tpl'
+          template: 'https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl'
           output: trivy-img-report.html
           ignore-unfixed: true
           vuln-type: os,library
