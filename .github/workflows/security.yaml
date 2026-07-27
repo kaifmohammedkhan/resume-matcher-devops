@@ -52,8 +52,9 @@ jobs:
   #       uses: aquasecurity/trivy-action@v0.36.0
   #       with:
   #         scan-type: fs
-  #         format: json
-  #         output: trivy-fs-report.json
+  #         format: template
+  #         template: '@contrib/html.tpl'
+  #         output: trivy-fs-report.html
   #         ignore-unfixed: true
   #         vuln-type: os,library
   #     - name: Email Trivy FS Report
@@ -69,7 +70,7 @@ jobs:
   #         body: |
   #           Trivy filesystem scan completed.
   #           Summary: see attached report.
-  #         attachments: trivy-fs-report.json
+  #         attachments: trivy-fs-report.html
 
   # sonarcloud:
   #   runs-on: ubuntu-latest
@@ -143,8 +144,9 @@ jobs:
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: resume-matcher:local
-          format: json
-          output: trivy-img-report.json
+          format: template
+          template: '@contrib/html.tpl'
+          output: trivy-img-report.html
           ignore-unfixed: true
           vuln-type: os,library
 
@@ -161,4 +163,4 @@ jobs:
           body: |
             Trivy image scan completed.
             Summary: see attached report.
-          attachments: trivy-img-report.json
+          attachments: trivy-img-report.html
