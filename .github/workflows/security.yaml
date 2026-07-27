@@ -95,7 +95,7 @@ jobs:
           sonar-scanner \
             -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }} \
             -Dsonar.organization=${{ secrets.SONAR_ORG }} \
-            -Dsonar.sources=api,lib,src \
+            -Dsonar.sources=. \
             -Dsonar.host.url=${{ secrets.SONAR_HOST }}
 
       - name: Export SonarCloud Report
