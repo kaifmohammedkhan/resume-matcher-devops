@@ -101,16 +101,16 @@ jobs:
       - name: Export SonarCloud Report
         run: |
           curl -u ${{ secrets.SONAR_TOKEN }}: \
-            "https://sonarcloud.io/api/issues/search?projectKeys=${{ secrets.SONAR_PROJECT_KEY }}" \
+            "https://sonarcloud.io/api/issues/search?projectKeys=${{ secrets.SONAR_PROJECT_KEY }}&statuses=OPEN,REOPENED&ps=500" \
             -o sonar-report.json
 
       - name: Convert SonarCloud JSON to HTML Table
         run: |
           echo "<html><body>" > sonar-summary.html
-          echo "<p>SonarCloud analysis completed. Summary below:</p>" >> sonar-summary.html
-          echo "<table border='1' cellpadding='5' cellspacing='0' style='border-collapse: collapse;'>" >> sonar-summary.html
-          echo "<tr style='background-color: #f2f2f2;'><th>Rule</th><th>Message</th><th>Severity</th><th>File</th><th>Status</th></tr>" >> sonar-summary.html
-          jq -r '.issues[] | "<tr><td>\(.rule)</td><td>\(.message)</td><td>\(.severity)</td><td>\(.component)</td><td>\(.status)</td></tr>"' sonar-report.json >> sonar-summary.html
+          echo "<h2>SonarCloud Active Issues Report</h2>" >> sonar-summary.html
+          echo "<table border='1' cellpadding='5' cellspacing='0' style='border-collapse: collapse; font-family: sans-serif;'>" >> sonar-summary.html
+          echo "<tr style='background-color: #f2f2f2;'><th>Rule</th><th>Message</th><th>Severity</th><th>File</th><th>Line</th><th>Action</th></tr>" >> sonar-summary.html
+          jq -r '.issues[] | "<tr><td>\(.rule)</td><td>\(.message)</td><td>\(.severity)</td><td>\(.component)</td><td>\(.line // "N/A")</td><td><a href=\"https://sonarcloud.io/project/issues?id=\(.project)&issues=\(.key)\">View Issue</a></td></tr>"' sonar-report.json >> sonar-summary.html
           echo "</table>" >> sonar-summary.html
           echo "</body></html>" >> sonar-summary.html
 
