@@ -71,91 +71,94 @@ jobs:
   #           Summary: see attached report.
   #         attachments: trivy-fs-report.json
 
-  sonarcloud:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'temurin'
-          java-version: '21'
-
-      - name: Install SonarScanner CLI
-        run: |
-          curl -sSLo sonar-scanner.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006.zip
-          unzip sonar-scanner.zip -d $HOME
-          echo "$HOME/sonar-scanner-5.0.1.3006/bin" >> $GITHUB_PATH
-
-      - name: Run SonarScanner
-        continue-on-error: true
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: |
-          sonar-scanner \
-            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }} \
-            -Dsonar.organization=${{ secrets.SONAR_ORG }} \
-            -Dsonar.sources=. \
-            -Dsonar.host.url=${{ secrets.SONAR_HOST }} \
-            -Dsonar.qualitygate.wait=false
-
-      - name: Export SonarCloud Report
-        run: |
-          curl -u ${{ secrets.SONAR_TOKEN }}: \
-            "https://sonarcloud.io/api/issues/search?projectKeys=${{ secrets.SONAR_PROJECT_KEY }}&statuses=OPEN,REOPENED&ps=500" \
-            -o sonar-report.json
-
-      - name: Convert SonarCloud JSON to HTML Table
-        run: |
-          echo "<html><body>" > sonar-summary.html
-          echo "<h2>SonarCloud Active Issues Report</h2>" >> sonar-summary.html
-          echo "<table border='1' cellpadding='5' cellspacing='0' style='border-collapse: collapse; font-family: sans-serif;'>" >> sonar-summary.html
-          echo "<tr style='background-color: #f2f2f2;'><th>Rule</th><th>Message</th><th>Severity</th><th>File</th><th>Line</th><th>Action</th></tr>" >> sonar-summary.html
-          jq -r '.issues[] | "<tr><td>\(.rule)</td><td>\(.message)</td><td>\(.severity)</td><td>\(.component)</td><td>\(.line // "N/A")</td><td><a href=\"https://sonarcloud.io/project/issues?id=\(.project)&issues=\(.key)\">View Issue</a></td></tr>"' sonar-report.json >> sonar-summary.html
-          echo "</table>" >> sonar-summary.html
-          echo "</body></html>" >> sonar-summary.html
-
-      - name: Email SonarCloud Report
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 465
-          username: ${{ secrets.EMAIL_USER }}
-          password: ${{ secrets.EMAIL_PASS }}
-          subject: SonarCloud Report - Resume Matcher
-          to: ${{ secrets.EMAIL_USER }}
-          from: ${{ secrets.EMAIL_USER }}
-          body: |
-            SonarCloud analysis completed.
-            Summary: see attached report.
-          attachments: sonar-summary.html
-
-  # trivy-img:
+  # sonarcloud:
   #   runs-on: ubuntu-latest
   #   steps:
   #     - uses: actions/checkout@v3
-  #     - name: Build Docker Image
-  #       run: docker build -t resume-matcher:local .
-  #     - name: Run Trivy Image Scan
-  #       uses: aquasecurity/trivy-action@v0.36.0
+
+  #     - name: Set up JDK 21
+  #       uses: actions/setup-java@v4
   #       with:
-  #         image-ref: resume-matcher:local
-  #         format: json
-  #         output: trivy-img-report.json
-  #         ignore-unfixed: true
-  #         vuln-type: os,library
-  #     - name: Email Trivy Image Report
+  #         distribution: 'temurin'
+  #         java-version: '21'
+
+  #     - name: Install SonarScanner CLI
+  #       run: |
+  #         curl -sSLo sonar-scanner.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006.zip
+  #         unzip sonar-scanner.zip -d $HOME
+  #         echo "$HOME/sonar-scanner-5.0.1.3006/bin" >> $GITHUB_PATH
+
+  #     - name: Run SonarScanner
+  #       continue-on-error: true
+  #       env:
+  #         SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+  #       run: |
+  #         sonar-scanner \
+  #           -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }} \
+  #           -Dsonar.organization=${{ secrets.SONAR_ORG }} \
+  #           -Dsonar.sources=. \
+  #           -Dsonar.host.url=${{ secrets.SONAR_HOST }} \
+  #           -Dsonar.qualitygate.wait=false
+
+  #     - name: Export SonarCloud Report
+  #       run: |
+  #         curl -u ${{ secrets.SONAR_TOKEN }}: \
+  #           "https://sonarcloud.io/api/issues/search?projectKeys=${{ secrets.SONAR_PROJECT_KEY }}&statuses=OPEN,REOPENED&ps=500" \
+  #           -o sonar-report.json
+
+  #     - name: Convert SonarCloud JSON to HTML Table
+  #       run: |
+  #         echo "<html><body>" > sonar-summary.html
+  #         echo "<h2>SonarCloud Active Issues Report</h2>" >> sonar-summary.html
+  #         echo "<table border='1' cellpadding='5' cellspacing='0' style='border-collapse: collapse; font-family: sans-serif;'>" >> sonar-summary.html
+  #         echo "<tr style='background-color: #f2f2f2;'><th>Rule</th><th>Message</th><th>Severity</th><th>File</th><th>Line</th><th>Action</th></tr>" >> sonar-summary.html
+  #         jq -r '.issues[] | "<tr><td>\(.rule)</td><td>\(.message)</td><td>\(.severity)</td><td>\(.component)</td><td>\(.line // "N/A")</td><td><a href=\"https://sonarcloud.io/project/issues?id=\(.project)&issues=\(.key)\">View Issue</a></td></tr>"' sonar-report.json >> sonar-summary.html
+  #         echo "</table>" >> sonar-summary.html
+  #         echo "</body></html>" >> sonar-summary.html
+
+  #     - name: Email SonarCloud Report
   #       uses: dawidd6/action-send-mail@v3
   #       with:
   #         server_address: smtp.gmail.com
   #         server_port: 465
   #         username: ${{ secrets.EMAIL_USER }}
   #         password: ${{ secrets.EMAIL_PASS }}
-  #         subject: Trivy Image Report - Resume Matcher
+  #         subject: SonarCloud Report - Resume Matcher
   #         to: ${{ secrets.EMAIL_USER }}
   #         from: ${{ secrets.EMAIL_USER }}
   #         body: |
-  #           Trivy image scan completed.
+  #           SonarCloud analysis completed.
   #           Summary: see attached report.
-  #         attachments: trivy-img-report.json
+  #         attachments: sonar-summary.html
+
+  trivy-img:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Build Docker Image
+        run: docker build -t resume-matcher:local .
+
+      - name: Run Trivy Image Scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: resume-matcher:local
+          format: json
+          output: trivy-img-report.json
+          ignore-unfixed: true
+          vuln-type: os,library
+
+      - name: Email Trivy Image Report
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.EMAIL_USER }}
+          password: ${{ secrets.EMAIL_PASS }}
+          subject: Trivy Image Report - Resume Matcher
+          to: ${{ secrets.EMAIL_USER }}
+          from: ${{ secrets.EMAIL_USER }}
+          body: |
+            Trivy image scan completed.
+            Summary: see attached report.
+          attachments: trivy-img-report.json
