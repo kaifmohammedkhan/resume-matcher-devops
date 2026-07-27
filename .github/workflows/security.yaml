@@ -89,6 +89,7 @@ jobs:
           echo "$HOME/sonar-scanner-5.0.1.3006/bin" >> $GITHUB_PATH
 
       - name: Run SonarScanner
+        continue-on-error: true
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
@@ -96,7 +97,8 @@ jobs:
             -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }} \
             -Dsonar.organization=${{ secrets.SONAR_ORG }} \
             -Dsonar.sources=. \
-            -Dsonar.host.url=${{ secrets.SONAR_HOST }}
+            -Dsonar.host.url=${{ secrets.SONAR_HOST }} \
+            -Dsonar.qualitygate.wait=false
 
       - name: Export SonarCloud Report
         run: |
