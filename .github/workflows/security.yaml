@@ -105,17 +105,14 @@ jobs:
             -o sonar-report.json
 
       - name: Convert SonarCloud JSON to HTML Table
-        id: convert
         run: |
-          echo "<p>SonarCloud analysis completed. Summary below:</p>" > sonar-summary.html
-          echo "<table border='1' cellpadding='5' cellspacing='0'>" >> sonar-summary.html
-          echo "<tr><th>Rule</th><th>Message</th><th>Severity</th><th>File</th><th>Status</th></tr>" >> sonar-summary.html
+          echo "<html><body>" > sonar-summary.html
+          echo "<p>SonarCloud analysis completed. Summary below:</p>" >> sonar-summary.html
+          echo "<table border='1' cellpadding='5' cellspacing='0' style='border-collapse: collapse;'>" >> sonar-summary.html
+          echo "<tr style='background-color: #f2f2f2;'><th>Rule</th><th>Message</th><th>Severity</th><th>File</th><th>Status</th></tr>" >> sonar-summary.html
           jq -r '.issues[] | "<tr><td>\(.rule)</td><td>\(.message)</td><td>\(.severity)</td><td>\(.component)</td><td>\(.status)</td></tr>"' sonar-report.json >> sonar-summary.html
           echo "</table>" >> sonar-summary.html
-          summary=$(cat sonar-summary.html)
-          echo "html<<EOF" >> $GITHUB_OUTPUT
-          echo "$summary" >> $GITHUB_OUTPUT
-          echo "EOF" >> $GITHUB_OUTPUT
+          echo "</body></html>" >> sonar-summary.html
 
       - name: Email SonarCloud Report
         uses: dawidd6/action-send-mail@v3
@@ -127,8 +124,7 @@ jobs:
           subject: SonarCloud Report - Resume Matcher
           to: ${{ secrets.EMAIL_USER }}
           from: ${{ secrets.EMAIL_USER }}
-          content_type: text/html   # ensures Gmail renders HTML
-          body: ${{ steps.convert.outputs.html }}
+          html_body: file://sonar-summary.html
 
   # trivy-img:
   #   runs-on: ubuntu-latest
