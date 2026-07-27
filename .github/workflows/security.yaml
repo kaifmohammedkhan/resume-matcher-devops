@@ -105,11 +105,16 @@ jobs:
             -o sonar-report.json
 
       - name: Convert SonarCloud JSON to Markdown Table
+        id: convert
         run: |
           echo "SonarCloud analysis completed. Summary below:\n" > sonar-summary.txt
           echo "| Rule | Message | Severity | File | Status |" >> sonar-summary.txt
           echo "|------|---------|----------|------|--------|" >> sonar-summary.txt
           jq -r '.issues[] | "| \(.rule) | \(.message) | \(.severity) | \(.component) | \(.status) |"' sonar-report.json >> sonar-summary.txt
+          summary=$(cat sonar-summary.txt)
+          echo "table<<EOF" >> $GITHUB_OUTPUT
+          echo "$summary" >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
 
       - name: Email SonarCloud Report
         uses: dawidd6/action-send-mail@v3
@@ -122,7 +127,6 @@ jobs:
           to: ${{ secrets.EMAIL_USER }}
           from: ${{ secrets.EMAIL_USER }}
           body: ${{ steps.convert.outputs.table }}
-        id: sendmail
 
   # trivy-img:
   #   runs-on: ubuntu-latest
