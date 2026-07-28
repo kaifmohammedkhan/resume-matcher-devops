@@ -4,6 +4,9 @@
 FROM node:20-bookworm-slim AS deps
 WORKDIR /app
 
+# Patch OS level packages in Debian base
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
+
 COPY package.json package-lock.json* ./
 
 # Harden network configs BEFORE running any installs
@@ -18,9 +21,11 @@ RUN npm config set registry https://registry.npmjs.org/ && \
 # Stage 2: Build (NO rebuild → faster)
 # ========================================================
 FROM node:20-bookworm-slim AS builder
-# Bring in TARGETPLATFORM dynamically from Buildx
 ARG TARGETPLATFORM
 WORKDIR /app
+
+# Patch OS level packages in Debian base
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
@@ -43,6 +48,9 @@ RUN mkdir -p /app/uploads /app/logs
 FROM node:20-bookworm-slim AS prod-deps
 WORKDIR /app
 
+# Patch OS level packages in Debian base
+RUN apt-get update && apt-get upgrade -y && rm -rf /var/lib/apt/lists/*
+
 COPY package.json package-lock.json* ./
 
 # Harden network configs BEFORE running any installs
@@ -56,7 +64,8 @@ RUN npm config set registry https://registry.npmjs.org/ && \
 # ========================================================
 # Stage 4: Distroless Runtime (MINIMUM VULNS)
 # ========================================================
-FROM gcr.io/distroless/nodejs20-debian12
+# Pull the latest distroless tag to keep base glibc / openssl patched
+FROM gcr.io/distroless/nodejs20-debian12:latest
 
 WORKDIR /app
 ENV NODE_ENV=production

@@ -11,29 +11,33 @@ jobs:
   owasp:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Cache OWASP DB
-        uses: actions/cache@v3
+        uses: actions/cache@d4323d455462f9ec6911e5e23f22b0f44193c46e # v4.2.3
         with:
           path: $HOME/.dependency-check/data
           key: owasp-db
 
-      - name: Install OWASP Dependency Check
+      - name: Install and Run OWASP Dependency Check
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
         run: |
-          curl -L https://github.com/jeremylong/DependencyCheck/releases/download/v12.1.0/dependency-check-12.1.0-release.zip -o dc.zip
-          unzip dc.zip -d $HOME/dc
-          npm install
+          curl -sSLf https://github.com/jeremylong/DependencyCheck/releases/download/v12.1.0/dependency-check-12.1.0-release.zip -o /tmp/dc.zip
+          unzip -q /tmp/dc.zip -d $HOME/dc
+          rm -f /tmp/dc.zip
+          npm install --ignore-scripts
           $HOME/dc/dependency-check/bin/dependency-check.sh \
             --project "Resume Matcher" \
             --scan . \
+            --exclude "**/node_modules/**" \
             --format HTML \
             --out dependency-check-report.html \
-            --nvdApiKey ${{ secrets.NVD_API_KEY }} \
+            --nvdApiKey "$NVD_API_KEY" \
             --disableOssIndex
 
       - name: Email OWASP Report
-        uses: dawidd6/action-send-mail@v3
+        uses: dawidd6/action-send-mail@1015f3337a288924151740d5b4308ef6186a1005 # v3.15.0
         with:
           server_address: smtp.gmail.com
           server_port: 465
@@ -50,14 +54,14 @@ jobs:
   trivy-fs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Download Trivy HTML Template
         run: |
-          curl -sSLo html.tpl https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl
+          curl -sSLf https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl -o html.tpl
 
       - name: Run Trivy FS Scan
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd8eebe1c3e34b11f6c449c251407e3bc57 # v0.36.0
         with:
           scan-type: fs
           format: template
@@ -67,7 +71,7 @@ jobs:
           vuln-type: os,library
 
       - name: Email Trivy FS Report
-        uses: dawidd6/action-send-mail@v3
+        uses: dawidd6/action-send-mail@1015f3337a288924151740d5b4308ef6186a1005 # v3.15.0
         with:
           server_address: smtp.gmail.com
           server_port: 465
@@ -84,17 +88,17 @@ jobs:
   sonarcloud:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Set up JDK 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@3a4e216238b69389e13dccf5f743ee80f08e43e2 # v4.7.0
         with:
           distribution: 'temurin'
           java-version: '21'
 
       - name: Install SonarScanner CLI
         run: |
-          curl -sSLo sonar-scanner.zip https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006.zip
+          curl -sSLf https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006.zip -o sonar-scanner.zip
           unzip sonar-scanner.zip -d $HOME
           echo "$HOME/sonar-scanner-5.0.1.3006/bin" >> $GITHUB_PATH
 
@@ -102,18 +106,24 @@ jobs:
         continue-on-error: true
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+          SONAR_ORG: ${{ secrets.SONAR_ORG }}
+          SONAR_HOST: ${{ secrets.SONAR_HOST }}
         run: |
           sonar-scanner \
-            -Dsonar.projectKey=${{ secrets.SONAR_PROJECT_KEY }} \
-            -Dsonar.organization=${{ secrets.SONAR_ORG }} \
+            -Dsonar.projectKey="$SONAR_PROJECT_KEY" \
+            -Dsonar.organization="$SONAR_ORG" \
             -Dsonar.sources=. \
-            -Dsonar.host.url=${{ secrets.SONAR_HOST }} \
+            -Dsonar.host.url="$SONAR_HOST" \
             -Dsonar.qualitygate.wait=false
 
       - name: Export SonarCloud Report
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
         run: |
-          curl -u ${{ secrets.SONAR_TOKEN }}: \
-            "https://sonarcloud.io/api/issues/search?projectKeys=${{ secrets.SONAR_PROJECT_KEY }}&statuses=OPEN,REOPENED&ps=500" \
+          curl -u "$SONAR_TOKEN:" \
+            "https://sonarcloud.io/api/issues/search?projectKeys=$SONAR_PROJECT_KEY&statuses=OPEN,REOPENED&ps=500" \
             -o sonar-report.json
 
       - name: Convert SonarCloud JSON to HTML Table
@@ -127,7 +137,7 @@ jobs:
           echo "</body></html>" >> sonar-summary.html
 
       - name: Email SonarCloud Report
-        uses: dawidd6/action-send-mail@v3
+        uses: dawidd6/action-send-mail@1015f3337a288924151740d5b4308ef6186a1005 # v3.15.0
         with:
           server_address: smtp.gmail.com
           server_port: 465
@@ -144,17 +154,17 @@ jobs:
   trivy-img:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Build Docker Image
         run: docker build -t resume-matcher:local .
 
       - name: Download Trivy HTML Template
         run: |
-          curl -sSLo html.tpl https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl
+          curl -sSLf https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl -o html.tpl
 
       - name: Run Trivy Image Scan
-        uses: aquasecurity/trivy-action@v0.36.0
+        uses: aquasecurity/trivy-action@ed142fd8eebe1c3e34b11f6c449c251407e3bc57 # v0.36.0
         with:
           image-ref: resume-matcher:local
           format: template
@@ -164,7 +174,7 @@ jobs:
           vuln-type: os,library
 
       - name: Email Trivy Image Report
-        uses: dawidd6/action-send-mail@v3
+        uses: dawidd6/action-send-mail@1015f3337a288924151740d5b4308ef6186a1005 # v3.15.0
         with:
           server_address: smtp.gmail.com
           server_port: 465
