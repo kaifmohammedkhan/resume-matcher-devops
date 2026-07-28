@@ -11,7 +11,8 @@ jobs:
   owasp:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
       - name: Cache OWASP DB
         uses: actions/cache@v4
@@ -36,7 +37,15 @@ jobs:
             --nvdApiKey "$NVD_API_KEY" \
             --disableOssIndex
 
+      - name: Upload OWASP Report Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: owasp-dependency-check-report
+          path: dependency-check-report.html
+
       - name: Email OWASP Report
+        if: always()
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
@@ -48,13 +57,14 @@ jobs:
           from: ${{ secrets.EMAIL_USER }}
           body: |
             OWASP Dependency Check completed.
-            Summary: see attached report.
+            Summary: see attached report or check workflow artifacts.
           attachments: dependency-check-report.html
 
   trivy-fs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
       - name: Download Trivy HTML Template
         run: |
@@ -70,7 +80,15 @@ jobs:
           ignore-unfixed: true
           vuln-type: os,library
 
+      - name: Upload Trivy FS Report Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-fs-report
+          path: trivy-fs-report.html
+
       - name: Email Trivy FS Report
+        if: always()
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
@@ -82,13 +100,14 @@ jobs:
           from: ${{ secrets.EMAIL_USER }}
           body: |
             Trivy filesystem scan completed.
-            Summary: see attached report.
+            Summary: see attached report or check workflow artifacts.
           attachments: trivy-fs-report.html
 
   sonarcloud:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -99,7 +118,8 @@ jobs:
       - name: Install SonarScanner CLI
         run: |
           curl -sSLf https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006.zip -o sonar-scanner.zip
-          unzip sonar-scanner.zip -d $HOME
+          unzip -q sonar-scanner.zip -d $HOME
+          rm -f sonar-scanner.zip
           echo "$HOME/sonar-scanner-5.0.1.3006/bin" >> $GITHUB_PATH
 
       - name: Run SonarScanner
@@ -118,25 +138,41 @@ jobs:
             -Dsonar.qualitygate.wait=false
 
       - name: Export SonarCloud Report
+        if: always()
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
         run: |
-          curl -u "$SONAR_TOKEN:" \
+          curl -s -u "$SONAR_TOKEN:" \
             "https://sonarcloud.io/api/issues/search?projectKeys=$SONAR_PROJECT_KEY&statuses=OPEN,REOPENED&ps=500" \
             -o sonar-report.json
 
       - name: Convert SonarCloud JSON to HTML Table
+        if: always()
         run: |
           echo "<html><body>" > sonar-summary.html
           echo "<h2>SonarCloud Active Issues Report</h2>" >> sonar-summary.html
           echo "<table border='1' cellpadding='5' cellspacing='0' style='border-collapse: collapse; font-family: sans-serif;'>" >> sonar-summary.html
           echo "<tr style='background-color: #f2f2f2;'><th>Rule</th><th>Message</th><th>Severity</th><th>File</th><th>Line</th><th>Action</th></tr>" >> sonar-summary.html
-          jq -r '.issues[] | "<tr><td>\(.rule)</td><td>\(.message)</td><td>\(.severity)</td><td>\(.component)</td><td>\(.line // "N/A")</td><td><a href=\"https://sonarcloud.io/project/issues?id=\(.project)&issues=\(.key)\">View Issue</a></td></tr>"' sonar-report.json >> sonar-summary.html
+          
+          if jq -e '.issues | length > 0' sonar-report.json >/dev/null 2>&1; then
+            jq -r '.issues[] | "<tr><td>\(.rule)</td><td>\(.message)</td><td>\(.severity)</td><td>\(.component)</td><td>\(.line // "N/A")</td><td><a href=\"https://sonarcloud.io/project/issues?id=\(.project)&issues=\(.key)\">View Issue</a></td></tr>"' sonar-report.json >> sonar-summary.html
+          else
+            echo "<tr><td colspan='6'>No active open or reopened issues found.</td></tr>" >> sonar-summary.html
+          fi
+
           echo "</table>" >> sonar-summary.html
           echo "</body></html>" >> sonar-summary.html
 
+      - name: Upload SonarCloud Summary Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonar-summary-report
+          path: sonar-summary.html
+
       - name: Email SonarCloud Report
+        if: always()
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
@@ -148,13 +184,14 @@ jobs:
           from: ${{ secrets.EMAIL_USER }}
           body: |
             SonarCloud analysis completed.
-            Summary: see attached report.
+            Summary: see attached report or check workflow artifacts.
           attachments: sonar-summary.html
 
   trivy-img:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
       - name: Build Docker Image
         run: docker build -t resume-matcher:local .
@@ -173,7 +210,15 @@ jobs:
           ignore-unfixed: true
           vuln-type: os,library
 
+      - name: Upload Trivy Image Report Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-img-report
+          path: trivy-img-report.html
+
       - name: Email Trivy Image Report
+        if: always()
         uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
@@ -185,5 +230,5 @@ jobs:
           from: ${{ secrets.EMAIL_USER }}
           body: |
             Trivy image scan completed.
-            Summary: see attached report.
+            Summary: see attached report or check workflow artifacts.
           attachments: trivy-img-report.html
