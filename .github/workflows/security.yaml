@@ -11,10 +11,10 @@ jobs:
   owasp:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@v4
 
       - name: Cache OWASP DB
-        uses: actions/cache@d4323d455462f9ec6911e5e23f22b0f44193c46e # v4.2.3
+        uses: actions/cache@v4
         with:
           path: $HOME/.dependency-check/data
           key: owasp-db
@@ -37,7 +37,7 @@ jobs:
             --disableOssIndex
 
       - name: Email OWASP Report
-        uses: dawidd6/action-send-mail@1015f3337a288924151740d5b4308ef6186a1005 # v3.15.0
+        uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
           server_port: 465
@@ -54,14 +54,14 @@ jobs:
   trivy-fs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@v4
 
       - name: Download Trivy HTML Template
         run: |
           curl -sSLf https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl -o html.tpl
 
       - name: Run Trivy FS Scan
-        uses: aquasecurity/trivy-action@ed142fd8eebe1c3e34b11f6c449c251407e3bc57 # v0.36.0
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           scan-type: fs
           format: template
@@ -71,7 +71,7 @@ jobs:
           vuln-type: os,library
 
       - name: Email Trivy FS Report
-        uses: dawidd6/action-send-mail@1015f3337a288924151740d5b4308ef6186a1005 # v3.15.0
+        uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
           server_port: 465
@@ -88,10 +88,10 @@ jobs:
   sonarcloud:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@v4
 
       - name: Set up JDK 21
-        uses: actions/setup-java@3a4e216238b69389e13dccf5f743ee80f08e43e2 # v4.7.0
+        uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '21'
@@ -137,7 +137,7 @@ jobs:
           echo "</body></html>" >> sonar-summary.html
 
       - name: Email SonarCloud Report
-        uses: dawidd6/action-send-mail@1015f3337a288924151740d5b4308ef6186a1005 # v3.15.0
+        uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
           server_port: 465
@@ -154,7 +154,7 @@ jobs:
   trivy-img:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/checkout@v4
 
       - name: Build Docker Image
         run: docker build -t resume-matcher:local .
@@ -164,7 +164,7 @@ jobs:
           curl -sSLf https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl -o html.tpl
 
       - name: Run Trivy Image Scan
-        uses: aquasecurity/trivy-action@ed142fd8eebe1c3e34b11f6c449c251407e3bc57 # v0.36.0
+        uses: aquasecurity/trivy-action@0.28.0
         with:
           image-ref: resume-matcher:local
           format: template
@@ -174,7 +174,7 @@ jobs:
           vuln-type: os,library
 
       - name: Email Trivy Image Report
-        uses: dawidd6/action-send-mail@1015f3337a288924151740d5b4308ef6186a1005 # v3.15.0
+        uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
           server_port: 465
