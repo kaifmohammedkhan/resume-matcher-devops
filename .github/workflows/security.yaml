@@ -195,7 +195,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Build Docker Image
-        run: docker build -t resume-matcher:local .
+        run: docker build --pull --no-cache -t resume-matcher:local .
 
       - name: Download Trivy HTML Template
         run: |
