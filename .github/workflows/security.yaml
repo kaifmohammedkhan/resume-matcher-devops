@@ -71,14 +71,15 @@ jobs:
           curl -sSLf https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl -o html.tpl
 
       - name: Run Trivy FS Scan
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.29.0
         with:
-          scan-type: fs
-          format: template
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'template'
           template: '@html.tpl'
-          output: trivy-fs-report.html
+          output: 'trivy-fs-report.html'
           ignore-unfixed: true
-          vuln-type: os,library
+          vuln-type: 'os,library'
 
       - name: Upload Trivy FS Report Artifact
         if: always()
@@ -201,14 +202,14 @@ jobs:
           curl -sSLf https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl -o html.tpl
 
       - name: Run Trivy Image Scan
-        uses: aquasecurity/trivy-action@v0.28.0
+        uses: aquasecurity/trivy-action@v0.29.0
         with:
-          image-ref: resume-matcher:local
-          format: template
+          image-ref: 'resume-matcher:local'
+          format: 'template'
           template: '@html.tpl'
-          output: trivy-img-report.html
+          output: 'trivy-img-report.html'
           ignore-unfixed: true
-          vuln-type: os,library
+          vuln-type: 'os,library'
 
       - name: Upload Trivy Image Report Artifact
         if: always()
