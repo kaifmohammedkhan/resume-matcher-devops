@@ -11,7 +11,7 @@
   },
   "dependencies": {
     "@xenova/transformers": "^2.0.1",
-    "axios": "^1.15.0",
+    "axios": "^1.18.0",
     "better-sqlite3": "^11.10.0",
     "clsx": "^2.1.1",
     "dotenv": "^16.4.7",
@@ -21,14 +21,14 @@
     "framer-motion": "^12.6.0",
     "helmet": "^8.0.1",
     "lucide-react": "^0.477.0",
-    "morgan": "^1.10.0",
+    "morgan": "^1.11.0",
     "pdfjs-dist": "^4.10.38",
     "pg": "^8.13.3",
     "prom-client": "^15.1.0",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-icons": "^5.5.0",
-    "react-router-dom": "^7.2.0",
+    "react-router-dom": "^7.18.0",
     "tailwind-merge": "^3.3.0",
     "underscore": "1.13.8"
   },
@@ -42,11 +42,17 @@
     "vite": "^6.3.0"
   },
   "overrides": {
-    "protobufjs": "^7.2.5",
+    "protobufjs": "^7.6.5",
     "lodash": "^4.18.0",
     "cross-spawn": "7.0.5",
     "glob": "11.1.0",
     "minimatch": "10.2.3",
-    "tar": "7.5.11"
+    "tar": "7.5.11",
+    "sharp": "^0.35.0",
+    "axios": "^1.18.0",
+    "react-router": "^7.18.0",
+    "form-data": "^4.0.6",
+    "body-parser": "^1.20.6",
+    "qs": "^6.15.2"
   }
 }
