@@ -188,29 +188,63 @@ jobs:
             Summary: see attached report or check workflow artifacts.
           attachments: sonar-summary.html
 
-  trivy-img:
+    trivy-img:
     runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
 
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Pull Latest Distroless Runtime
+        run: |
+          docker pull gcr.io/distroless/nodejs20-debian12:latest
+
       - name: Build Docker Image
-        run: docker build --pull --no-cache -t resume-matcher:local .
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          pull: true
+          no-cache: true
+          provenance: false
+          sbom: false
+          tags: resume-matcher:local
+
+      - name: Display Image Information
+        run: |
+          echo "===== IMAGE ====="
+          docker images resume-matcher:local
+
+          echo
+          echo "===== HISTORY ====="
+          docker history resume-matcher:local
+
+          echo
+          echo "===== INSPECT ====="
+          docker image inspect resume-matcher:local
 
       - name: Download Trivy HTML Template
         run: |
-          curl -sSLf https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl -o html.tpl
+          curl -sSLf \
+            https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl \
+            -o html.tpl
 
       - name: Run Trivy Image Scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          scan-type: 'image'
-          image-ref: 'resume-matcher:local'
-          format: 'template'
-          template: '@html.tpl'
-          output: 'trivy-img-report.html'
+          scan-type: image
+          image-ref: resume-matcher:local
+          format: template
+          template: "@html.tpl"
+          output: trivy-img-report.html
           ignore-unfixed: true
-          vuln-type: 'os,library'
+          vuln-type: os,library
 
       - name: Upload Trivy Image Report Artifact
         if: always()
@@ -232,5 +266,12 @@ jobs:
           from: ${{ secrets.EMAIL_USER }}
           body: |
             Trivy image scan completed.
-            Summary: see attached report or check workflow artifacts.
+
+            Build configuration:
+              • Docker Buildx
+              • Pull latest base images
+              • No build cache
+              • Distroless runtime
+
+            See attached report or workflow artifacts for details.
           attachments: trivy-img-report.html
