@@ -86,13 +86,20 @@ RUN npm config set registry https://registry.npmjs.org/ && \
       --progress=false
 
 # ========================================================
-# Stage 4: Distroless Runtime
+# Stage 4: Runtime
 # ========================================================
-FROM gcr.io/distroless/nodejs20-debian12:latest
+FROM node:20-bookworm-slim
 
 WORKDIR /app
 
 ENV NODE_ENV=production
+
+# Apply latest Debian security updates to the runtime image
+RUN apt-get update && \
+    apt-get dist-upgrade -y && \
+    apt-get autoremove -y && \
+    apt-get clean && \
+    rm -rf /var/lib/apt/lists/*
 
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
@@ -103,6 +110,9 @@ COPY --from=builder /app/lib ./lib
 COPY --from=builder /app/uploads ./uploads
 COPY --from=builder /app/logs ./logs
 
+# Run as the non-root "node" user provided by the official Node image
+USER node
+
 EXPOSE 3000
 
-CMD ["server.js"]
+CMD ["node", "server.js"]
