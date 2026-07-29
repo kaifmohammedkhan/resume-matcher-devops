@@ -234,4 +234,6 @@ jobs:
         with:
           scan-type: image
           image-ref: resume-matcher:local
-          format
+          format: template
+          template: "@html.tpl"
+          output: tr
