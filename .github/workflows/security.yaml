@@ -203,7 +203,7 @@ jobs:
             <p>See attached report or workflow artifacts for full details.</p>
           attachments: sonar-summary.html
 
-    trivy-img:
+  trivy-img:
     runs-on: ubuntu-latest
     permissions:
       contents: read
