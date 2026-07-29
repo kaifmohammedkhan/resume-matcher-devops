@@ -188,12 +188,10 @@ jobs:
             Summary: see attached report or check workflow artifacts.
           attachments: sonar-summary.html
 
-    trivy-img:
+  trivy-img:
     runs-on: ubuntu-latest
-
     permissions:
       contents: read
-
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -236,42 +234,4 @@ jobs:
             -o html.tpl
 
       - name: Run Trivy Image Scan
-        uses: aquasecurity/trivy-action@v0.36.0
-        with:
-          scan-type: image
-          image-ref: resume-matcher:local
-          format: template
-          template: "@html.tpl"
-          output: trivy-img-report.html
-          ignore-unfixed: true
-          vuln-type: os,library
-
-      - name: Upload Trivy Image Report Artifact
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: trivy-img-report
-          path: trivy-img-report.html
-
-      - name: Email Trivy Image Report
-        if: always()
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 465
-          username: ${{ secrets.EMAIL_USER }}
-          password: ${{ secrets.EMAIL_PASS }}
-          subject: Trivy Image Report - Resume Matcher
-          to: ${{ secrets.EMAIL_USER }}
-          from: ${{ secrets.EMAIL_USER }}
-          body: |
-            Trivy image scan completed.
-
-            Build configuration:
-              • Docker Buildx
-              • Pull latest base images
-              • No build cache
-              • Distroless runtime
-
-            See attached report or workflow artifacts for details.
-          attachments: trivy-img-report.html
+        uses: aquasecurity/trivy-action@v0.
