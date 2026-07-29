@@ -106,12 +106,6 @@ jobs:
             <p>See attached report or workflow artifacts for full details.</p>
           attachments: trivy-fs-report.html
 
-  sonarcloud:
-    runs-on: ubuntu-latest
-    steps:
-      # (unchanged, already sending HTML summary)
-      ...
-
   trivy-img:
     runs-on: ubuntu-latest
     permissions:
