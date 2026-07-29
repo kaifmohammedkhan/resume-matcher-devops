@@ -45,6 +45,10 @@ jobs:
           name: owasp-dependency-check-report
           path: dependency-check-report.html
 
+      - name: Send Email
+        if: always()
+        run: sleep $((1 + RANDOM % 5))
+
       - name: Email OWASP Report
         if: always()
         uses: dawidd6/action-send-mail@v4
@@ -63,8 +67,6 @@ jobs:
           attachments: dependency-check-report.html
 
   trivy-fs:
-    needs: [owasp]
-    if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -92,6 +94,10 @@ jobs:
           name: trivy-fs-report
           path: trivy-fs-report.html
 
+      - name: Send Email
+        if: always()
+        run: sleep $((1 + RANDOM % 5))
+
       - name: Email Trivy FS Report
         if: always()
         uses: dawidd6/action-send-mail@v4
@@ -110,8 +116,6 @@ jobs:
           attachments: trivy-fs-report.html
 
   sonarcloud:
-    needs: [trivy-fs]
-    if: always()
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -178,6 +182,10 @@ jobs:
           name: sonar-summary-report
           path: sonar-summary.html
 
+      - name: Send Email
+        if: always()
+        run: sleep $((1 + RANDOM % 5))
+
       - name: Email SonarCloud Report
         if: always()
         uses: dawidd6/action-send-mail@v4
@@ -195,12 +203,11 @@ jobs:
             <p>See attached report or workflow artifacts for full details.</p>
           attachments: sonar-summary.html
 
-  trivy-img:
-    needs: [sonarcloud]
-    if: always()
+    trivy-img:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -221,16 +228,82 @@ jobs:
 
       - name: Display Image Information
         run: |
+          echo "===== IMAGES ====="
           docker images resume-matcher:local
+
+          echo
+          echo "===== HISTORY ====="
           docker history resume-matcher:local
+
+          echo
+          echo "===== INSPECT ====="
           docker image inspect resume-matcher:local
 
+      - name: Verify Packages Inside Image
+        run: |
+          docker run --rm --entrypoint sh resume-matcher:local -c '
+            echo "===== NODE VERSION ====="
+            node -v
+
+            echo
+            echo "===== APP CONTENTS ====="
+            ls -la /app
+
+            echo
+            echo "===== NODE_MODULES EXISTS ====="
+            ls -ld /app/node_modules
+
+            echo
+            echo "===== PACKAGE VERSIONS ====="
+
+            for pkg in \
+              minimatch \
+              glob \
+              brace-expansion \
+              cross-spawn \
+              tar \
+              react-router \
+              @sigstore/core \
+              sigstore
+            do
+              if [ -f "/app/node_modules/$pkg/package.json" ]; then
+                echo
+                echo "$pkg"
+                cat "/app/node_modules/$pkg/package.json" | grep "\"version\""
+              else
+                echo
+                echo "$pkg : NOT INSTALLED"
+              fi
+            done
+
+            echo
+            echo "===== SEARCH FOR TAR ====="
+            find /app/node_modules -type d -name tar | head -20 || true
+
+            echo
+            echo "===== SEARCH FOR MINIMATCH ====="
+            find /app/node_modules -type d -name minimatch | head -20 || true
+
+            echo
+            echo "===== SEARCH FOR BRACE-EXPANSION ====="
+            find /app/node_modules -type d -name brace-expansion | head -20 || true
+          '
+
+      - name: Show Trivy Version
+        run: |
+          trivy --version || true
+
       - name: Download Trivy HTML Template
-        run: curl -sSLf https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl -o html.tpl
+        run: |
+          curl -sSLf \
+            https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl \
+            -o html.tpl
 
       - name: Run Trivy Image Scan
         continue-on-error: true
         uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          TRIVY_DEBUG: "true"
         with:
           scan-type: image
           image-ref: resume-matcher:local
@@ -246,6 +319,10 @@ jobs:
         with:
           name: trivy-img-report
           path: trivy-img-report.html
+
+      - name: Send Email
+        if: always()
+        run: sleep $((1 + RANDOM % 5))
 
       - name: Email Trivy Image Report
         if: always()
