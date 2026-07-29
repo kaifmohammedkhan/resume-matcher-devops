@@ -19,7 +19,6 @@ RUN npm config set registry https://registry.npmjs.org/ && \
     npm config set fetch-retries 10 && \
     npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retry-maxtimeout 120000 && \
-    npm install -g npm@11 && \
     npm ci \
       --include=optional \
       --legacy-peer-deps \
@@ -77,7 +76,6 @@ RUN npm config set registry https://registry.npmjs.org/ && \
     npm config set fetch-retries 10 && \
     npm config set fetch-retry-mintimeout 20000 && \
     npm config set fetch-retry-maxtimeout 120000 && \
-    npm install -g npm@11 && \
     npm ci \
       --omit=dev \
       --include=optional \
@@ -94,7 +92,7 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-# Apply latest Debian security updates to the runtime image
+# Apply latest Debian security updates
 RUN apt-get update && \
     apt-get dist-upgrade -y && \
     apt-get autoremove -y && \
@@ -110,7 +108,6 @@ COPY --from=builder /app/lib ./lib
 COPY --from=builder /app/uploads ./uploads
 COPY --from=builder /app/logs ./logs
 
-# Run as the non-root "node" user provided by the official Node image
 USER node
 
 EXPOSE 3000
