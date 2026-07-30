@@ -46,9 +46,10 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: `Method ${req.method} Not Allowed` });
   }
 
+  // Explicitly restrict uploads to memory only
   const form = formidable({
     multiples: false,
-    // Restrict uploads to memory only
+    uploadDir: undefined, // no disk writes
     fileWriteStreamHandler: () => {
       const chunks = [];
       const writable = new Writable({
