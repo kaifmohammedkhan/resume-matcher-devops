@@ -1,3 +1,9 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: resume-matcher-sa
+automountServiceAccountToken: false
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -14,18 +20,28 @@ spec:
       labels:
         app: resume-matcher-ghcr
     spec:
+      serviceAccountName: resume-matcher-sa
+      automountServiceAccountToken: false
+
       imagePullSecrets:
         - name: ghcr-secret
+
       initContainers:
         - name: wait-for-db
           image: postgres:15
-          command: ['sh', '-c', 'until pg_isready -h postgres -p 5432; do echo waiting for db; sleep 2; done;']
+          command:
+            - sh
+            - -c
+            - until pg_isready -h postgres -p 5432; do echo waiting for db; sleep 2; done;
+
       containers:
         - name: resume-matcher-ghcr
           image: ghcr.io/kaifmohammedkhan/resume-matcher-devops:latest
           imagePullPolicy: Always
+
           ports:
             - containerPort: 3000
+
           env:
             - name: GOOGLE_API_KEY
               valueFrom:
@@ -52,6 +68,7 @@ spec:
                 secretKeyRef:
                   name: db-secret
                   key: POSTGRES_DB
+
           volumeMounts:
             - name: uploads
               mountPath: /app/uploads
@@ -60,22 +77,27 @@ spec:
             - name: config-volume
               mountPath: /app/config
               readOnly: true
+
           resources:
             requests:
               cpu: "100m"
               memory: "128Mi"
+              ephemeral-storage: "512Mi"
             limits:
               cpu: "500m"
               memory: "512Mi"
-          readinessProbe:        # ✅ ALB health check alignment
+              ephemeral-storage: "1Gi"
+
+          readinessProbe:
             httpGet:
               path: /
               port: 3000
-            initialDelaySeconds: 20   # allow DB seeding
+            initialDelaySeconds: 20
             periodSeconds: 5
             timeoutSeconds: 3
             failureThreshold: 3
-          livenessProbe:         # ✅ Restart if app hangs
+
+          livenessProbe:
             httpGet:
               path: /
               port: 3000
@@ -83,11 +105,14 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 3
             failureThreshold: 5
+
       volumes:
         - name: uploads
           emptyDir: {}
+
         - name: logs
           emptyDir: {}
+
         - name: config-volume
           configMap:
             name: resume-config

@@ -9,7 +9,9 @@ metadata:
 type: Opaque
 stringData:
   DB_USER: resume
-  DB_PASSWORD: resume123
+  # DB_PASSWORD is injected at deploy time, not hard-coded
+  # Example: kubectl create secret generic db-secret --from-literal=DB_PASSWORD=$(openssl rand -base64 20)
+  DB_PASSWORD: ""
   DB_NAME: resume_db
 ---
 apiVersion: v1
@@ -19,6 +21,21 @@ metadata:
   namespace: default
 data:
   DB_TYPE: postgres
+---
+# -------------------------
+# PostgreSQL PVC
+# -------------------------
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgres-pvc
+  namespace: default
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 1Gi
 ---
 # -------------------------
 # PostgreSQL Deployment + Service
@@ -38,6 +55,7 @@ spec:
       labels:
         app: db
     spec:
+      automountServiceAccountToken: false
       containers:
         - name: postgres
           image: postgres:15
@@ -59,12 +77,20 @@ spec:
                 secretKeyRef:
                   name: db-secret
                   key: DB_NAME
+          resources:
+            requests:
+              cpu: "200m"
+              memory: "256Mi"
+            limits:
+              cpu: "1"
+              memory: "1Gi"
           volumeMounts:
             - name: pgdata
               mountPath: /var/lib/postgresql/data
       volumes:
         - name: pgdata
-          emptyDir: {}
+          persistentVolumeClaim:
+            claimName: postgres-pvc
 ---
 apiVersion: v1
 kind: Service
@@ -100,6 +126,7 @@ spec:
       labels:
         app: resume-matcher
     spec:
+      automountServiceAccountToken: false
       containers:
         - name: resume-matcher
           image: kaifmohammedkhan123/resume-matcher-devops

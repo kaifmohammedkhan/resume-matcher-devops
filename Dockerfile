@@ -16,7 +16,8 @@ RUN npm config set registry https://registry.npmjs.org/ && \
       --include=optional \
       --legacy-peer-deps \
       --no-audit \
-      --progress=false
+      --progress=false \
+      --ignore-scripts
 
 # ========================================================
 # Stage 2: Build Application
@@ -32,9 +33,9 @@ COPY . .
 
 # Install correct Rollup native binary (pinned version)
 RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
-      npm install --no-save @rollup/rollup-linux-arm64-gnu@4.62.3; \
+      npm install --no-save --ignore-scripts @rollup/rollup-linux-arm64-gnu@4.62.3; \
     else \
-      npm install --no-save @rollup/rollup-linux-x64-gnu@4.62.3; \
+      npm install --no-save --ignore-scripts @rollup/rollup-linux-x64-gnu@4.62.3; \
     fi
 
 RUN npm run build
@@ -60,7 +61,8 @@ RUN npm config set registry https://registry.npmjs.org/ && \
       --include=optional \
       --legacy-peer-deps \
       --no-audit \
-      --progress=false
+      --progress=false \
+      --ignore-scripts
 
 # ========================================================
 # Stage 4: Runtime
