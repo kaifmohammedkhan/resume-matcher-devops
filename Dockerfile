@@ -32,9 +32,9 @@ COPY . .
 
 # Install correct Rollup native binary (pinned version)
 RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
-      npm install --no-save @rollup/rollup-linux-arm64-gnu@latest; \
+      npm install --no-save @rollup/rollup-linux-arm64-gnu@4.62.3; \
     else \
-      npm install --no-save @rollup/rollup-linux-x64-gnu@latest; \
+      npm install --no-save @rollup/rollup-linux-x64-gnu@4.62.3; \
     fi
 
 RUN npm run build

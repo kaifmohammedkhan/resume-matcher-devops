@@ -1,7 +1,6 @@
 import { Writable } from 'node:stream';
 import { formidable } from 'formidable'; 
 import path from 'node:path';
-import fs from 'node:fs';
 import { scrapeGoogleJobs } from '../lib/scrapeGoogleJobs.js';
 import { extractResumeText } from '../lib/extractResumeText.js';
 import { scoreJobs } from '../lib/semanticMatch.js';
@@ -49,6 +48,7 @@ export default async function handler(req, res) {
 
   const form = formidable({
     multiples: false,
+    // Restrict uploads to memory only
     fileWriteStreamHandler: () => {
       const chunks = [];
       const writable = new Writable({
