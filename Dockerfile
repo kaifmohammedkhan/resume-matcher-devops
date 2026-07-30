@@ -5,13 +5,6 @@ FROM node:20-bookworm-slim AS deps
 
 WORKDIR /app
 
-# Apply latest Debian security updates
-RUN apt-get update && \
-    apt-get dist-upgrade -y && \
-    apt-get autoremove -y && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
 COPY package.json package-lock.json* ./
 
 # Configure npm for reliable installs
@@ -34,21 +27,14 @@ ARG TARGETPLATFORM
 
 WORKDIR /app
 
-# Apply latest Debian security updates
-RUN apt-get update && \
-    apt-get dist-upgrade -y && \
-    apt-get autoremove -y && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
-
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Install correct Rollup native binary
+# Install correct Rollup native binary (pinned version)
 RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
-      npm install --no-save @rollup/rollup-linux-arm64-gnu; \
+      npm install --no-save @rollup/rollup-linux-arm64-gnu@latest; \
     else \
-      npm install --no-save @rollup/rollup-linux-x64-gnu; \
+      npm install --no-save @rollup/rollup-linux-x64-gnu@latest; \
     fi
 
 RUN npm run build
@@ -62,13 +48,6 @@ RUN mkdir -p /app/uploads /app/logs
 FROM node:20-bookworm-slim AS prod-deps
 
 WORKDIR /app
-
-# Apply latest Debian security updates
-RUN apt-get update && \
-    apt-get dist-upgrade -y && \
-    apt-get autoremove -y && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
 
 COPY package.json package-lock.json* ./
 
@@ -86,13 +65,13 @@ RUN npm config set registry https://registry.npmjs.org/ && \
 # ========================================================
 # Stage 4: Runtime
 # ========================================================
-FROM node:20-bookworm-slim
+FROM node:20-bookworm-slim AS runtime
 
 WORKDIR /app
 
 ENV NODE_ENV=production
 
-# Apply latest Debian security updates
+# Apply latest Debian security updates only here
 RUN apt-get update && \
     apt-get dist-upgrade -y && \
     apt-get autoremove -y && \

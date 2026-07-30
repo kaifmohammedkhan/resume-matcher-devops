@@ -10,6 +10,9 @@ on:
 jobs:
   sonarcloud:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read   # restrict default GITHUB_TOKEN permissions
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -20,11 +23,17 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      - name: Install SonarScanner CLI
+      - name: Install SonarScanner CLI (secure)
         run: |
-          curl -sSLf https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006.zip -o sonar-scanner.zip
+          curl --proto '=https' --tlsv1.2 -sSLf \
+            https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006.zip \
+            -o sonar-scanner.zip
+          curl --proto '=https' --tlsv1.2 -sSLf \
+            https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006.zip.sha256 \
+            -o sonar-scanner.zip.sha256
+          sha256sum -c sonar-scanner.zip.sha256
           unzip -q sonar-scanner.zip -d $HOME
-          rm -f sonar-scanner.zip
+          rm -f sonar-scanner.zip sonar-scanner.zip.sha256
           echo "$HOME/sonar-scanner-5.0.1.3006/bin" >> $GITHUB_PATH
 
       - name: Run SonarScanner
@@ -49,7 +58,7 @@ jobs:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
         run: |
-          curl -s -u "$SONAR_TOKEN:" \
+          curl --proto '=https' --tlsv1.2 -s -u "$SONAR_TOKEN:" \
             "https://sonarcloud.io/api/issues/search?projectKeys=$SONAR_PROJECT_KEY&statuses=OPEN,REOPENED&ps=500" \
             -o sonar-report.json
 
@@ -75,13 +84,13 @@ jobs:
           name: sonar-summary-report
           path: sonar-summary.html
 
-      - name: Send Email
+      - name: Send Email (delay)
         if: always()
         run: sleep $((1 + RANDOM % 5))
 
       - name: Email SonarCloud Report
         if: always()
-        uses: dawidd6/action-send-mail@v4
+        uses: dawidd6/action-send-mail@611879133a9569642c41be66f4a323286e9b8a3b
         with:
           server_address: smtp.gmail.com
           server_port: 465
@@ -95,4 +104,3 @@ jobs:
             <h2>SonarCloud analysis completed</h2>
             <p>See attached report or workflow artifacts for full details.</p>
           attachments: sonar-summary.html
-

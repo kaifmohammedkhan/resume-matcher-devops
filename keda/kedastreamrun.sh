@@ -8,7 +8,7 @@ sleep 2
 echo "----------------------------------------"
 # Step 1: Create the Stream
 echo "➡️ Step 1: Creating NATS Stream 'RESUMES'..."
-nats stream add RESUMES \
+if ! nats stream add RESUMES \
   --subjects "RESUMES.*" \
   --storage memory \
   --retention limits \
@@ -18,9 +18,7 @@ nats stream add RESUMES \
   --max-msg-size=-1 \
   --discard old \
   --dupe-window 2m \
-  --server="$NATS_SERVER"
-
-if [ $? -ne 0 ]; then
+  --server="$NATS_SERVER"; then
     echo "❌ Error: Step 1 failed! Could not create stream 'RESUMES'."
     exit 1
 fi
@@ -30,15 +28,13 @@ echo "----------------------------------------"
 
 # Step 2: Create the Consumer
 echo "➡️ Step 2: Creating Pull Consumer 'resume-parser'..."
-nats consumer add RESUMES resume-parser \
+if ! nats consumer add RESUMES resume-parser \
   --pull \
   --deliver all \
   --ack explicit \
   --replay instant \
   --max-deliver=-1 \
-  --server="$NATS_SERVER"
-
-if [ $? -ne 0 ]; then
+  --server="$NATS_SERVER"; then
     echo "❌ Error: Step 2 failed! Could not create consumer 'resume-parser'."
     exit 1
 fi
@@ -50,8 +46,7 @@ echo "----------------------------------------"
 echo "➡️ Step 3: Publishing 10 test messages..."
 for i in {1..10}
 do
-   nats pub RESUMES.test "hello message $i" --server="$NATS_SERVER"
-   if [ $? -ne 0 ]; then
+   if ! nats pub RESUMES.test "hello message $i" --server="$NATS_SERVER"; then
        echo "❌ Error: Failed to publish message $i. Stopping loop."
        exit 1
    fi
@@ -68,9 +63,7 @@ sleep 25
 echo "----------------------------------------"
 # Step 5: Automated Purge to Trigger Scale-Down
 echo "➡️ Step 5: Automatically purging NATS stream to mimic completed work..."
-nats stream purge RESUMES --server="$NATS_SERVER" -f
-
-if [ $? -ne 0 ]; then
+if ! nats stream purge RESUMES --server="$NATS_SERVER" -f; then
     echo "❌ Warning: Stream purge command failed."
 else
     echo "✅ Stream wiped successfully! Watch KEDA cleanly scale your pods back down to 1."

@@ -53,9 +53,7 @@ function Results() {
   }, [currentPage]);
 
   const hasAnyMatch = sortedJobs.length > 0;
-  const allSources = sortedJobs.map(job => job.source?.toLowerCase() || '');
-  const isLinkedInOnly = allSources.every(src => src === 'linkedin');
-  const sectionLabel = isLinkedInOnly ? 'Matched Jobs' : 'Matched Jobs';
+  const sectionLabel = 'Matched Jobs';
 
   return (
     <>
@@ -101,7 +99,7 @@ function Results() {
           <div className="text-center text-yellow-400 mb-6">
             <p className="mb-2 font-semibold">No matching jobs found.</p>
             <p className="text-sm text-gray-400">
-              This may be due to low keyword overlap or a temporary issue with job scraping.
+              Try lowering the keyword threshold or adjusting filters to broaden your search.
             </p>
             <button
               onClick={() => window.location.reload()}
@@ -119,9 +117,13 @@ function Results() {
             const matchedKeywords = normalizedKeywords.filter(k =>
               (job.job_description || job.title).toLowerCase().includes(k)
             );
-            
-            // UI Update: Prioritize Company name, fallback to source, then Unknown
+
             const sourceLabel = job.company || job.source || 'Unknown';
+            const sourceClass = job.source?.toLowerCase() === 'linkedin'
+              ? 'bg-blue-500 text-white'
+              : job.source?.toLowerCase() === 'indeed'
+              ? 'bg-purple-500 text-white'
+              : 'bg-gray-500 text-white';
 
             return (
               <motion.div
@@ -141,7 +143,9 @@ function Results() {
                 </div>
 
                 <p className="text-xs text-gray-500 mb-2">
-                  Company: <span className="font-semibold text-accent">{sourceLabel}</span>
+                  Source: <span className={`px-2 py-1 rounded-full font-semibold ${sourceClass}`}>
+                    {sourceLabel}
+                  </span>
                 </p>
 
                 <div
@@ -184,6 +188,7 @@ function Results() {
               <button
                 key={i}
                 onClick={() => setCurrentPage(i + 1)}
+                aria-label={`Go to page ${i + 1}`}
                 className={`px-3 py-1 rounded ${
                   currentPage === i + 1
                     ? 'bg-accent text-black font-bold'
@@ -201,4 +206,4 @@ function Results() {
   );
 }
 
-export default Results; 
+export default Results;

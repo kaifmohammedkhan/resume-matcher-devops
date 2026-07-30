@@ -1,7 +1,7 @@
 import express from 'express';
-import path from 'path';
-import fs, { createWriteStream } from 'fs';
-import { fileURLToPath } from 'url';
+import path from 'node:path';
+import fs, { createWriteStream } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import handler from './api/upload-resume-clean.js';
 import rateLimit from 'express-rate-limit';
