@@ -1,4 +1,22 @@
 # -------------------------
+# Service Accounts
+# -------------------------
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: postgres-sa
+  namespace: default
+automountServiceAccountToken: false
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: resume-matcher-sa
+  namespace: default
+automountServiceAccountToken: false
+
+---
+# -------------------------
 # PostgreSQL Secret + ConfigMap
 # -------------------------
 apiVersion: v1
@@ -10,7 +28,9 @@ type: Opaque
 stringData:
   DB_USER: resume
   # DB_PASSWORD is injected at deploy time, not hard-coded
-  # Example: kubectl create secret generic db-secret --from-literal=DB_PASSWORD=$(openssl rand -base64 20)
+  # Example:
+  # kubectl create secret generic db-secret \
+  #   --from-literal=DB_PASSWORD=$(openssl rand -base64 20)
   DB_PASSWORD: ""
   DB_NAME: resume_db
 ---
@@ -21,6 +41,7 @@ metadata:
   namespace: default
 data:
   DB_TYPE: postgres
+
 ---
 # -------------------------
 # PostgreSQL PVC
@@ -36,6 +57,7 @@ spec:
   resources:
     requests:
       storage: 1Gi
+
 ---
 # -------------------------
 # PostgreSQL Deployment + Service
@@ -55,42 +77,54 @@ spec:
       labels:
         app: db
     spec:
+      serviceAccountName: postgres-sa
       automountServiceAccountToken: false
+
       containers:
         - name: postgres
-          image: postgres:15
+          image: postgres:15.13
+
           ports:
             - containerPort: 5432
+
           env:
             - name: POSTGRES_USER
               valueFrom:
                 secretKeyRef:
                   name: db-secret
                   key: DB_USER
+
             - name: POSTGRES_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: db-secret
                   key: DB_PASSWORD
+
             - name: POSTGRES_DB
               valueFrom:
                 secretKeyRef:
                   name: db-secret
                   key: DB_NAME
+
           resources:
             requests:
               cpu: "200m"
               memory: "256Mi"
+              ephemeral-storage: "512Mi"
             limits:
               cpu: "1"
               memory: "1Gi"
+              ephemeral-storage: "1Gi"
+
           volumeMounts:
             - name: pgdata
               mountPath: /var/lib/postgresql/data
+
       volumes:
         - name: pgdata
           persistentVolumeClaim:
             claimName: postgres-pvc
+
 ---
 apiVersion: v1
 kind: Service
@@ -100,13 +134,16 @@ metadata:
 spec:
   selector:
     app: db
+
   ports:
     - name: postgres
       protocol: TCP
       port: 5432
       targetPort: 5432
       nodePort: 30082
+
   type: NodePort
+
 ---
 # -------------------------
 # Resume Matcher Deployment + Service
@@ -118,74 +155,98 @@ metadata:
   namespace: default
 spec:
   replicas: 2
+
   selector:
     matchLabels:
       app: resume-matcher
+
   template:
     metadata:
       labels:
         app: resume-matcher
+
     spec:
+      serviceAccountName: resume-matcher-sa
       automountServiceAccountToken: false
+
       containers:
         - name: resume-matcher
-          image: kaifmohammedkhan123/resume-matcher-devops
+
+          # Use a pinned version instead of an implicit/latest tag
+          image: ghcr.io/kaifmohammedkhan/resume-matcher-devops:sha-703771a
           imagePullPolicy: Always
+
           ports:
-            - containerPort: 3000   # app UI
-            - containerPort: 51113  # metrics endpoint
+            - containerPort: 3000
+            - containerPort: 51113
+
           env:
             - name: GOOGLE_API_KEY
               valueFrom:
                 secretKeyRef:
                   name: google-api-key
                   key: API_KEY
+
             - name: GOOGLE_CX_ID
               valueFrom:
                 secretKeyRef:
                   name: google-cx-id
                   key: CX_ID
+
             - name: DB_TYPE
               valueFrom:
                 configMapKeyRef:
                   name: resume-config
                   key: DB_TYPE
+
             - name: DB_HOST
               value: db
+
             - name: DB_PORT
               value: "5432"
+
             - name: DB_USER
               valueFrom:
                 secretKeyRef:
                   name: db-secret
                   key: DB_USER
+
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: db-secret
                   key: DB_PASSWORD
+
             - name: DB_NAME
               valueFrom:
                 secretKeyRef:
                   name: db-secret
                   key: DB_NAME
+
           resources:
             requests:
               cpu: "100m"
               memory: "128Mi"
+              ephemeral-storage: "512Mi"
             limits:
               cpu: "500m"
               memory: "512Mi"
+              ephemeral-storage: "1Gi"
+
           volumeMounts:
             - name: uploads
               mountPath: /app/uploads
+
             - name: logs
               mountPath: /app/logs
+
       volumes:
         - name: uploads
           emptyDir: {}
+
         - name: logs
           emptyDir: {}
+
 ---
 apiVersion: v1
 kind: Service
@@ -195,17 +256,21 @@ metadata:
 spec:
   selector:
     app: resume-matcher
+
   ports:
     - name: http
       protocol: TCP
       port: 3000
       targetPort: 3000
       nodePort: 30080
+
     - name: metrics
       protocol: TCP
       port: 51113
       targetPort: 51113
+
   type: NodePort
+
 ---
 # -------------------------
 # Prometheus ServiceMonitor
@@ -219,9 +284,11 @@ spec:
   selector:
     matchLabels:
       app: resume-matcher
+
   namespaceSelector:
     matchNames:
       - default
+
   endpoints:
     - port: metrics
       path: /metrics

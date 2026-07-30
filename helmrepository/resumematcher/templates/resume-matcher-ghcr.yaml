@@ -26,14 +26,20 @@ spec:
 
       initContainers:
         - name: db-migrator
-          image: postgres:15-alpine
+          image: postgres:15.13-alpine
+
           command: ["/bin/sh", "-c"]
           args:
             - |
-              until pg_isready -h {{ .Release.Name }}-db -p 5432; do echo "waiting for db..."; sleep 2; done;
+              until pg_isready -h {{ .Release.Name }}-db -p 5432; do
+                echo "waiting for db..."
+                sleep 2
+              done
+
               psql -h {{ .Release.Name }}-db -U $DB_USER -d $DB_NAME <<EOF
               ...
               EOF
+
           env:
             - name: DB_USER
               valueFrom:
@@ -53,6 +59,16 @@ spec:
             - name: PGPASSWORD
               value: "$(DB_PASSWORD)"
 
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+              ephemeral-storage: 256Mi
+            limits:
+              cpu: 200m
+              memory: 256Mi
+              ephemeral-storage: 512Mi
+
       containers:
         - name: resumematcher-service-app
           image: "{{ .Values.app.image.repository }}:{{ .Values.app.image.tag }}"
@@ -65,10 +81,10 @@ spec:
               protocol: TCP
 
           env:
-            # ... unchanged ...
+            # unchanged
 
           resources:
-            {{- toYaml .Values.app.resources | nindent 12 }}
+{{- toYaml .Values.app.resources | nindent 12 }}
 
           volumeMounts:
             - name: uploads
