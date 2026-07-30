@@ -31,6 +31,8 @@ jobs:
           curl --proto '=https' --tlsv1.2 -sSLf \
             https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006.zip.sha256 \
             -o sonar-scanner.zip.sha256
+          # Reformat checksum file to include filename
+          sed -i "s/$/  sonar-scanner.zip/" sonar-scanner.zip.sha256
           sha256sum -c sonar-scanner.zip.sha256
           unzip -q sonar-scanner.zip -d $HOME
           rm -f sonar-scanner.zip sonar-scanner.zip.sha256
