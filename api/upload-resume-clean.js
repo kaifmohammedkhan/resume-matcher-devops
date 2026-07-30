@@ -1,6 +1,7 @@
 import { Writable } from 'node:stream';
 import { formidable } from 'formidable'; 
 import path from 'node:path';
+import os from 'node:os';
 import { scrapeGoogleJobs } from '../lib/scrapeGoogleJobs.js';
 import { extractResumeText } from '../lib/extractResumeText.js';
 import { scoreJobs } from '../lib/semanticMatch.js';
@@ -12,8 +13,9 @@ export const config = { api: { bodyParser: false } };
 const normalizeText = (text) =>
   text.replace(/\s+/g, ' ').replace(/[\u0000-\u001F]+/g, '').trim();
 
+// ✅ Simplified regex: no duplicates, reduced backtracking
 const findEmail = (text) => {
-  const emailRegex = /[a-zA-Z0-9._-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/gi;
+  const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/gi;
   return text.match(emailRegex)?.[0] || null;
 };
 
@@ -22,7 +24,7 @@ const getBestName = (text, extractedName) => {
     return extractedName.trim();
   }
   let header = text.substring(0, 100);
-  const stops = ['|', '•', '·', ',', ' Hyderabad', ' India', ' kaifkhan', ' github', ' linkedin'];
+  const stops = ['|', '•', '·', ',', ' github', ' linkedin'];
   let cleanName = header;
   stops.forEach(stop => {
     const index = cleanName.toLowerCase().indexOf(stop.toLowerCase());
@@ -46,10 +48,10 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: `Method ${req.method} Not Allowed` });
   }
 
-  // Explicitly restrict uploads to memory only
+  // Restrict destination directory to OS temp folder
   const form = formidable({
     multiples: false,
-    uploadDir: undefined, // no disk writes
+    uploadDir: os.tmpdir(),
     fileWriteStreamHandler: () => {
       const chunks = [];
       const writable = new Writable({
@@ -75,10 +77,17 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Could not read uploaded file' });
     }
 
+    // ✅ Extension + MIME type validation
     const allowedExtensions = ['.pdf', '.docx', '.txt'];
+    const allowedMimes = [
+      'application/pdf',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'text/plain'
+    ];
     const fileExt = path.extname(resumeFile.originalFilename || '').toLowerCase();
-    if (!allowedExtensions.includes(fileExt)) {
-      console.error('❌ Invalid file extension:', fileExt);
+    const mimeType = resumeFile.mimetype || '';
+    if (!allowedExtensions.includes(fileExt) || !allowedMimes.includes(mimeType)) {
+      console.error('❌ Invalid file type:', fileExt, mimeType);
       return res.status(400).json({ error: 'Invalid file type. Allowed: PDF, DOCX, TXT' });
     }
 
@@ -91,7 +100,7 @@ export default async function handler(req, res) {
       resumeData = await extractResumeText(resumeBuffer);
     } catch (err) {
       console.error('❌ Resume extraction failed:', err);
-      return res.status(400).json({ error: 'Resume could not be parsed' });
+      return res.status(400).json({ stage: 'resume_extraction', error: 'Resume could not be parsed' });
     }
 
     const rawText = normalizeText(resumeData.rawText || '');
@@ -104,7 +113,7 @@ export default async function handler(req, res) {
       jobs = await scrapeGoogleJobs({ query, location, workMode });
     } catch (err) {
       console.error('❌ Job scraping failed:', err);
-      return res.status(502).json({ error: 'Failed to fetch jobs' });
+      return res.status(502).json({ stage: 'job_scraping', error: 'Failed to fetch jobs' });
     }
 
     const validJobs = jobs.filter(j => (j.job_description || '').length > 50);
@@ -114,7 +123,7 @@ export default async function handler(req, res) {
       scoredJobs = await scoreJobs(rawText, validJobs);
     } catch (err) {
       console.error('❌ Job scoring failed:', err);
-      return res.status(500).json({ error: 'Failed to score jobs' });
+      return res.status(500).json({ stage: 'job_scoring', error: 'Failed to score jobs' });
     }
 
     // 3. Metadata Extraction
@@ -151,6 +160,6 @@ export default async function handler(req, res) {
     });
   } catch (err) {
     console.error('❌ System Error:', err);
-    return res.status(500).json({ error: 'Unexpected system error' });
+    return res.status(500).json({ stage: 'system', error: 'Unexpected system error' });
   }
 }
