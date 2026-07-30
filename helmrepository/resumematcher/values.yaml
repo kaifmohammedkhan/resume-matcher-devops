@@ -1,18 +1,23 @@
 app:
   replicas: 2
+
   image:
     repository: ghcr.io/kaifmohammedkhan/resume-matcher-devops
-    tag: latest
-    pullPolicy: Always
+    tag: sha-703771a
+    pullPolicy: IfNotPresent
+
   imagePullSecrets:
     - name: ghcr-secret
+
   ports:
     http: 3000
     metrics: 51113
+
   nodePorts:
     http: 30080
     metrics: 30081
-  # Core runtime environment configuration overrides to activate natural job population
+
+  # Core runtime environment configuration overrides
   env:
     - name: APP_ENV
       value: "production"
@@ -22,38 +27,45 @@ app:
       value: "true"
     - name: ENABLE_JOB_SCRAPER
       value: "true"
+
   resources:
     requests:
       cpu: "100m"
       memory: "128Mi"
+      ephemeral-storage: "512Mi"
     limits:
       cpu: "500m"
       memory: "512Mi"
+      ephemeral-storage: "1Gi"
 
 db:
-  image: pgvector/pgvector:pg15
+  image: pgvector/pgvector:pg15-v0.8.1
   servicePort: 5432
+
   pvc:
     name: postgres-pvc
     storage: 2Gi
-    storageClass: "standard"
+    storageClass: standard
 
 secrets:
   dbSecretName: "db-secret"
+
   googleApiSecretName: "google-api-secret"
   googleCxSecretName: "google-cx-secret"
-  dbUser: "resume"
-  dbPassword: "CHANGEME"  # Placeholder
-  dbName: "resume_db"
-  googleApiKey: "CHANGEME" # Placeholder
-  googleCxId: "CHANGEME"   # Placeholder
 
+  dbUser: "resume"
+  dbPassword: "CHANGEME"      # Placeholder
+  dbName: "resume_db"
+
+  googleApiKey: "CHANGEME"    # Placeholder
+  googleCxId: "CHANGEME"      # Placeholder
 
 configmap:
   name: resume-config
   dbType: postgres
+
   initSql: |
-    DO $$ 
+    DO $$
     BEGIN
         -- Enable Vector support for semantic matching features
         CREATE EXTENSION IF NOT EXISTS vector;
@@ -82,27 +94,44 @@ configmap:
             );
         END IF;
 
-        -- [Fix Error 1] Safe guard column addition if tables pre-existed
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='resumes' AND column_name='uploaded_at') THEN
-            ALTER TABLE resumes ADD COLUMN uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_name='resumes'
+              AND column_name='uploaded_at'
+        ) THEN
+            ALTER TABLE resumes
+            ADD COLUMN uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP;
         END IF;
 
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='resumes' AND column_name='score') THEN
-            ALTER TABLE resumes ADD COLUMN score FLOAT;
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_name='resumes'
+              AND column_name='score'
+        ) THEN
+            ALTER TABLE resumes
+            ADD COLUMN score FLOAT;
         END IF;
 
-        IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='resumes' AND column_name='match_results') THEN
-            ALTER TABLE resumes ADD COLUMN match_results TEXT;
+        IF NOT EXISTS (
+            SELECT 1
+            FROM information_schema.columns
+            WHERE table_name='resumes'
+              AND column_name='match_results'
+        ) THEN
+            ALTER TABLE resumes
+            ADD COLUMN match_results TEXT;
         END IF;
     END $$;
 
-    -- [Fix Error 2] Native SQL patch to silently convert conflicting inserts to updates
     CREATE OR REPLACE RULE rw_resumes_upsert AS
     ON INSERT TO resumes
     WHERE EXISTS (SELECT 1 FROM resumes WHERE email = NEW.email)
-    DO INSTEAD 
-        UPDATE resumes 
-        SET name = NEW.name,
+    DO INSTEAD
+        UPDATE resumes
+        SET
+            name = NEW.name,
             skills = NEW.skills,
             score = NEW.score,
             match_results = NEW.match_results,

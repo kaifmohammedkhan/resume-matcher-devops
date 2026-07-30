@@ -46,7 +46,7 @@ spec:
 
       containers:
         - name: resume-matcher-ghcr
-          image: ghcr.io/kaifmohammedkhan/resume-matcher-devops:latest
+          image: ghcr.io/kaifmohammedkhan/resume-matcher-devops:sha-703771a
           imagePullPolicy: Always
 
           ports:

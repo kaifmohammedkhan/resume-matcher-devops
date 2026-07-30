@@ -22,7 +22,7 @@ spec:
           command: ['sh', '-c', 'until pg_isready -h db -p 5432; do echo waiting for db; sleep 2; done;']
       containers:
         - name: resume-matcher-ghcr
-          image: ghcr.io/kaifmohammedkhan/resume-matcher-devops:latest
+          image: ghcr.io/kaifmohammedkhan/resume-matcher-devops:sha-703771a
           imagePullPolicy: Always
           ports:
             - containerPort: 3000

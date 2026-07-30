@@ -11,7 +11,7 @@ spec:
         - name: ghcr-secret   # reference the secret
       containers:
         - name: resume-matcher-ghcr
-          image: ghcr.io/kaifmohammedkhan/resume-matcher-devops:latest
+          image: ghcr.io/kaifmohammedkhan/resume-matcher-devops:sha-703771a
           resources:
             requests:
               cpu: "50m"
