@@ -3,7 +3,7 @@ export function extractKeywords(text) {
 
   const normalizedText = lowerText
     .replace(/[\r\n]+/g, ' ')
-    .replace(/[_\/-]/g, ' ')
+    .replace(new RegExp('[_/-]', 'g'), ' ')
     .replace(/[.,;:!?(){}[\]]+/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
