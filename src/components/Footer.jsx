@@ -8,6 +8,7 @@ export default function Footer() {
       </p>
 
       <button
+        type="button"
         onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}
         className="inline-flex items-center gap-1 text-accent hover:text-yellow-300 transition"
       >

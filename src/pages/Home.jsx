@@ -82,8 +82,11 @@ export default function Home() {
           <h2 className="text-3xl font-bold text-accent mb-2">Resume to Active Roles</h2>
           <p className="text-sm text-gray-400 mb-6">Upload your resume to find matching jobs.</p>
 
-          <label className="block text-sm text-gray-300 mb-2">Choose your PDF resume.</label>
+          <label htmlFor="resume-upload" className="block text-sm text-gray-300 mb-2">
+            Choose your PDF resume.
+          </label>
           <input
+            id="resume-upload"
             type="file"
             accept=".pdf,.docx,.txt"
             onChange={handleFileUpload}
@@ -94,8 +97,11 @@ export default function Home() {
             {fileName ? `Selected: ${fileName}` : 'No file chosen'}
           </p>
 
-          <label className="block text-sm text-gray-300 mb-2">Search Location</label>
+          <label htmlFor="search-location" className="block text-sm text-gray-300 mb-2">
+            Search Location
+          </label>
           <select
+            id="search-location"
             value={location}
             onChange={(e) => setLocation(e.target.value)}
             className="w-full bg-dark border border-gray-600 text-white px-4 py-2 rounded mb-4"
@@ -104,8 +110,11 @@ export default function Home() {
             <option value="India">India</option>
           </select>
 
-          <label className="block text-sm text-gray-300 mb-2">Work Mode</label>
+          <label htmlFor="work-mode" className="block text-sm text-gray-300 mb-2">
+            Work Mode
+          </label>
           <select
+            id="work-mode"
             value={workMode}
             onChange={(e) => setWorkMode(e.target.value)}
             className="w-full bg-dark border border-gray-600 text-white px-4 py-2 rounded mb-6"
@@ -117,6 +126,7 @@ export default function Home() {
           </select>
 
           <button
+            type="button"
             disabled={loading || !file}
             onClick={handleMatch}
             className="w-full flex items-center justify-center gap-2 bg-accent text-black px-4 py-2 rounded-full font-bold hover:bg-yellow-300 transition"

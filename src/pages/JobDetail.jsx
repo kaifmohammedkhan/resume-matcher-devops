@@ -64,7 +64,7 @@ export default function JobDetail() {
   const {
     title = 'Untitled Role',
     description = 'No description available.',
-    url = '#',   // ✅ use url instead of link
+    url = '#',
     source = 'External Site'
   } = job;
 
@@ -95,6 +95,7 @@ export default function JobDetail() {
           </a>
         ) : (
           <button
+            type="button"
             disabled
             className="bg-gray-500 text-dark px-4 py-2 rounded font-bold text-sm cursor-not-allowed"
           >

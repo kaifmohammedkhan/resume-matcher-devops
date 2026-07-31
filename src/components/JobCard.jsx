@@ -31,6 +31,7 @@ export default function JobCard({ job }) {
           </a>
         ) : (
           <button
+            type="button"
             disabled
             className="bg-gray-500 text-dark px-4 py-2 rounded font-semibold text-sm cursor-not-allowed"
           >

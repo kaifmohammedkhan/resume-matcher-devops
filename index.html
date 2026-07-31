@@ -27,14 +27,15 @@
     <!-- ✅ React App Entry -->
     <script type="module" src="/src/main.jsx"></script>
 
-    <!-- ✅ API Test Hook -->
-    <script>
-      fetch('/api/resumes')
-        .then(res => res.json())
-        .then(data => {
-          console.log('📄 Resumes from backend:', data);
-        })
-        .catch(err => console.error('❌ Failed to fetch resumes:', err));
+    <!-- ✅ API Test Hook using Top-Level Await -->
+    <script type="module">
+      try {
+        const res = await fetch('/api/resumes');
+        const data = await res.json();
+        console.log('📄 Resumes from backend:', data);
+      } catch (err) {
+        console.error('❌ Failed to fetch resumes:', err);
+      }
     </script>
   </body>
 </html>

@@ -24,6 +24,17 @@ function Results() {
     return normalizedKeywords.filter(k => lowerDesc.includes(k)).length;
   };
 
+  const getSourceClass = (source) => {
+    const lowerSource = source?.toLowerCase();
+    if (lowerSource === 'linkedin') {
+      return 'bg-blue-500 text-white';
+    }
+    if (lowerSource === 'indeed') {
+      return 'bg-purple-500 text-white';
+    }
+    return 'bg-gray-500 text-white';
+  };
+
   const filteredJobs = jobs.filter(job => {
     const score = getMatchScore(job.job_description, job.title);
     return score >= minScore;
@@ -71,6 +82,7 @@ function Results() {
 
         <div className="flex flex-wrap justify-center gap-4 mb-6">
           <select
+            aria-label="Filter by minimum keyword matches"
             className="bg-mid text-white px-3 py-2 rounded"
             onChange={(e) => {
               setMinScore(Number(e.target.value));
@@ -84,6 +96,7 @@ function Results() {
           </select>
 
           <select
+            aria-label="Sort jobs"
             className="bg-mid text-white px-3 py-2 rounded"
             onChange={(e) => {
               setSortBy(e.target.value);
@@ -102,6 +115,7 @@ function Results() {
               Try lowering the keyword threshold or adjusting filters to broaden your search.
             </p>
             <button
+              type="button"
               onClick={() => window.location.reload()}
               className="mt-4 bg-accent text-black px-4 py-2 rounded-full font-bold text-sm hover:bg-yellow-300 transition"
             >
@@ -119,11 +133,7 @@ function Results() {
             );
 
             const sourceLabel = job.company || job.source || 'Unknown';
-            const sourceClass = job.source?.toLowerCase() === 'linkedin'
-              ? 'bg-blue-500 text-white'
-              : job.source?.toLowerCase() === 'indeed'
-              ? 'bg-purple-500 text-white'
-              : 'bg-gray-500 text-white';
+            const sourceClass = getSourceClass(job.source);
 
             return (
               <motion.div
@@ -187,6 +197,7 @@ function Results() {
             {Array.from({ length: totalPages }, (_, i) => (
               <button
                 key={i}
+                type="button"
                 onClick={() => setCurrentPage(i + 1)}
                 aria-label={`Go to page ${i + 1}`}
                 className={`px-3 py-1 rounded ${

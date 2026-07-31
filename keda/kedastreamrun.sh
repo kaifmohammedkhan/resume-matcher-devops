@@ -19,7 +19,7 @@ if ! nats stream add RESUMES \
   --discard old \
   --dupe-window 2m \
   --server="$NATS_SERVER"; then
-    echo "❌ Error: Step 1 failed! Could not create stream 'RESUMES'."
+    echo "❌ Error: Step 1 failed! Could not create stream 'RESUMES'." >&2
     exit 1
 fi
 echo "✅ Step 1 Successful: Stream 'RESUMES' verified/created."
@@ -35,7 +35,7 @@ if ! nats consumer add RESUMES resume-parser \
   --replay instant \
   --max-deliver=-1 \
   --server="$NATS_SERVER"; then
-    echo "❌ Error: Step 2 failed! Could not create consumer 'resume-parser'."
+    echo "❌ Error: Step 2 failed! Could not create consumer 'resume-parser'." >&2
     exit 1
 fi
 echo "✅ Step 2 Successful: Consumer 'resume-parser' verified/created."
@@ -47,7 +47,7 @@ echo "➡️ Step 3: Publishing 10 test messages..."
 for i in {1..10}
 do
    if ! nats pub RESUMES.test "hello message $i" --server="$NATS_SERVER"; then
-       echo "❌ Error: Failed to publish message $i. Stopping loop."
+       echo "❌ Error: Failed to publish message $i. Stopping loop." >&2
        exit 1
    fi
    sleep 0.2  # 💡 Tiny pause to keep publishing stable over the tunnel
@@ -64,7 +64,7 @@ echo "----------------------------------------"
 # Step 5: Automated Purge to Trigger Scale-Down
 echo "➡️ Step 5: Automatically purging NATS stream to mimic completed work..."
 if ! nats stream purge RESUMES --server="$NATS_SERVER" -f; then
-    echo "❌ Warning: Stream purge command failed."
+    echo "❌ Warning: Stream purge command failed." >&2
 else
     echo "✅ Stream wiped successfully! Watch KEDA cleanly scale your pods back down to 1."
 fi

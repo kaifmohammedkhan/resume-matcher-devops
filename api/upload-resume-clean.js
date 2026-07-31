@@ -13,9 +13,9 @@ export const config = { api: { bodyParser: false } };
 const normalizeText = (text) =>
   text.replace(/\s+/g, ' ').replace(/[\u0000-\u001F]+/g, '').trim();
 
-// ✅ Simplified regex: no duplicates, reduced backtracking
+// ✅ Optimized regex: redundant A-Z removed (handled by /i flag) & fixed catastrophic backtracking
 const findEmail = (text) => {
-  const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/gi;
+  const emailRegex = /[a-z0-9._%+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}/gi;
   return text.match(emailRegex)?.[0] || null;
 };
 

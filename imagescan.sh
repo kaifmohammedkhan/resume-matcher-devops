@@ -17,11 +17,13 @@ rm -rf node_modules package-lock.json
 npm cache clean --force
 
 echo "--- 3. Installing & Patching Dependencies ---"
-npm install
+# Fixed: Added --ignore-scripts to prevent execution of arbitrary package lifecycle scripts
+npm install --ignore-scripts
+
 # Attempt to fix known vulnerabilities in package.json
 echo "--- Running npm audit fix ---"
-npm audit fix || true  # Continue even if some issues remain
-npm audit fix --force || true 
+npm audit fix --ignore-scripts || true  # Continue even if some issues remain
+npm audit fix --force --ignore-scripts || true 
 
 echo "--- 4. Building Docker Images ---"
 # Build with no-cache to ensure OS-level patches are pulled
