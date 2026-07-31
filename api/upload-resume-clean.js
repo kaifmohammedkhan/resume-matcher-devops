@@ -13,9 +13,9 @@ export const config = { api: { bodyParser: false } };
 const normalizeText = (text) =>
   text.replace(/\s+/g, ' ').replace(/[\u0000-\u001F]+/g, '').trim();
 
-// ✅ Fixed ReDoS/backtracking issue flagged by SonarQube by separating domain labels
+// ✅ Fixed ReDoS/backtracking and character class duplicate issues flagged by SonarQube
 const findEmail = (text) => {
-  const emailRegex = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}\b/gi;
+  const emailRegex = /\b[a-z0-9._%+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}\b/gi;
   return text.match(emailRegex)?.[0] || null;
 };
 
