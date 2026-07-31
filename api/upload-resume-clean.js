@@ -13,9 +13,9 @@ export const config = { api: { bodyParser: false } };
 const normalizeText = (text) =>
   text.replace(/\s+/g, ' ').replace(/[\u0000-\u001F]+/g, '').trim();
 
-// ✅ Simplified regex to prevent backtracking performance issues flagged by SonarQube
+// ✅ Fixed ReDoS/backtracking issue flagged by SonarQube by separating domain labels
 const findEmail = (text) => {
-  const emailRegex = /[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}/gi;
+  const emailRegex = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}\b/gi;
   return text.match(emailRegex)?.[0] || null;
 };
 
