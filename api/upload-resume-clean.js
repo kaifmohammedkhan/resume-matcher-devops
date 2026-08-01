@@ -1,5 +1,5 @@
 import { Writable } from 'node:stream';
-import { formidable } from 'formidable'; 
+import { formidable } from 'formidable';
 import path from 'node:path';
 import os from 'node:os';
 import { scrapeGoogleJobs } from '../lib/scrapeGoogleJobs.js';
@@ -13,7 +13,7 @@ export const config = { api: { bodyParser: false } };
 const normalizeText = (text) =>
   text.replace(/\s+/g, ' ').replace(/[\u0000-\u001F]+/g, '').trim();
 
-// ✅ Fixed ReDoS/backtracking and character class duplicate issues flagged by SonarQube
+// Fixed ReDoS/backtracking and character class duplicate issues
 const findEmail = (text) => {
   const emailRegex = /\b[a-z0-9._%+-]+@[a-z0-9-]+(?:\.[a-z0-9-]+)*\.[a-z]{2,}\b/gi;
   return text.match(emailRegex)?.[0] || null;
@@ -48,7 +48,7 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: `Method ${req.method} Not Allowed` });
   }
 
-  // Restrict destination directory to OS temp folder
+  // Restrict destination directory to OS temp folder and parse into memory buffer
   const form = formidable({
     multiples: false,
     uploadDir: os.tmpdir(),
@@ -77,18 +77,20 @@ export default async function handler(req, res) {
       return res.status(400).json({ error: 'Could not read uploaded file' });
     }
 
-    // ✅ Extension + MIME type validation
-    const allowedExtensions = ['.pdf', '.docx', '.txt'];
+    // Extension + MIME type validation
+    const allowedExtensions = ['.pdf', '.docx', '.doc', '.txt'];
     const allowedMimes = [
       'application/pdf',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+      'application/msword',
       'text/plain'
     ];
     const fileExt = path.extname(resumeFile.originalFilename || '').toLowerCase();
     const mimeType = resumeFile.mimetype || '';
+
     if (!allowedExtensions.includes(fileExt) || !allowedMimes.includes(mimeType)) {
       console.error('❌ Invalid file type:', fileExt, mimeType);
-      return res.status(400).json({ error: 'Invalid file type. Allowed: PDF, DOCX, TXT' });
+      return res.status(400).json({ error: 'Invalid file type. Allowed: PDF, DOCX, DOC, TXT' });
     }
 
     const location = fields.location?.[0] || '';
@@ -103,7 +105,7 @@ export default async function handler(req, res) {
       return res.status(400).json({ stage: 'resume_extraction', error: 'Resume could not be parsed' });
     }
 
-    const rawText = normalizeText(resumeData.rawText || '');
+    const rawText = normalizeText(resumeData.rawText || (typeof resumeData === 'string' ? resumeData : ''));
     const keywords = getKeywords(rawText);
     const query = buildOrQuery(keywords);
 

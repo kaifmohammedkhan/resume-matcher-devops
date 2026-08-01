@@ -7,36 +7,50 @@ import handler from './api/upload-resume-clean.js';
 import rateLimit from 'express-rate-limit';
 import morgan from 'morgan';
 import helmet from 'helmet';
-import client from 'prom-client';   // ✅ Prometheus client
+import client from 'prom-client';
 
-// ✅ Load .env and log GOOGLE_API_KEY only
 dotenv.config();
-console.log("🔑 GOOGLE_API_KEY:", process.env.GOOGLE_API_KEY ? "Loaded" : "Missing");
-// CX_ID stays defined in .env but is ignored in logic
 
 const app = express();
 const port = process.env.PORT || 3000;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// ✅ Startup Banner / Env Checks
+const apiKey = process.env.GOOGLE_API_KEY || process.env.SERPAPI_KEY || process.env.GOOGLE_JOBS_API_KEY;
+if (apiKey) {
+  console.log('🔑 GOOGLE_API_KEY: Loaded');
+} else {
+  console.log('⚠️ GOOGLE_API_KEY: Not Found');
+}
+
+const dbTypeLabel = process.env.DB_TYPE === 'sqlite' ? 'SQLite' : 'KUBERNETES (PostgreSQL)';
+console.log(`🧩 Environment: ${dbTypeLabel}`);
+
 // ✅ Security Hardening
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      ...helmet.contentSecurityPolicy.getDefaultDirectives(),
-      "img-src": ["'self'", "data:", "https:"],
-      "script-src": ["'self'", "'unsafe-inline'"], 
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        ...helmet.contentSecurityPolicy.getDefaultDirectives(),
+        'img-src': ["'self'", 'data:', 'https:'],
+        'script-src': ["'self'", "'unsafe-inline'"],
+      },
     },
-  },
-}));
+  })
+);
 app.disable('x-powered-by');
 
 // ✅ Logging setup
 const logDir = path.join(process.cwd(), 'logs');
 if (!fs.existsSync(logDir)) fs.mkdirSync(logDir);
-const accessLogStream = createWriteStream(path.join(logDir, 'access.log'), { flags: 'a' });
+const accessLogStream = createWriteStream(path.join(logDir, 'access.log'), {
+  flags: 'a',
+});
 
-app.use(morgan('combined', { stream: accessLogStream }));
-app.use(morgan('dev')); 
+if (process.env.NODE_ENV !== 'test') {
+  app.use(morgan('combined', { stream: accessLogStream }));
+  app.use(morgan('dev'));
+}
 
 // ✅ Prometheus metrics
 const collectDefaultMetrics = client.collectDefaultMetrics;
@@ -52,38 +66,42 @@ let useSqlite = process.env.DB_TYPE === 'sqlite';
 let db, seed;
 
 // ✅ DB Initialization (non-blocking)
-const initDB = async () => {
+export const initDB = async () => {
   try {
     if (useSqlite) {
-      console.log('🧩 Environment: LOCAL (SQLite)');
       ({ db } = await import('./lib/sqlite-db.js'));
       ({ seedSqliteDatabase: seed } = await import('./lib/sqlite-seed.js'));
     } else {
-      console.log('🧩 Environment: KUBERNETES (PostgreSQL)');
       ({ pool: db } = await import('./lib/db.js'));
       ({ seedDatabase: seed } = await import('./lib/seed.js'));
     }
 
-    await seed();
-    console.log('✅ Database connected and seeded');
+    if (seed) {
+      console.log('🛠️ Seeding database...');
+      await seed();
+    }
   } catch (err) {
-    console.error(`⚠️ DB init failed (non-blocking): ${err.message}`);
+    console.error('❌ DB seed error:');
+    console.warn('⚠️ DB init failed (non-blocking)');
   }
 };
 
 // ✅ Middleware
-app.use(rateLimit({
-  windowMs: 60 * 1000,
-  max: 100, 
-  standardHeaders: true,
-  legacyHeaders: false,
-}));
+app.use(
+  rateLimit({
+    windowMs: 60 * 1000,
+    max: 100,
+    standardHeaders: true,
+    legacyHeaders: false,
+  })
+);
 app.use(express.json());
 
 // ✅ Health check
 app.get('/health', async (req, res) => {
   try {
-    if (!db) return res.status(200).json({ status: 'UP', database: 'disconnected' });
+    if (!db)
+      return res.status(200).json({ status: 'UP', database: 'disconnected' });
     useSqlite ? db.prepare('SELECT 1').get() : await db.query('SELECT 1');
     res.status(200).json({ status: 'UP', database: 'connected' });
   } catch (err) {
@@ -93,19 +111,23 @@ app.get('/health', async (req, res) => {
 
 // ✅ Routes
 const staticPath = path.resolve(__dirname, 'dist');
-app.use(express.static(staticPath, {
-  maxAge: '1d',
-  setHeaders: (res) => res.setHeader('X-Served-By', 'resume-matcher-devops')
-}));
+app.use(
+  express.static(staticPath, {
+    maxAge: '1d',
+    setHeaders: (res) => res.setHeader('X-Served-By', 'resume-matcher-devops'),
+  })
+);
 
 app.post('/api/upload-resume-clean', handler);
 
 app.get('/api/resumes', async (req, res) => {
   try {
-    if (!db) return res.status(503).json({ error: 'Database not initialized' });
-    let rows = useSqlite 
-      ? db.prepare('SELECT * FROM resumes ORDER BY uploaded_at DESC').all() 
-      : (await db.query('SELECT * FROM resumes ORDER BY uploaded_at DESC')).rows;
+    if (!db)
+      return res.status(503).json({ error: 'Database not initialized' });
+    let rows = useSqlite
+      ? db.prepare('SELECT * FROM resumes ORDER BY uploaded_at DESC').all()
+      : (await db.query('SELECT * FROM resumes ORDER BY uploaded_at DESC'))
+          .rows;
     res.json(rows);
   } catch (err) {
     res.status(500).json({ error: 'Database query failed' });
@@ -119,16 +141,21 @@ app.get('*', (req, res) => {
   });
 });
 
-// ✅ Startup & Shutdown
-const server = app.listen(port, '0.0.0.0', async () => {
-  await initDB();
-  console.log(`🚀 Production server ready at http://0.0.0.0:${port}`);
-});
+// ✅ Conditional Startup (skip auto-listen during Jest tests)
+let server = null;
+if (process.env.NODE_ENV !== 'test') {
+  server = app.listen(port, '0.0.0.0', async () => {
+    await initDB();
+    console.log(`🚀 Production server ready at http://0.0.0.0:${port}`);
+  });
+}
 
 process.on('SIGTERM', () => {
-  console.log('👋 SIGTERM received. Shutting down gracefully...');
-  server.close(() => {
-    console.log('Process terminated.');
-    process.exit(0);
-  });
+  if (server) {
+    server.close(() => {
+      process.exit(0);
+    });
+  }
 });
+
+export { app, server };
