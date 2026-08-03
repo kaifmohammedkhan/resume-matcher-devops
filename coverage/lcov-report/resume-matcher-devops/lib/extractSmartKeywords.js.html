@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>0/31</span>
+                <span class='fraction'>31/31</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">77.77% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>0/1</span>
+                <span class='fraction'>7/9</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>0/1</span>
+                <span class='fraction'>1/1</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>0/31</span>
+                <span class='fraction'>31/31</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line low'></div>
+    <div class='status-line high'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -93,74 +93,74 @@
 <a name='L28'></a><a href='#L28'>28</a>
 <a name='L29'></a><a href='#L29'>29</a>
 <a name='L30'></a><a href='#L30'>30</a>
-<a name='L31'></a><a href='#L31'>31</a></td><td class="line-coverage quiet"><span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js"><span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" ><span class="branch-0 cbranch-no" title="branch not covered" >// server/extractSmartKeywords.js</span></span></span>
-<span class="cstat-no" title="statement not covered" >import nlp from 'compromise';</span>
-<span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" >export function extractSmartKeywords(text) {</span>
-<span class="cstat-no" title="statement not covered" >  const doc = nlp(text);</span>
-<span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" >  // Extract noun phrases and verbs</span>
-<span class="cstat-no" title="statement not covered" >  const phrases = doc.nouns().concat(doc.verbs()).out('array');</span>
-<span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" >  // Clean and filter (Fixed regex: removed unnecessary backslash before hyphen)</span>
-<span class="cstat-no" title="statement not covered" >  const rawKeywords = phrases</span>
-<span class="cstat-no" title="statement not covered" >    .map(p =&gt; p.toLowerCase().trim())</span>
-<span class="cstat-no" title="statement not covered" >    .filter(p =&gt; p.length &gt; 2 &amp;&amp; /^[a-z\s-]+$/.test(p));</span>
-<span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" >  // Score relevance based on frequency and context</span>
-<span class="cstat-no" title="statement not covered" >  const scored = rawKeywords.map(k =&gt; {</span>
-<span class="cstat-no" title="statement not covered" >    // Escape special regex chars in k before building dynamic RegExp</span>
-<span class="cstat-no" title="statement not covered" >    const safeK = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&amp;');</span>
-<span class="cstat-no" title="statement not covered" >    const count = (text.match(new RegExp(`\\b${safeK}\\b`, 'gi')) || []).length;</span>
-<span class="cstat-no" title="statement not covered" >    const contextBoost = /(used|built|led|implemented)\s+\b/.test(text) ? 2 : 1;</span>
-<span class="cstat-no" title="statement not covered" >    return { keyword: k, score: count * contextBoost };</span>
-<span class="cstat-no" title="statement not covered" >  });</span>
-<span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" >  // Sort and select top 10</span>
-<span class="cstat-no" title="statement not covered" >  const topKeywords = scored</span>
-<span class="cstat-no" title="statement not covered" >    .sort((a, b) =&gt; b.score - a.score)</span>
-<span class="cstat-no" title="statement not covered" >    .slice(0, 10)</span>
-<span class="cstat-no" title="statement not covered" >    .map(k =&gt; k.keyword);</span>
-<span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" >  return [...new Set(topKeywords)];</span>
-<span class="cstat-no" title="statement not covered" >}</span></pre></td></tr></table></pre>
+<a name='L31'></a><a href='#L31'>31</a></td><td class="line-coverage quiet"><span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">2x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">1x</span></td><td class="text"><pre class="prettyprint lang-js">// server/extractSmartKeywords.js
+import nlp from 'compromise';
+&nbsp;
+export function extractSmartKeywords(text) {
+  const doc = nlp(text);
+&nbsp;
+  // Extract noun phrases and verbs
+  const phrases = doc.nouns().concat(doc.verbs()).out('array');
+&nbsp;
+  // Clean and filter (Fixed regex: removed unnecessary backslash before hyphen)
+  const rawKeywords = phrases
+    .map(p =&gt; p.toLowerCase().trim())
+    .filter(p =&gt; p.length &gt; 2 &amp;&amp; /^[a-z\s-]+$/.test(p));
+&nbsp;
+  // Score relevance based on frequency and context
+  const scored = rawKeywords.map(k =&gt; {
+    // Escape special regex chars in k before building dynamic RegExp
+    const safeK = k.replace(/[.*+?^${}()|[\]\\]/g, '\\$&amp;');
+    const count = (text.match(new RegExp(`\\b${safeK}\\b`, 'gi')) <span class="branch-0 cbranch-no" title="branch not covered" >|| [])</span>.length;
+    const contextBoost = /(used|built|led|implemented)\s+\b/.test(text) ? 2 <span class="branch-0 cbranch-no" title="branch not covered" >: 1;</span>
+    return { keyword: k, score: count * contextBoost };
+  });
+&nbsp;
+  // Sort and select top 10
+  const topKeywords = scored
+    .sort((a, b) =&gt; b.score - a.score)
+    .slice(0, 10)
+    .map(k =&gt; k.keyword);
+&nbsp;
+  return [...new Set(topKeywords)];
+}</pre></td></tr></table></pre>
 
                 <div class='push'></div><!-- for sticky footer -->
             </div><!-- /wrapper -->
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-08-01T04:15:57.659Z
+                at 2026-08-03T02:12:53.912Z
             </div>
         <script src="../../prettify.js"></script>
         <script>
