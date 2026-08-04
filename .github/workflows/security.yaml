@@ -177,8 +177,4 @@ jobs:
             echo "<tr><td colspan='6'>No active open or reopened issues found.</td></tr>" >> sonar-summary.html
           fi
           echo "</table>" >> sonar-summary.html
-          echo "</body></html>" >> sonar-summary.html
-
-      - name: Upload SonarCloud Summary Artifact
-        if: always()
-        uses: actions/upload-artifact
+          echo "</body></html>"
