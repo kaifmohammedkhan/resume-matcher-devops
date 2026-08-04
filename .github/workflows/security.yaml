@@ -27,6 +27,9 @@ jobs:
           node-version: 20
           cache: 'npm'
 
+      - name: Install SQLite dependencies
+        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev
+
       - name: Install Dependencies
         run: npm ci --ignore-scripts
 
@@ -178,11 +181,4 @@ jobs:
 
       - name: Upload SonarCloud Summary Artifact
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: sonar-summary-report
-          path: sonar-summary.html
-
-      - name: Send Email (delay)
-        if: always()
-        run: sleep 30
+        uses: actions/upload-artifact
