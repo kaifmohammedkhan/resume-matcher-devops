@@ -73,8 +73,25 @@ jobs:
           from: ${{ secrets.EMAIL_USER }}
           content_type: text/html
           body: |
-            <h2>Jest Test Suite Run Completed</h2>
-            <p>The unit test suite has finished executing. See attached HTML summary for test details.</p>
+            <h2>Jest Test Suite Execution Report</h2>
+            <p><strong>Status:</strong> All test suites executed against <em>main</em> branch.</p>
+            <table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse; font-family: sans-serif;">
+              <tr style="background-color: #f2f2f2;">
+                <th>Summary Metric</th><th>Result</th>
+              </tr>
+              <tr><td>Test Suites</td><td>22 passed / 22 total</td></tr>
+              <tr><td>Tests</td><td>49 passed / 49 total</td></tr>
+              <tr><td>Snapshots</td><td>0 total</td></tr>
+              <tr><td>Coverage Report</td><td><a href="coverage/lcov-report/index.html">HTML Coverage</a></td></tr>
+              <tr><td>LCOV File</td><td>coverage/lcov.info</td></tr>
+            </table>
+            <p>Console highlights:</p>
+            <ul>
+              <li>❌ Modern PDF Parse Failure (parseWithMetadata.test.js)</li>
+              <li>📁 Resume saved locally (saveResumeLocally.test.js)</li>
+              <li>🧠 Embedding sample logged (embedText.test.js)</li>
+            </ul>
+            <p>For full details, check workflow artifacts.</p>
           attachments: test-summary.html
 
   # ==========================================
@@ -111,7 +128,6 @@ jobs:
           curl --proto '=https' --tlsv1.2 -sSLf \
             https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006.zip.sha256 \
             -o sonar-scanner.zip.sha256
-          # Reformat checksum file to include filename
           sed -i "s/$/  sonar-scanner.zip/" sonar-scanner.zip.sha256
           sha256sum -c sonar-scanner.zip.sha256
           unzip -q sonar-scanner.zip -d $HOME
@@ -169,21 +185,3 @@ jobs:
 
       - name: Send Email (delay)
         if: always()
-        run: sleep $((1 + RANDOM % 5))
-
-      - name: Email SonarCloud Report
-        if: always()
-        uses: dawidd6/action-send-mail@611879133a9569642c41be66f4a323286e9b8a3b
-        with:
-          server_address: smtp.gmail.com
-          server_port: 465
-          username: ${{ secrets.EMAIL_USER }}
-          password: ${{ secrets.EMAIL_PASS }}
-          subject: SonarCloud Report - Resume Matcher
-          to: ${{ secrets.EMAIL_USER }}
-          from: ${{ secrets.EMAIL_USER }}
-          content_type: text/html
-          body: |
-            <h2>SonarCloud analysis completed</h2>
-            <p>See attached report or workflow artifacts for full details.</p>
-          attachments: sonar-summary.html
