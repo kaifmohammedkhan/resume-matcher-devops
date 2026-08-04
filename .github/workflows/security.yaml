@@ -187,4 +187,4 @@ jobs:
           echo "<table border='1' cellpadding='5' cellspacing='0' style='border-collapse: collapse; font-family: sans-serif;'>" >> sonar-summary.html
           echo "<tr style='background-color: #f2f2f2;'><th>Rule</th><th>Message</th><th>Severity</th><th>File</th><th>Line</th><th>Action</th></tr>" >> sonar-summary.html
           if jq -e '.issues | length > 0' sonar-report.json >/dev/null 2>&1; then
-            jq -r '.issues[] | "<tr><td>\(.rule)</td><td>\(.message)</td><td>\(.severity)</td
+            jq -r '.issues[] | "<tr><td>\(.rule)</td><td>\(.message)</td><td
