@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>0/38</span>
+                <span class='fraction'>38/38</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>0/1</span>
+                <span class='fraction'>6/6</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Functions</span>
-                <span class='fraction'>0/1</span>
+                <span class='fraction'>1/1</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">0% </span>
+                <span class="strong">100% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>0/38</span>
+                <span class='fraction'>38/38</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line low'></div>
+    <div class='status-line high'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -100,88 +100,88 @@
 <a name='L35'></a><a href='#L35'>35</a>
 <a name='L36'></a><a href='#L36'>36</a>
 <a name='L37'></a><a href='#L37'>37</a>
-<a name='L38'></a><a href='#L38'>38</a></td><td class="line-coverage quiet"><span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js"><span class="cstat-no" title="statement not covered" ><span class="fstat-no" title="function not covered" ><span class="branch-0 cbranch-no" title="branch not covered" >export function extractKeywords(text) {</span></span></span>
-<span class="cstat-no" title="statement not covered" >  const lowerText = text.toLowerCase();</span>
-<span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" >  const normalizedText = lowerText</span>
-<span class="cstat-no" title="statement not covered" >    .replace(/[\r\n]+/g, ' ')</span>
-<span class="cstat-no" title="statement not covered" >    .replace(new RegExp('[_/-]', 'g'), ' ')</span>
-<span class="cstat-no" title="statement not covered" >    .replace(/[.,;:!?(){}[\]]+/g, ' ')</span>
-<span class="cstat-no" title="statement not covered" >    .replace(/\s+/g, ' ')</span>
-<span class="cstat-no" title="statement not covered" >    .trim();</span>
-<span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" >  const rawWords = normalizedText.split(' ');</span>
-<span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" >  const blacklist = new Set([</span>
-<span class="cstat-no" title="statement not covered" >    'and', 'with', 'the', 'for', 'from', 'to', 'in', 'on', 'of',</span>
-<span class="cstat-no" title="statement not covered" >    'skills', 'experience', 'summary', 'objective', 'responsibilities',</span>
-<span class="cstat-no" title="statement not covered" >    'delivering', 'collaboration', 'get', 'done', 'my', 'your', 'our'</span>
-<span class="cstat-no" title="statement not covered" >  ]);</span>
-<span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" >  const keywords = [...new Set(</span>
-<span class="cstat-no" title="statement not covered" >    rawWords</span>
-<span class="cstat-no" title="statement not covered" >      .map(w =&gt; w.trim())</span>
-<span class="cstat-no" title="statement not covered" >      .filter(w =&gt; w.length &gt; 2 &amp;&amp; !blacklist.has(w))</span>
-<span class="cstat-no" title="statement not covered" >  )];</span>
-<span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" >  const titles = keywords.filter(k =&gt;</span>
-<span class="cstat-no" title="statement not covered" >    /\b(engineer|developer|architect|analyst|manager|lead|consultant|specialist|officer|head|executive|recruiter|hrbp)\b/.test(k)</span>
-<span class="cstat-no" title="statement not covered" >  );</span>
-<span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" >  const education = keywords.filter(k =&gt;</span>
-<span class="cstat-no" title="statement not covered" >    /\b(bachelor|master|phd|mba|btech|mtech|degree|diploma|bsc|msc)\b/.test(k)</span>
-<span class="cstat-no" title="statement not covered" >  );</span>
-<span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" >  return {</span>
-<span class="cstat-no" title="statement not covered" >    tech: keywords,</span>
-<span class="cstat-no" title="statement not covered" >    titles,</span>
-<span class="cstat-no" title="statement not covered" >    education</span>
-<span class="cstat-no" title="statement not covered" >  };</span>
-<span class="cstat-no" title="statement not covered" >}</span></pre></td></tr></table></pre>
+<a name='L38'></a><a href='#L38'>38</a></td><td class="line-coverage quiet"><span class="cline-any cline-yes">1x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">31x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">31x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span>
+<span class="cline-any cline-yes">8x</span></td><td class="text"><pre class="prettyprint lang-js">export function extractKeywords(text) {
+  const lowerText = text.toLowerCase();
+&nbsp;
+  const normalizedText = lowerText
+    .replace(/[\r\n]+/g, ' ')
+    .replace(new RegExp('[_/-]', 'g'), ' ')
+    .replace(/[.,;:!?(){}[\]]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+&nbsp;
+  const rawWords = normalizedText.split(' ');
+&nbsp;
+  const blacklist = new Set([
+    'and', 'with', 'the', 'for', 'from', 'to', 'in', 'on', 'of',
+    'skills', 'experience', 'summary', 'objective', 'responsibilities',
+    'delivering', 'collaboration', 'get', 'done', 'my', 'your', 'our'
+  ]);
+&nbsp;
+  const keywords = [...new Set(
+    rawWords
+      .map(w =&gt; w.trim())
+      .filter(w =&gt; w.length &gt; 2 &amp;&amp; !blacklist.has(w))
+  )];
+&nbsp;
+  const titles = keywords.filter(k =&gt;
+    /\b(engineer|developer|architect|analyst|manager|lead|consultant|specialist|officer|head|executive|recruiter|hrbp)\b/.test(k)
+  );
+&nbsp;
+  const education = keywords.filter(k =&gt;
+    /\b(bachelor|master|phd|mba|btech|mtech|degree|diploma|bsc|msc)\b/.test(k)
+  );
+&nbsp;
+  return {
+    tech: keywords,
+    titles,
+    education
+  };
+}</pre></td></tr></table></pre>
 
                 <div class='push'></div><!-- for sticky footer -->
             </div><!-- /wrapper -->
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-08-03T02:12:53.912Z
+                at 2026-08-04T01:51:24.298Z
             </div>
         <script src="../../../prettify.js"></script>
         <script>

@@ -23,30 +23,30 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">90% </span>
+                <span class="strong">10% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>27/30</span>
-            </div>
-        
-            
-            <div class='fl pad1y space-right2'>
-                <span class="strong">50% </span>
-                <span class="quiet">Branches</span>
-                <span class='fraction'>2/4</span>
+                <span class='fraction'>3/30</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">100% </span>
-                <span class="quiet">Functions</span>
-                <span class='fraction'>1/1</span>
+                <span class="quiet">Branches</span>
+                <span class='fraction'>0/0</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">90% </span>
+                <span class="strong">0% </span>
+                <span class="quiet">Functions</span>
+                <span class='fraction'>0/1</span>
+            </div>
+        
+            
+            <div class='fl pad1y space-right2'>
+                <span class="strong">10% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>27/30</span>
+                <span class='fraction'>3/30</span>
             </div>
         
             
@@ -61,7 +61,7 @@
             </div>
         </template>
     </div>
-    <div class='status-line high'></div>
+    <div class='status-line low'></div>
     <pre><table class="coverage">
 <tr><td class="line-count quiet"><a name='L1'></a><a href='#L1'>1</a>
 <a name='L2'></a><a href='#L2'>2</a>
@@ -92,75 +92,72 @@
 <a name='L27'></a><a href='#L27'>27</a>
 <a name='L28'></a><a href='#L28'>28</a>
 <a name='L29'></a><a href='#L29'>29</a>
-<a name='L30'></a><a href='#L30'>30</a>
-<a name='L31'></a><a href='#L31'>31</a></td><td class="line-coverage quiet"><span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
+<a name='L30'></a><a href='#L30'>30</a></td><td class="line-coverage quiet"><span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import { pool } from './db.js';
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-no">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import { pool } from './db.js';
 &nbsp;
-export async function seedDatabase() {
-  try {
-    console.log('🔧 Seeding database...');
-&nbsp;
-    // Test connection
-    const client = await pool.connect();
-    console.log('🗃️ Connected to PostgreSQL at:', client.host <span class="branch-0 cbranch-no" title="branch not covered" >|| 'unknown')</span>;
-    client.release();
-&nbsp;
-    // Create table with uniqueness constraint
-    await pool.query(`
-      CREATE TABLE IF NOT EXISTS resumes (
-        id SERIAL PRIMARY KEY,
-        name TEXT,
-        email TEXT UNIQUE,
-        skills TEXT,
-        uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-      );
-    `);
-    console.log('✅ Table check passed');
-&nbsp;
-    // No static seed — real-time uploads only
-    console.log('🚫 Skipping static seed — resumes will be uploaded live');
-  } <span class="branch-0 cbranch-no" title="branch not covered" >catch (err) {</span>
+export <span class="fstat-no" title="function not covered" >async function seedDatabase() {</span>
+<span class="cstat-no" title="statement not covered" >  try {</span>
+<span class="cstat-no" title="statement not covered" >    console.log('🔧 Seeding database...');</span>
+<span class="cstat-no" title="statement not covered" ></span>
+<span class="cstat-no" title="statement not covered" >    // Test connection</span>
+<span class="cstat-no" title="statement not covered" >    const client = await pool.connect();</span>
+<span class="cstat-no" title="statement not covered" >    console.log('🗃️ Connected to PostgreSQL at:', client.host || 'unknown');</span>
+<span class="cstat-no" title="statement not covered" >    client.release();</span>
+<span class="cstat-no" title="statement not covered" ></span>
+<span class="cstat-no" title="statement not covered" >    // Create table with uniqueness constraint</span>
+<span class="cstat-no" title="statement not covered" >    await pool.query(`</span>
+<span class="cstat-no" title="statement not covered" >      CREATE TABLE IF NOT EXISTS resumes (</span>
+<span class="cstat-no" title="statement not covered" >        id SERIAL PRIMARY KEY,</span>
+<span class="cstat-no" title="statement not covered" >        name TEXT,</span>
+<span class="cstat-no" title="statement not covered" >        email TEXT UNIQUE,</span>
+<span class="cstat-no" title="statement not covered" >        skills TEXT,</span>
+<span class="cstat-no" title="statement not covered" >        uploaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP</span>
+<span class="cstat-no" title="statement not covered" >      );</span>
+<span class="cstat-no" title="statement not covered" >    `);</span>
+<span class="cstat-no" title="statement not covered" >    console.log('✅ Table check passed');</span>
+<span class="cstat-no" title="statement not covered" ></span>
+<span class="cstat-no" title="statement not covered" >    // No static seed — real-time uploads only</span>
+<span class="cstat-no" title="statement not covered" >    console.log('🚫 Skipping static seed — resumes will be uploaded live');</span>
+<span class="cstat-no" title="statement not covered" >  } catch (err) {</span>
 <span class="cstat-no" title="statement not covered" >    console.error('❌ DB seed error:', err.message);</span>
 <span class="cstat-no" title="statement not covered" >    throw err;</span>
 <span class="cstat-no" title="statement not covered" >  }</span>
-}
-&nbsp;</pre></td></tr></table></pre>
+<span class="cstat-no" title="statement not covered" >}</span></pre></td></tr></table></pre>
 
                 <div class='push'></div><!-- for sticky footer -->
             </div><!-- /wrapper -->
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-08-03T02:12:53.912Z
+                at 2026-08-04T01:51:24.298Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

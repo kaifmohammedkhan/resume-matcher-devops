@@ -49,8 +49,13 @@ describe('Server API Endpoints', () => {
   });
 
   afterAll(() => {
-    // Clear Prometheus registry to prevent active timers / leaks
-    client.register.clear();
+    // Clear Prometheus registry to prevent active timers / leaks and event loop issues
+    try {
+      client.register.clear();
+      client.register.setDefaultLabels({});
+    } catch {
+      // Ignore cleanup errors
+    }
   });
 
   describe('GET /health', () => {
