@@ -17,6 +17,21 @@ jobs:
     permissions:
       contents: read
 
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: resumes
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -172,8 +187,4 @@ jobs:
           echo "<table border='1' cellpadding='5' cellspacing='0' style='border-collapse: collapse; font-family: sans-serif;'>" >> sonar-summary.html
           echo "<tr style='background-color: #f2f2f2;'><th>Rule</th><th>Message</th><th>Severity</th><th>File</th><th>Line</th><th>Action</th></tr>" >> sonar-summary.html
           if jq -e '.issues | length > 0' sonar-report.json >/dev/null 2>&1; then
-            jq -r '.issues[] | "<tr><td>\(.rule)</td><td>\(.message)</td><td>\(.severity)</td><td>\(.component)</td><td>\(.line // "N/A")</td><td><a href=\"https://sonarcloud.io/project/issues?id=\(.project)&issues=\(.key)\">View Issue</a></td></tr>"' sonar-report.json >> sonar-summary.html
-          else
-            echo "<tr><td colspan='6'>No active open or reopened issues found.</td></tr>" >> sonar-summary.html
-          fi
-          echo "</table>" >> sonar-summary
+            jq -r '.issues[] | "<tr><td>\(.rule)</td><td>\(.message)</td><td>\(.severity)</td
