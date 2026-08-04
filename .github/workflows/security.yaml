@@ -28,7 +28,7 @@ jobs:
           cache: 'npm'
 
       - name: Install Dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts
 
       - name: Run Tests & Generate Coverage
         run: npm test
@@ -185,4 +185,4 @@ jobs:
 
       - name: Send Email (delay)
         if: always()
-        run: sleep
+        run: sleep 30

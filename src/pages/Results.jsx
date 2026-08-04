@@ -6,7 +6,6 @@ export function Results() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Retrieve state passed via React Router navigation
   const jobs = location.state?.jobs || [];
   const keywords = location.state?.keywords || [];
 
@@ -14,7 +13,6 @@ export function Results() {
   const [currentPage, setCurrentPage] = useState(1);
   const itemsPerPage = 10;
 
-  // Process and score jobs based on matched keywords
   const processedJobs = useMemo(() => {
     return jobs.map((job) => {
       const description = (job.job_description || '').toLowerCase();
@@ -22,19 +20,14 @@ export function Results() {
         return description.includes(kw.toLowerCase()) ? acc + 1 : acc;
       }, 0);
 
-      return {
-        ...job,
-        matchCount: matchedCount,
-      };
+      return { ...job, matchCount: matchedCount };
     });
   }, [jobs, keywords]);
 
-  // Filter jobs by minimum keyword matches
   const filteredJobs = useMemo(() => {
     return processedJobs.filter((job) => job.matchCount >= minMatches);
   }, [processedJobs, minMatches]);
 
-  // Paginate results
   const totalPages = Math.ceil(filteredJobs.length / itemsPerPage);
   const paginatedJobs = useMemo(() => {
     const start = (currentPage - 1) * itemsPerPage;
@@ -85,6 +78,7 @@ export function Results() {
           <div className="text-center py-12 bg-white rounded-lg border border-gray-200 shadow-sm">
             <p className="text-gray-600 mb-4">No matching jobs found.</p>
             <button
+              type="button"
               onClick={() => navigate('/')}
               className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-2 px-4 rounded-md transition-colors"
             >
@@ -133,6 +127,7 @@ export function Results() {
         {totalPages > 1 && (
           <div className="flex justify-center items-center gap-2 mt-8">
             <button
+              type="button"
               onClick={() => setCurrentPage((p) => Math.max(p - 1, 1))}
               disabled={currentPage === 1}
               className="px-3 py-1 border rounded text-sm disabled:opacity-50"
@@ -143,6 +138,7 @@ export function Results() {
               Page {currentPage} of {totalPages}
             </span>
             <button
+              type="button"
               onClick={() => setCurrentPage((p) => Math.min(p + 1, totalPages))}
               disabled={currentPage === totalPages}
               className="px-3 py-1 border rounded text-sm disabled:opacity-50"

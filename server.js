@@ -16,14 +16,18 @@ const port = process.env.PORT || 3000;
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // ✅ Startup Banner / Env Checks
-const apiKey = process.env.GOOGLE_API_KEY || process.env.SERPAPI_KEY || process.env.GOOGLE_JOBS_API_KEY;
+const apiKey =
+  process.env.GOOGLE_API_KEY ||
+  process.env.SERPAPI_KEY ||
+  process.env.GOOGLE_JOBS_API_KEY;
 if (apiKey) {
   console.log('🔑 GOOGLE_API_KEY: Loaded');
 } else {
   console.log('⚠️ GOOGLE_API_KEY: Not Found');
 }
 
-const dbTypeLabel = process.env.DB_TYPE === 'sqlite' ? 'SQLite' : 'KUBERNETES (PostgreSQL)';
+const dbTypeLabel =
+  process.env.DB_TYPE === 'sqlite' ? 'SQLite' : 'KUBERNETES (PostgreSQL)';
 console.log(`🧩 Environment: ${dbTypeLabel}`);
 
 // ✅ Security Hardening
@@ -105,7 +109,9 @@ app.get('/health', async (req, res) => {
     useSqlite ? db.prepare('SELECT 1').get() : await db.query('SELECT 1');
     res.status(200).json({ status: 'UP', database: 'connected' });
   } catch (err) {
-    res.status(200).json({ status: 'UP', database: 'error', error: err.message });
+    res
+      .status(200)
+      .json({ status: 'UP', database: 'error', error: err.message });
   }
 });
 
@@ -114,7 +120,8 @@ const staticPath = path.resolve(__dirname, 'dist');
 app.use(
   express.static(staticPath, {
     maxAge: '1d',
-    setHeaders: (res) => res.setHeader('X-Served-By', 'resume-matcher-devops'),
+    setHeaders: (res) =>
+      res.setHeader('X-Served-By', 'resume-matcher-devops'),
   })
 );
 
@@ -142,13 +149,13 @@ app.get('*', (req, res) => {
 });
 
 // ✅ Conditional Startup (skip auto-listen during Jest tests)
-let server = null;
-if (process.env.NODE_ENV !== 'test') {
-  server = app.listen(port, '0.0.0.0', async () => {
-    await initDB();
-    console.log(`🚀 Production server ready at http://0.0.0.0:${port}`);
-  });
-}
+const server =
+  process.env.NODE_ENV !== 'test'
+    ? app.listen(port, '0.0.0.0', async () => {
+        await initDB();
+        console.log(`🚀 Production server ready at http://0.0.0.0:${port}`);
+      })
+    : null;
 
 process.on('SIGTERM', () => {
   if (server) {
