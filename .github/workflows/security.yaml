@@ -191,4 +191,5 @@ jobs:
           sudo apt-get update && sudo apt-get install -y jq
           echo "<html><body>" > sonar-summary.html
           echo "<h2>SonarCloud Active Issues Report</h2>" >> sonar-summary.html
-          echo "<table border
+          echo "<table border='1' cellpadding='5' cellspacing='0' style='border-collapse: collapse; font-family: sans-serif;'>" >> sonar-summary.html
+          echo "<tr style='
