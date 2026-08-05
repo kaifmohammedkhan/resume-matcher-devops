@@ -8,6 +8,9 @@ on:
   workflow_dispatch:
 
 jobs:
+  # ==========================================
+  # JOB 1: Test & Code Coverage Stage
+  # ==========================================
   test:
     name: Run Unit Tests & Coverage
     runs-on: ubuntu-latest
@@ -44,18 +47,20 @@ jobs:
       - name: Build Test Summary HTML Report
         if: always()
         run: |
-          echo "<html><body>" > test-summary.html
-          echo "<h2>Jest Test Suite Execution Report</h2>" >> test-summary.html
-          echo "<p><strong>Status:</strong> Tests executed against main branch.</p>" >> test-summary.html
-          echo "<table border='1' cellpadding='5' cellspacing='0' style='border-collapse: collapse; font-family: sans-serif;'>" >> test-summary.html
-          echo "<tr style='background-color: #f2f2f2;'><th>Artifact / Output</th><th>Path / Details</th></tr>" >> test-summary.html
-          echo "<tr><td>LCOV Coverage File</td><td>coverage/lcov.info</td></tr>" >> test-summary.html
-          echo "<tr><td>LCOV HTML Index</td><td>coverage/lcov-report/index.html</td></tr>" >> test-summary.html
-          echo "</table>" >> test-summary.html
-          echo "<h3>Console Output Highlights</h3>" >> test-summary.html
-          echo "<pre style='background:#f9f9f9;padding:10px;border:1px solid #ccc;font-family:monospace;'>" >> test-summary.html
-          grep -E "🧠|📏|❌|📁" console.log >> test-summary.html || echo "No highlights found." >> test-summary.html
-          echo "</pre></body></html>" >> test-summary.html
+          {
+            echo "<html><body>"
+            echo "<h2>Jest Test Suite Execution Report</h2>"
+            echo "<p><strong>Status:</strong> Tests executed against main branch.</p>"
+            echo "<table border='1' cellpadding='5' cellspacing='0' style='border-collapse: collapse; font-family: sans-serif;'>"
+            echo "<tr style='background-color: #f2f2f2;'><th>Artifact / Output</th><th>Path / Details</th></tr>"
+            echo "<tr><td>LCOV Coverage File</td><td>coverage/lcov.info</td></tr>"
+            echo "<tr><td>LCOV HTML Index</td><td>coverage/lcov-report/index.html</td></tr>"
+            echo "</table>"
+            echo "<h3>Console Output Highlights</h3>"
+            echo "<pre style='background:#f9f9f9;padding:10px;border:1px solid #ccc;font-family:monospace;'>"
+            grep -E "🧠|📏|❌|📁" console.log || echo "No highlights found."
+            echo "</pre></body></html>"
+          } > test-summary.html
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -95,6 +100,9 @@ jobs:
           attachments: |
             test-summary.html
 
+  # ==========================================
+  # JOB 2: SonarCloud Security Analysis Stage
+  # ==========================================
   sonarcloud:
     name: SonarCloud Security Analysis
     needs: test
@@ -153,9 +161,20 @@ jobs:
         if: always()
         run: |
           sudo apt-get update && sudo apt-get install -y jq
-          echo "<html><body>" > sonar-summary.html
-          echo "<h2>SonarCloud Active Issues Report</h2>" >> sonar-summary.html
-          echo "<table border='1' cellpadding='5' cellspacing='0' style='border-collapse: collapse; font-family: sans-serif;'>" >> sonar-summary.html
-          echo "<tr style='background-color: #f2f2f2;'><th>Rule</th><th>Message</th><th>Severity</th><th>File</th><th>Line</th><th>Action</th></tr>" >> sonar-summary.html
-          if jq -e '.issues | length > 0' sonar-report.json >/dev/null 2>&1; then
-            jq -r '.issues[] | "<tr><td>\(.rule)</td><td>\(.message)</td><td>\(.severity)</td><td>\(.component)</td><td>\(.line)</td><td>Review</td></tr>"' sonar-report.json >> sonar
+          {
+            echo "<html><body>"
+            echo "<h2>SonarCloud Active Issues Report</h2>"
+            echo "<table border='1' cellpadding='5' cellspacing='0' style='border-collapse: collapse; font-family: sans-serif;'>"
+            echo "<tr style='background-color: #f2f2f2;'><th>Rule</th><th>Message</th><th>Severity</th><th>File</th><th>Line</th><th>Action</th></tr>"
+            if jq -e '.issues | length > 0' sonar-report.json >/dev/null 2>&1; then
+              jq -r '.issues[] | "<tr><td>\(.rule)</td><td>\(.message)</td><td>\(.severity)</td><td>\(.component)</td><td>\(.line)</td><td>Review</td></tr>"' sonar-report.json
+            else
+              echo "<tr><td colspan='6'>✅ No active issues found.</td></tr>"
+            fi
+            echo "</table></body></html>"
+          } > sonar-summary.html
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sonar-summary-report
+          path: sonar-summary.html
