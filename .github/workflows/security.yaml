@@ -8,6 +8,65 @@ on:
   workflow_dispatch:
 
 jobs:
+  owasp:
+    name: OWASP Dependency Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Cache OWASP DB
+        uses: actions/cache@v4
+        with:
+          path: $HOME/.dependency-check/data
+          key: owasp-db
+
+      - name: Install and Run OWASP Dependency Check
+        continue-on-error: true
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: |
+          curl -sSLf https://github.com/jeremylong/DependencyCheck/releases/download/v12.1.0/dependency-check-12.1.0-release.zip -o /tmp/dc.zip
+          unzip -q /tmp/dc.zip -d $HOME/dc
+          rm -f /tmp/dc.zip
+          npm install --ignore-scripts
+          $HOME/dc/dependency-check/bin/dependency-check.sh \
+            --project "Resume Matcher" \
+            --scan . \
+            --exclude "**/node_modules/**" \
+            --format HTML \
+            --out dependency-check-report.html \
+            --nvdApiKey "$NVD_API_KEY" \
+            --disableOssIndex
+
+      - name: Upload OWASP Report Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: owasp-dependency-check-report
+          path: dependency-check-report.html
+
+      - name: Send Email
+        if: always()
+        run: sleep $((1 + RANDOM % 5))
+
+      - name: Email OWASP Report
+        if: always()
+        uses: dawidd6/action-send-mail@v4
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.EMAIL_USER }}
+          password: ${{ secrets.EMAIL_PASS }}
+          subject: OWASP Report - Resume Matcher
+          to: ${{ secrets.EMAIL_USER }}
+          from: ${{ secrets.EMAIL_USER }}
+          content_type: text/html
+          body: |
+            <h2>OWASP Dependency Check completed</h2>
+            <p>See attached report or workflow artifacts for full details.</p>
+          attachments: dependency-check-report.html
+
   test:
     name: Run Unit Tests & Coverage
     runs-on: ubuntu-latest
@@ -118,7 +177,6 @@ jobs:
             echo "</body></html>"
           } > test-summary.html
       - uses: actions/upload-artifact@v4
-        if: always()
         with:
           name: test-summary-report
           path: test-summary.html
@@ -194,16 +252,168 @@ jobs:
             echo "</table></body></html>"
           } > sonar-summary.html
       - uses: actions/upload-artifact@v4
-        if: always()
         with:
           name: sonar-summary-report
           path: sonar-summary.html
 
-  email:
-    name: Email Combined Reports
-    needs: [test, sonarcloud]
+  trivy-fs:
+    name: Trivy Filesystem Scan
+    needs: sonarcloud
     runs-on: ubuntu-latest
     steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Download Trivy HTML Template
+        run: curl -sSLf https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl -o html.tpl
+
+      - name: Run Trivy FS Scan
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: template
+          template: "@html.tpl"
+          output: trivy-fs-report.html
+          ignore-unfixed: true
+          vuln-type: os,library
+
+      - name: Upload Trivy FS Report Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-fs-report
+          path: trivy-fs-report.html
+
+  trivy-img:
+    name: Trivy Image Scan
+    needs: trivy-fs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker Image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          pull: true
+          no-cache: true
+          provenance: false
+          sbom: false
+          tags: resume-matcher:local
+
+      - name: Display Image Information
+        run: |
+          echo "===== IMAGES ====="
+          docker images resume-matcher:local
+
+          echo
+          echo "===== HISTORY ====="
+          docker history resume-matcher:local
+
+          echo
+          echo "===== INSPECT ====="
+          docker image inspect resume-matcher:local
+
+      - name: Verify Packages Inside Image
+        run: |
+          docker run --rm --entrypoint sh resume-matcher:local -c '
+            echo "===== NODE VERSION ====="
+            node -v
+
+            echo
+            echo "===== APP CONTENTS ====="
+            ls -la /app
+
+            echo
+            echo "===== NODE_MODULES EXISTS ====="
+            ls -ld /app/node_modules
+
+            echo
+            echo "===== PACKAGE VERSIONS ====="
+
+            for pkg in \
+              minimatch \
+              glob \
+              brace-expansion \
+              cross-spawn \
+              tar \
+              react-router \
+              @sigstore/core \
+              sigstore
+            do
+              if [ -f "/app/node_modules/$pkg/package.json" ]; then
+                echo
+                echo "$pkg"
+                cat "/app/node_modules/$pkg/package.json" | grep "\"version\""
+              else
+                echo
+                echo "$pkg : NOT INSTALLED"
+              fi
+            done
+
+            echo
+            echo "===== SEARCH FOR TAR ====="
+            find /app/node_modules -type d -name tar | head -20 || true
+
+            echo
+            echo "===== SEARCH FOR MINIMATCH ====="
+            find /app/node_modules -type d -name minimatch | head -20 || true
+
+            echo
+            echo "===== SEARCH FOR BRACE-EXPANSION ====="
+            find /app/node_modules -type d -name brace-expansion | head -20 || true
+          '
+
+      - name: Show Trivy Version
+        run: |
+          trivy --version || true
+
+      - name: Download Trivy HTML Template
+        run: |
+          curl -sSLf \
+            https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl \
+            -o html.tpl
+
+      - name: Run Trivy Image Scan
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          TRIVY_DEBUG: "true"
+        with:
+          scan-type: image
+          image-ref: resume-matcher:local
+          format: template
+          template: "@html.tpl"
+          output: trivy-img-report.html
+          ignore-unfixed: true
+          vuln-type: os,library
+
+      - name: Upload Trivy Image Report Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: trivy-img-report
+          path: trivy-img-report.html
+
+  email:
+    name: Email Combined Reports
+    needs: [owasp, test, sonarcloud, trivy-fs, trivy-img]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dependency-check-report
+          path: .
       - uses: actions/download-artifact@v4
         with:
           name: test-summary-report
@@ -212,6 +422,14 @@ jobs:
         with:
           name: sonar-summary-report
           path: .
+      - uses: actions/download-artifact@v4
+        with:
+          name: trivy-fs-report
+          path: .
+      - uses: actions/download-artifact@v4
+        with:
+          name: trivy-img-report
+          path: .
       - name: Send Email with Reports
         uses: dawidd6/action-send-mail@611879133a9569642c41be66f4a323286e9b8a3b
         with:
@@ -219,17 +437,26 @@ jobs:
           server_port: 465
           username: ${{ secrets.EMAIL_USER }}
           password: ${{ secrets.EMAIL_PASS }}
-          subject: CI Reports - Resume Matcher
+          subject: CI & Security Reports - Resume Matcher
           to: ${{ secrets.EMAIL_USER }}
           from: ${{ secrets.EMAIL_USER }}
           content_type: text/html
           body: |
-            <h2>CI Pipeline Reports</h2>
-            <p><strong>Status:</strong> All jobs executed against <em>main</em> branch.</p>
-            <h3>Jest Test Suite</h3>
-            <p>See attached <em>test-summary.html</em> for full details.</p>
-            <h3>SonarCloud Security Analysis</h3>
-            <p>See attached <em>sonar-summary.html</em> for active issues report.</p>
+            <h2>CI Pipeline & Security Reports</h2>
+            <p><strong>Status:</strong> All validation, test, and security jobs have executed against the <em>main</em> branch.</p>
+            <h3>1. OWASP Dependency Check</h3>
+            <p>See attached <em>dependency-check-report.html</em> for dependency vulnerabilities.</p>
+            <h3>2. Jest Test Suite</h3>
+            <p>See attached <em>test-summary.html</em> for full test execution and code coverage details.</p>
+            <h3>3. SonarCloud Security Analysis</h3>
+            <p>See attached <em>sonar-summary.html</em> for active code issues report.</p>
+            <h3>4. Trivy Filesystem Scan</h3>
+            <p>See attached <em>trivy-fs-report.html</em> for source code vulnerability details.</p>
+            <h3>5. Trivy Image Scan</h3>
+            <p>See attached <em>trivy-img-report.html</em> for container image vulnerability findings.</p>
           attachments: |
+            dependency-check-report.html
             test-summary.html
             sonar-summary.html
+            trivy-fs-report.html
+            trivy-img-report.html
