@@ -8,15 +8,11 @@ on:
   workflow_dispatch:
 
 jobs:
-  # ==========================================
-  # JOB 1: Test & Code Coverage Stage
-  # ==========================================
   test:
     name: Run Unit Tests & Coverage
     runs-on: ubuntu-latest
     permissions:
       contents: read
-
     services:
       postgres:
         image: postgres:15
@@ -31,33 +27,20 @@ jobs:
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
-
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: 'npm'
-
-      - name: Install SQLite dependencies
-        run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev build-essential
-
-      - name: Install Dependencies
-        run: npm ci --ignore-scripts
-
+      - run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev build-essential
+      - run: npm ci --ignore-scripts
       - name: Run Tests & Capture Console Logs
-        run: |
-          npm test --silent=false | tee console.log
-
-      - name: Upload Coverage Report Artifact (for SonarCloud)
-        uses: actions/upload-artifact@v4
+        run: npm test --silent=false | tee console.log
+      - uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: coverage/
-
       - name: Build Test Summary HTML Report
         if: always()
         run: |
@@ -69,20 +52,15 @@ jobs:
           echo "<tr><td>LCOV Coverage File</td><td>coverage/lcov.info</td></tr>" >> test-summary.html
           echo "<tr><td>LCOV HTML Index</td><td>coverage/lcov-report/index.html</td></tr>" >> test-summary.html
           echo "</table>" >> test-summary.html
-          echo "<p>Check workflow run artifacts for detailed coverage files.</p>" >> test-summary.html
           echo "<h3>Console Output Highlights</h3>" >> test-summary.html
           echo "<pre style='background:#f9f9f9;padding:10px;border:1px solid #ccc;font-family:monospace;'>" >> test-summary.html
           grep -E "🧠|📏|❌|📁" console.log >> test-summary.html || echo "No highlights found." >> test-summary.html
-          echo "</pre>" >> test-summary.html
-          echo "</body></html>" >> test-summary.html
-
-      - name: Upload Test Summary Artifact
+          echo "</pre></body></html>" >> test-summary.html
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
           name: test-summary-report
           path: test-summary.html
-
       - name: Email Test Suite Report
         if: always()
         uses: dawidd6/action-send-mail@611879133a9569642c41be66f4a323286e9b8a3b
@@ -114,36 +92,25 @@ jobs:
               <li>📏 Embedding length: 3</li>
               <li>📁 Resume saved locally</li>
             </ul>
-            <p>For full details, check workflow artifacts.</p>
           attachments: |
             test-summary.html
 
-  # ==========================================
-  # JOB 2: SonarCloud Security Analysis Stage
-  # ==========================================
   sonarcloud:
     name: SonarCloud Security Analysis
     needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
-
     steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Download Coverage Report Artifact
-        uses: actions/download-artifact@v4
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
           name: coverage-report
           path: coverage
-
-      - name: Set up JDK 21
-        uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 21
-
       - name: Install SonarScanner CLI (secure)
         run: |
           curl --proto '=https' --tlsv1.2 -sSLf \
@@ -157,7 +124,6 @@ jobs:
           unzip -q sonar-scanner.zip -d $HOME
           rm -f sonar-scanner.zip sonar-scanner.zip.sha256
           echo "$HOME/sonar-scanner-5.0.1.3006/bin" >> $GITHUB_PATH
-
       - name: Run SonarScanner
         continue-on-error: true
         env:
@@ -173,7 +139,6 @@ jobs:
             -Dsonar.host.url="$SONAR_HOST" \
             -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info \
             -Dsonar.qualitygate.wait=false
-
       - name: Export SonarCloud Report
         if: always()
         continue-on-error: true
@@ -184,7 +149,6 @@ jobs:
           curl --proto '=https' --tlsv1.2 -s -u "$SONAR_TOKEN:" \
             "https://sonarcloud.io/api/issues/search?projectKeys=$SONAR_PROJECT_KEY&statuses=OPEN,REOPENED&ps=500" \
             -o sonar-report.json
-
       - name: Convert SonarCloud JSON to HTML Table
         if: always()
         run: |
@@ -192,4 +156,6 @@ jobs:
           echo "<html><body>" > sonar-summary.html
           echo "<h2>SonarCloud Active Issues Report</h2>" >> sonar-summary.html
           echo "<table border='1' cellpadding='5' cellspacing='0' style='border-collapse: collapse; font-family: sans-serif;'>" >> sonar-summary.html
-          echo "<tr style='
+          echo "<tr style='background-color: #f2f2f2;'><th>Rule</th><th>Message</th><th>Severity</th><th>File</th><th>Line</th><th>Action</th></tr>" >> sonar-summary.html
+          if jq -e '.issues | length > 0' sonar-report.json >/dev/null 2>&1; then
+            jq -r '.issues[] | "<tr><td>\(.rule)</td><td>\(.message)</td><td>\(.severity)</td><td>\(.component)</td><td>\(.line)</td><td>Review</td></tr>"' sonar-report.json >> sonar
