@@ -23,16 +23,16 @@
         <div class='clearfix'>
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">29.62% </span>
+                <span class="strong">28% </span>
                 <span class="quiet">Statements</span>
-                <span class='fraction'>8/27</span>
+                <span class='fraction'>7/25</span>
             </div>
         
             
             <div class='fl pad1y space-right2'>
                 <span class="strong">0% </span>
                 <span class="quiet">Branches</span>
-                <span class='fraction'>0/1</span>
+                <span class='fraction'>0/2</span>
             </div>
         
             
@@ -44,9 +44,9 @@
         
             
             <div class='fl pad1y space-right2'>
-                <span class="strong">29.62% </span>
+                <span class="strong">28% </span>
                 <span class="quiet">Lines</span>
-                <span class='fraction'>8/27</span>
+                <span class='fraction'>7/25</span>
             </div>
         
             
@@ -88,11 +88,7 @@
 <a name='L23'></a><a href='#L23'>23</a>
 <a name='L24'></a><a href='#L24'>24</a>
 <a name='L25'></a><a href='#L25'>25</a>
-<a name='L26'></a><a href='#L26'>26</a>
-<a name='L27'></a><a href='#L27'>27</a>
-<a name='L28'></a><a href='#L28'>28</a></td><td class="line-coverage quiet"><span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
-<span class="cline-any cline-yes">1x</span>
+<a name='L26'></a><a href='#L26'>26</a></td><td class="line-coverage quiet"><span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
@@ -114,34 +110,32 @@
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
 <span class="cline-any cline-no">&nbsp;</span>
-<span class="cline-any cline-no">&nbsp;</span>
+<span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-yes">1x</span>
 <span class="cline-any cline-neutral">&nbsp;</span></td><td class="text"><pre class="prettyprint lang-js">import Database from 'better-sqlite3';
 import path from 'node:path';
 &nbsp;
-let db = null;
-&nbsp;
-if (process.env.NODE_ENV !== 'test') <span class="branch-0 cbranch-no" title="branch not covered" >{</span>
-<span class="cstat-no" title="statement not covered" >  // ✅ Resolve absolute path for SQLite file</span>
-<span class="cstat-no" title="statement not covered" >  // In Docker, this will reside in the container's /app directory</span>
-<span class="cstat-no" title="statement not covered" >  const dbPath = path.resolve('./resumes.sqlite');</span>
-<span class="cstat-no" title="statement not covered" >  db = new Database(dbPath);</span>
+const db = process.env.NODE_ENV !== 'test'
+<span class="cstat-no" title="statement not covered" ><span class="branch-0 cbranch-no" title="branch not covered" >  ? (<span class="branch-0 cbranch-no" title="branch not covered" >() =&gt; {</span></span></span>
+<span class="cstat-no" title="statement not covered" >      const dbPath = path.resolve('./resumes.sqlite');</span>
+<span class="cstat-no" title="statement not covered" >      const instance = new Database(dbPath);</span>
 <span class="cstat-no" title="statement not covered" ></span>
-<span class="cstat-no" title="statement not covered" >  // ✅ PRODUCTION-PARITY SCHEMA</span>
-<span class="cstat-no" title="statement not covered" >  // This matches your Postgres schema exactly, ensuring no logic breaks</span>
-<span class="cstat-no" title="statement not covered" >  db.exec(`</span>
-<span class="cstat-no" title="statement not covered" >    CREATE TABLE IF NOT EXISTS resumes (</span>
-<span class="cstat-no" title="statement not covered" >      id INTEGER PRIMARY KEY AUTOINCREMENT,</span>
-<span class="cstat-no" title="statement not covered" >      name TEXT,</span>
-<span class="cstat-no" title="statement not covered" >      email TEXT UNIQUE,                 -- 👈 Added UNIQUE to prevent duplicate entries</span>
-<span class="cstat-no" title="statement not covered" >      skills TEXT,</span>
-<span class="cstat-no" title="statement not covered" >      score REAL DEFAULT 0,              -- For semantic similarity values (e.g., 0.47)</span>
-<span class="cstat-no" title="statement not covered" >      match_results TEXT,                -- Stringified JSON array of job matches</span>
-<span class="cstat-no" title="statement not covered" >      uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP</span>
-<span class="cstat-no" title="statement not covered" >    )</span>
-<span class="cstat-no" title="statement not covered" >  `);</span>
-<span class="cstat-no" title="statement not covered" >}</span>
+<span class="cstat-no" title="statement not covered" >      instance.exec(`</span>
+<span class="cstat-no" title="statement not covered" >        CREATE TABLE IF NOT EXISTS resumes (</span>
+<span class="cstat-no" title="statement not covered" >          id INTEGER PRIMARY KEY AUTOINCREMENT,</span>
+<span class="cstat-no" title="statement not covered" >          name TEXT,</span>
+<span class="cstat-no" title="statement not covered" >          email TEXT UNIQUE,</span>
+<span class="cstat-no" title="statement not covered" >          skills TEXT,</span>
+<span class="cstat-no" title="statement not covered" >          score REAL DEFAULT 0,</span>
+<span class="cstat-no" title="statement not covered" >          match_results TEXT,</span>
+<span class="cstat-no" title="statement not covered" >          uploaded_at DATETIME DEFAULT CURRENT_TIMESTAMP</span>
+<span class="cstat-no" title="statement not covered" >        )</span>
+<span class="cstat-no" title="statement not covered" >      `);</span>
+<span class="cstat-no" title="statement not covered" ></span>
+<span class="cstat-no" title="statement not covered" >      return instance;</span>
+<span class="cstat-no" title="statement not covered" >    })()</span>
+  : null;
 &nbsp;
 export { db };
 &nbsp;</pre></td></tr></table></pre>
@@ -151,7 +145,7 @@ export { db };
             <div class='footer quiet pad2 space-top1 center small'>
                 Code coverage generated by
                 <a href="https://istanbul.js.org/" target="_blank" rel="noopener noreferrer">istanbul</a>
-                at 2026-08-05T01:07:13.300Z
+                at 2026-08-05T03:44:42.202Z
             </div>
         <script src="../../prettify.js"></script>
         <script>

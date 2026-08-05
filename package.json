@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
-    "test": "cross-env NODE_OPTIONS=--experimental-vm-modules jest --coverage --coverageProvider=v8 --coverageReporters=lcov"
+    "test": "cross-env NODE_OPTIONS=--experimental-vm-modules jest --coverage --coverageProvider=v8 --coverageReporters=text --coverageReporters=text-summary --coverageReporters=lcov --coverageReporters=html"
   },
   "dependencies": {
     "@xenova/transformers": "^2.0.1",
@@ -51,7 +51,8 @@
     "postcss": "^8.5.3",
     "supertest": "^7.0.0",
     "tailwindcss": "^3.4.17",
-    "vite": "^6.3.0"
+    "vite": "^6.3.0",
+    "babel-plugin-istanbul": "^6.1.1"
   },
   "overrides": {
     "protobufjs": "7.6.5",

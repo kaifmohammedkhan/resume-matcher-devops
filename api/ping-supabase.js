@@ -1,4 +1,4 @@
-import { supabase } from '../../lib/supabase-client.js';
+import { supabase } from '../lib/supabase-client.js';
 
 export default async function handler(req, res) {
   const { data, error } = await supabase.from('resumes').select('*').limit(1);

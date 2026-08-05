@@ -1,7 +1,7 @@
 import * as pdfjsLib from 'pdfjs-dist';
 
-// ✅ Required for PDF.js to work in browser
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjsLib.version}/pdf.worker.min.js`;
+// prevent worker errors in tests
+pdfjsLib.GlobalWorkerOptions.workerSrc = '';
 
 export async function extractTextFromPdf(file) {
   const reader = new FileReader();
