@@ -62,14 +62,14 @@ jobs:
             echo "<tr><td>Execution Time</td><td>${TIME_ELAPSED:-40.809 s}</td></tr>"
             echo "</table>"
 
-            # Full Coverage Table parsed directly from Jest output
+            # Full Coverage Table parsed directly from Jest output (stripping out Jest header/footer decorations cleanly)
             echo "<h3>Full Coverage Breakdown</h3>"
             echo "<table border='1' cellpadding='6' cellspacing='0' style='border-collapse: collapse; font-family: monospace; font-size: 13px; width: 100%; max-width: 900px;'>"
             echo "<tr style='background-color: #f2f2f2; font-family: Arial, sans-serif;'><th>File</th><th>% Stmts</th><th>% Branch</th><th>% Funcs</th><th>% Lines</th><th>Uncovered Line #s</th></tr>"
             
-            # Parse table lines between the header separator and footer summary line using awk
-            sed -n '/---*|---*/,/---*|---*/p' console.log | tail -n +2 | head -n -1 | while IFS='|' read -r file stmts branch funcs lines uncovered; do
-              # Trim whitespace
+            # Use awk to grab lines strictly between the table separator row and the "Coverage summary" line
+            awk '/----*\|----*/ {flag=1; next} /Coverage summary/ {flag=0} flag' console.log | while IFS='|' read -r file stmts branch funcs lines uncovered; do
+              # Trim leading/trailing whitespace
               file=$(echo "$file" | xargs)
               stmts=$(echo "$stmts" | xargs)
               branch=$(echo "$branch" | xargs)
@@ -77,8 +77,8 @@ jobs:
               lines=$(echo "$lines" | xargs)
               uncovered=$(echo "$uncovered" | xargs)
               
-              if [ -n "$file" ]; then
-                # Highlight summary rows or folder names differently if needed
+              # Filter out empty lines, separator dashes, or stray header repetitions
+              if [ -n "$file" ] && [[ "$file" != "File" ]] && [[ "$file" != --* ]]; then
                 echo "<tr><td><strong>$file</strong></td><td>$stmts</td><td>$branch</td><td>$funcs</td><td>$lines</td><td style='color: #c00;'>$uncovered</td></tr>"
               fi
             done
