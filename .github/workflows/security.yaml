@@ -8,9 +8,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  # ==========================================
-  # JOB 1: Test & Code Coverage Stage
-  # ==========================================
   test:
     name: Run Unit Tests & Coverage
     runs-on: ubuntu-latest
@@ -66,43 +63,7 @@ jobs:
         with:
           name: test-summary-report
           path: test-summary.html
-      - name: Email Test Suite Report
-        if: always()
-        uses: dawidd6/action-send-mail@611879133a9569642c41be66f4a323286e9b8a3b
-        with:
-          server_address: smtp.gmail.com
-          server_port: 465
-          username: ${{ secrets.EMAIL_USER }}
-          password: ${{ secrets.EMAIL_PASS }}
-          subject: Jest Test Suite Report - Resume Matcher
-          to: ${{ secrets.EMAIL_USER }}
-          from: ${{ secrets.EMAIL_USER }}
-          content_type: text/html
-          body: |
-            <h2>Jest Test Suite Execution Report</h2>
-            <p><strong>Status:</strong> All test suites executed against <em>main</em> branch.</p>
-            <table border="1" cellpadding="5" cellspacing="0" style="border-collapse: collapse; font-family: sans-serif;">
-              <tr style="background-color: #f2f2f2;">
-                <th>Summary Metric</th><th>Result</th>
-              </tr>
-              <tr><td>Test Suites</td><td>23 passed / 23 total</td></tr>
-              <tr><td>Tests</td><td>51 passed / 51 total</td></tr>
-              <tr><td>Snapshots</td><td>0 total</td></tr>
-              <tr><td>Coverage Report</td><td><a href="coverage/lcov-report/index.html">HTML Coverage</a></td></tr>
-              <tr><td>LCOV File</td><td>coverage/lcov.info</td></tr>
-            </table>
-            <p>Console highlights:</p>
-            <ul>
-              <li>🧠 Embedding sample: [0.1, 0.2, 0.3]</li>
-              <li>📏 Embedding length: 3</li>
-              <li>📁 Resume saved locally</li>
-            </ul>
-          attachments: |
-            test-summary.html
 
-  # ==========================================
-  # JOB 2: SonarCloud Security Analysis Stage
-  # ==========================================
   sonarcloud:
     name: SonarCloud Security Analysis
     needs: test
@@ -178,3 +139,38 @@ jobs:
         with:
           name: sonar-summary-report
           path: sonar-summary.html
+
+  email:
+    name: Email Combined Reports
+    needs: [test, sonarcloud]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: test-summary-report
+          path: .
+      - uses: actions/download-artifact@v4
+        with:
+          name: sonar-summary-report
+          path: .
+      - name: Send Email with Reports
+        uses: dawidd6/action-send-mail@611879133a9569642c41be66f4a323286e9b8a3b
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.EMAIL_USER }}
+          password: ${{ secrets.EMAIL_PASS }}
+          subject: CI Reports - Resume Matcher
+          to: ${{ secrets.EMAIL_USER }}
+          from: ${{ secrets.EMAIL_USER }}
+          content_type: text/html
+          body: |
+            <h2>CI Pipeline Reports</h2>
+            <p><strong>Status:</strong> All jobs executed against <em>main</em> branch.</p>
+            <h3>Jest Test Suite</h3>
+            <p>See attached <em>test-summary.html</em> for full details.</p>
+            <h3>SonarCloud Security Analysis</h3>
+            <p>See attached <em>sonar-summary.html</em> for active issues report.</p>
+          attachments: |
+            test-summary.html
+            sonar-summary.html
