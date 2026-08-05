@@ -48,6 +48,12 @@ jobs:
           TESTS_PASSED=$(grep "Tests:" console.log | awk '{print $2}')
           TIME_ELAPSED=$(grep "Time:" console.log | awk '{print $2, $3}')
 
+          # Extract exact totals from the Coverage summary block at the bottom
+          STMTS_SUMMARY=$(grep -A 5 "Coverage summary" console.log | grep "Statements" | sed 's/\x1b\[[0-9;]*m//g')
+          BRANCH_SUMMARY=$(grep -A 5 "Coverage summary" console.log | grep "Branches" | sed 's/\x1b\[[0-9;]*m//g')
+          FUNCS_SUMMARY=$(grep -A 5 "Coverage summary" console.log | grep "Functions" | sed 's/\x1b\[[0-9;]*m//g')
+          LINES_SUMMARY=$(grep -A 5 "Coverage summary" console.log | grep "Lines" | sed 's/\x1b\[[0-9;]*m//g')
+
           {
             echo "<html><body style='font-family: Arial, sans-serif; margin: 20px;'>"
             echo "<h2>Jest Test Suite Execution Report</h2>"
@@ -62,7 +68,17 @@ jobs:
             echo "<tr><td>Execution Time</td><td>${TIME_ELAPSED:-40.809 s}</td></tr>"
             echo "</table>"
 
-            # Full Coverage Breakdown Table (Parsed and including empty lines so no rows are skipped)
+            # Overall Coverage Summary Table (The bottom block requested)
+            echo "<h3>Overall Coverage Summary</h3>"
+            echo "<table border='1' cellpadding='8' cellspacing='0' style='border-collapse: collapse; width: 100%; max-width: 600px; font-family: monospace;'>"
+            echo "<tr style='background-color: #f2f2f2; font-family: Arial, sans-serif;'><th>Metric</th><th>Details</th></tr>"
+            echo "<tr><td><strong>Statements</strong></td><td>$STMTS_SUMMARY</td></tr>"
+            echo "<tr><td><strong>Branches</strong></td><td>$BRANCH_SUMMARY</td></tr>"
+            echo "<tr><td><strong>Functions</strong></td><td>$FUNCS_SUMMARY</td></tr>"
+            echo "<tr><td><strong>Lines</strong></td><td>$LINES_SUMMARY</td></tr>"
+            echo "</table>"
+
+            # Full Coverage Breakdown Table (File by File)
             echo "<h3>Full Coverage Breakdown</h3>"
             echo "<table border='1' cellpadding='6' cellspacing='0' style='border-collapse: collapse; font-family: monospace; font-size: 13px; width: 100%; max-width: 900px;'>"
             echo "<tr style='background-color: #f2f2f2; font-family: Arial, sans-serif;'><th>File</th><th>% Stmts</th><th>% Branch</th><th>% Funcs</th><th>% Lines</th><th>Uncovered Line #s</th></tr>"
