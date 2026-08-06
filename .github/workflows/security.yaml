@@ -1,462 +1,126 @@
-name: CI & Security Pipeline
+name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ main ]
   pull_request:
-    branches: [ "main" ]
-  workflow_dispatch:
+    branches: [ main ]
 
 jobs:
-  owasp:
-    name: OWASP Dependency Check
+  build-and-test:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Cache OWASP DB
-        uses: actions/cache@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
         with:
-          path: $HOME/.dependency-check/data
-          key: owasp-db
+          node-version: '18'
+          cache: 'npm'
 
-      - name: Install and Run OWASP Dependency Check
-        continue-on-error: true
-        env:
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-        run: |
-          curl -sSLf https://github.com/jeremylong/DependencyCheck/releases/download/v12.1.0/dependency-check-12.1.0-release.zip -o /tmp/dc.zip
-          unzip -q /tmp/dc.zip -d $HOME/dc
-          rm -f /tmp/dc.zip
-          npm install --ignore-scripts
-          $HOME/dc/dependency-check/bin/dependency-check.sh \
-            --project "Resume Matcher" \
-            --scan . \
-            --exclude "**/node_modules/**" \
-            --format HTML \
-            --out dependency-check-report.html \
-            --nvdApiKey "$NVD_API_KEY" \
-            --disableOssIndex
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
 
-      - name: Upload OWASP Report Artifact
-        if: always()
+      - name: Run Build
+        run: npm run build
+
+  dependency-check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run OWASP Dependency Check
+        uses: dependency-check/Dependency-Check_Action@main
+        with:
+          project: 'Resume Matcher'
+          path: '.'
+          format: 'HTML'
+          args: >
+            --out .
+
+      - name: Upload Dependency Check Report
         uses: actions/upload-artifact@v4
         with:
-          name: owasp-dependency-check-report
+          name: dependency-check-report.html
           path: dependency-check-report.html
 
-      - name: Send Email
-        if: always()
-        run: sleep $((1 + RANDOM % 5))
-
-      - name: Email OWASP Report
-        if: always()
-        uses: dawidd6/action-send-mail@v4
-        with:
-          server_address: smtp.gmail.com
-          server_port: 465
-          username: ${{ secrets.EMAIL_USER }}
-          password: ${{ secrets.EMAIL_PASS }}
-          subject: OWASP Report - Resume Matcher
-          to: ${{ secrets.EMAIL_USER }}
-          from: ${{ secrets.EMAIL_USER }}
-          content_type: text/html
-          body: |
-            <h2>OWASP Dependency Check completed</h2>
-            <p>See attached report or workflow artifacts for full details.</p>
-          attachments: dependency-check-report.html
-
-  test:
-    name: Run Unit Tests & Coverage
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    services:
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: resumes
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U postgres"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: 'npm'
-      - run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev build-essential
-      - run: npm ci --ignore-scripts
-      - name: Run Tests & Capture Console Logs
-        run: npm test --silent=false | tee console.log
-      - uses: actions/upload-artifact@v4
-        with:
-          name: coverage-report
-          path: coverage/
-      - name: Build Test Summary HTML Report
-        if: always()
-        run: |
-          SUITES_PASSED=$(grep "Test Suites:" console.log | awk '{print $3}')
-          TESTS_PASSED=$(grep "Tests:" console.log | awk '{print $2}')
-          TIME_ELAPSED=$(grep "Time:" console.log | awk '{print $2, $3}')
-
-          # Extract exact totals from the Coverage summary block at the bottom
-          STMTS_SUMMARY=$(grep -A 5 "Coverage summary" console.log | grep "Statements" | sed 's/\x1b\[[0-9;]*m//g')
-          BRANCH_SUMMARY=$(grep -A 5 "Coverage summary" console.log | grep "Branches" | sed 's/\x1b\[[0-9;]*m//g')
-          FUNCS_SUMMARY=$(grep -A 5 "Coverage summary" console.log | grep "Functions" | sed 's/\x1b\[[0-9;]*m//g')
-          LINES_SUMMARY=$(grep -A 5 "Coverage summary" console.log | grep "Lines" | sed 's/\x1b\[[0-9;]*m//g')
-
-          {
-            echo "<html><body style='font-family: Arial, sans-serif; margin: 20px;'>"
-            echo "<h2>Jest Test Suite Execution Report</h2>"
-            echo "<p><strong>Status:</strong> Tests executed successfully against <em>main</em> branch.</p>"
-            
-            # Results Summary Table
-            echo "<h3>Test Execution Summary</h3>"
-            echo "<table border='1' cellpadding='8' cellspacing='0' style='border-collapse: collapse; width: 100%; max-width: 600px;'>"
-            echo "<tr style='background-color: #f2f2f2;'><th>Metric</th><th>Result</th></tr>"
-            echo "<tr><td>Test Suites Passed</td><td><strong>${SUITES_PASSED:-40 passed, 40 total}</strong></td></tr>"
-            echo "<tr><td>Tests Passed</td><td><strong>${TESTS_PASSED:-75 passed, 75 total}</strong></td></tr>"
-            echo "<tr><td>Execution Time</td><td>${TIME_ELAPSED:-40.809 s}</td></tr>"
-            echo "</table>"
-
-            # Overall Coverage Summary Table (The bottom block requested)
-            echo "<h3>Overall Coverage Summary</h3>"
-            echo "<table border='1' cellpadding='8' cellspacing='0' style='border-collapse: collapse; width: 100%; max-width: 600px; font-family: monospace;'>"
-            echo "<tr style='background-color: #f2f2f2; font-family: Arial, sans-serif;'><th>Metric</th><th>Details</th></tr>"
-            echo "<tr><td><strong>Statements</strong></td><td>$STMTS_SUMMARY</td></tr>"
-            echo "<tr><td><strong>Branches</strong></td><td>$BRANCH_SUMMARY</td></tr>"
-            echo "<tr><td><strong>Functions</strong></td><td>$FUNCS_SUMMARY</td></tr>"
-            echo "<tr><td><strong>Lines</strong></td><td>$LINES_SUMMARY</td></tr>"
-            echo "</table>"
-
-            # Full Coverage Breakdown Table (File by File)
-            echo "<h3>Full Coverage Breakdown</h3>"
-            echo "<table border='1' cellpadding='6' cellspacing='0' style='border-collapse: collapse; font-family: monospace; font-size: 13px; width: 100%; max-width: 900px;'>"
-            echo "<tr style='background-color: #f2f2f2; font-family: Arial, sans-serif;'><th>File</th><th>% Stmts</th><th>% Branch</th><th>% Funcs</th><th>% Lines</th><th>Uncovered Line #s</th></tr>"
-            
-            awk '/----*\|----*/ {flag=1; next} /Coverage summary/ {flag=0} flag' console.log | while IFS='|' read -r file stmts branch funcs lines uncovered; do
-              file=$(echo "$file" | xargs)
-              stmts=$(echo "$stmts" | xargs)
-              branch=$(echo "$branch" | xargs)
-              funcs=$(echo "$funcs" | xargs)
-              lines=$(echo "$lines" | xargs)
-              uncovered=$(echo "$uncovered" | xargs)
-              
-              if [[ "$file" != "File" ]] && [[ "$file" != --* ]]; then
-                if [ -z "$file" ]; then
-                  echo "<tr><td colspan='6' style='background-color: #fafafa; height: 8px;'></td></tr>"
-                else
-                  echo "<tr><td><strong>$file</strong></td><td>$stmts</td><td>$branch</td><td>$funcs</td><td>$lines</td><td style='color: #c00;'>$uncovered</td></tr>"
-                fi
-              fi
-            done
-            echo "</table>"
-
-            # Artifact Links
-            echo "<h3>Artifact Links</h3>"
-            echo "<table border='1' cellpadding='8' cellspacing='0' style='border-collapse: collapse; width: 100%; max-width: 600px;'>"
-            echo "<tr style='background-color: #f2f2f2;'><th>Artifact / Output</th><th>Path / Details</th></tr>"
-            echo "<tr><td>LCOV Coverage File</td><td><code>coverage/lcov.info</code></td></tr>"
-            echo "<tr><td>LCOV HTML Index</td><td><code>coverage/lcov-report/index.html</code></td></tr>"
-            echo "</table>"
-
-            # Clean Console Highlights
-            echo "<h3>Console Output Highlights</h3>"
-            echo "<pre style='background:#f9f9f9; padding:12px; border:1px solid #ccc; font-family:monospace; max-height: 300px; overflow-y: auto;'>"
-            grep -E "🧠|📏|❌|📁|🔑|🧩|🛠️|✅|🚫|⚠️" console.log | grep -v "at " || echo "No major highlights found."
-            echo "</pre>"
-            
-            echo "</body></html>"
-          } > test-summary.html
-      - uses: actions/upload-artifact@v4
-        with:
-          name: test-summary-report
-          path: test-summary.html
-
-  sonarcloud:
-    name: SonarCloud Security Analysis
-    needs: test
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
-        with:
-          name: coverage-report
-          path: coverage
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 21
-      - name: Install SonarScanner CLI (secure)
-        run: |
-          curl --proto '=https' --tlsv1.2 -sSLf \
-            https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006.zip \
-            -o sonar-scanner.zip
-          curl --proto '=https' --tlsv1.2 -sSLf \
-            https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006.zip.sha256 \
-            -o sonar-scanner.zip.sha256
-          sed -i "s/$/  sonar-scanner.zip/" sonar-scanner.zip.sha256
-          sha256sum -c sonar-scanner.zip.sha256
-          unzip -q sonar-scanner.zip -d $HOME
-          rm -f sonar-scanner.zip sonar-scanner.zip.sha256
-          echo "$HOME/sonar-scanner-5.0.1.3006/bin" >> $GITHUB_PATH
-      - name: Run SonarScanner
-        continue-on-error: true
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
-          SONAR_ORG: ${{ secrets.SONAR_ORG }}
-          SONAR_HOST: ${{ secrets.SONAR_HOST }}
-        run: |
-          sonar-scanner \
-            -Dsonar.projectKey="$SONAR_PROJECT_KEY" \
-            -Dsonar.organization="$SONAR_ORG" \
-            -Dsonar.sources=. \
-            -Dsonar.host.url="$SONAR_HOST" \
-            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info \
-            -Dsonar.qualitygate.wait=false
-      - name: Export SonarCloud Report
-        if: always()
-        continue-on-error: true
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
-        run: |
-          curl --proto '=https' --tlsv1.2 -s -u "$SONAR_TOKEN:" \
-            "https://sonarcloud.io/api/issues/search?projectKeys=$SONAR_PROJECT_KEY&statuses=OPEN,REOPENED&ps=500" \
-            -o sonar-report.json
-      - name: Convert SonarCloud JSON to HTML Table
-        if: always()
-        run: |
-          sudo apt-get update && sudo apt-get install -y jq
-          {
-            echo "<html><body>"
-            echo "<h2>SonarCloud Active Issues Report</h2>"
-            echo "<table border='1' cellpadding='5' cellspacing='0' style='border-collapse: collapse; font-family: sans-serif;'>"
-            echo "<tr style='background-color: #f2f2f2;'><th>Rule</th><th>Message</th><th>Severity</th><th>File</th><th>Line</th><th>Action</th></tr>"
-            if jq -e '.issues | length > 0' sonar-report.json >/dev/null 2>&1; then
-              jq -r '.issues[] | "<tr><td>\(.rule)</td><td>\(.message)</td><td>\(.severity)</td><td>\(.component)</td><td>\(.line)</td><td>Review</td></tr>"' sonar-report.json
-            else
-              echo "<tr><td colspan='6'>✅ No active issues found.</td></tr>"
-            fi
-            echo "</table></body></html>"
-          } > sonar-summary.html
-      - uses: actions/upload-artifact@v4
-        with:
-          name: sonar-summary-report
-          path: sonar-summary.html
-
   trivy-fs:
-    name: Trivy Filesystem Scan
-    needs: sonarcloud
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Download Trivy HTML Template
-        run: curl -sSLf https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl -o html.tpl
-
-      - name: Run Trivy FS Scan
-        continue-on-error: true
-        uses: aquasecurity/trivy-action@v0.36.0
+      - name: Run Trivy vulnerability scanner in fs mode
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
-          scan-type: fs
-          scan-ref: .
-          format: template
-          template: "@html.tpl"
-          output: trivy-fs-report.html
-          ignore-unfixed: true
-          vuln-type: os,library
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'html'
+          output: 'trivy-fs-report.html'
+          severity: 'CRITICAL,HIGH'
 
-      - name: Upload Trivy FS Report Artifact
-        if: always()
+      - name: Upload Trivy FS Report
         uses: actions/upload-artifact@v4
         with:
-          name: trivy-fs-report
+          name: trivy-fs-report.html
           path: trivy-fs-report.html
 
   trivy-img:
-    name: Trivy Image Scan
-    needs: trivy-fs
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-
+    needs: [build-and-test]
     steps:
-      - name: Checkout Code
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Docker Image
-        uses: docker/build-push-action@v6
+      - name: Build local Docker image
+        uses: docker/build-push-action@v5
         with:
           context: .
           load: true
-          pull: true
-          no-cache: true
-          provenance: false
-          sbom: false
           tags: resume-matcher:local
 
-      - name: Display Image Information
-        run: |
-          echo "===== IMAGES ====="
-          docker images resume-matcher:local
-
-          echo
-          echo "===== HISTORY ====="
-          docker history resume-matcher:local
-
-          echo
-          echo "===== INSPECT ====="
-          docker image inspect resume-matcher:local
-
-      - name: Verify Packages Inside Image
-        run: |
-          docker run --rm --entrypoint sh resume-matcher:local -c '
-            echo "===== NODE VERSION ====="
-            node -v
-
-            echo
-            echo "===== APP CONTENTS ====="
-            ls -la /app
-
-            echo
-            echo "===== NODE_MODULES EXISTS ====="
-            ls -ld /app/node_modules
-
-            echo
-            echo "===== PACKAGE VERSIONS ====="
-
-            for pkg in \
-              minimatch \
-              glob \
-              brace-expansion \
-              cross-spawn \
-              tar \
-              react-router \
-              @sigstore/core \
-              sigstore
-            do
-              if [ -f "/app/node_modules/$pkg/package.json" ]; then
-                echo
-                echo "$pkg"
-                cat "/app/node_modules/$pkg/package.json" | grep "\"version\""
-              else
-                echo
-                echo "$pkg : NOT INSTALLED"
-              fi
-            done
-
-            echo
-            echo "===== SEARCH FOR TAR ====="
-            find /app/node_modules -type d -name tar | head -20 || true
-
-            echo
-            echo "===== SEARCH FOR MINIMATCH ====="
-            find /app/node_modules -type d -name minimatch | head -20 || true
-
-            echo
-            echo "===== SEARCH FOR BRACE-EXPANSION ====="
-            find /app/node_modules -type d -name brace-expansion | head -20 || true
-          '
-
-      - name: Show Trivy Version
-        run: |
-          trivy --version || true
-
-      - name: Download Trivy HTML Template
-        run: |
-          curl -sSLf \
-            https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl \
-            -o html.tpl
-
-      - name: Run Trivy Image Scan
-        continue-on-error: true
-        uses: aquasecurity/trivy-action@v0.36.0
-        env:
-          TRIVY_DEBUG: "true"
+      - name: Run Trivy vulnerability scanner on Docker image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
-          scan-type: image
-          image-ref: resume-matcher:local
-          format: template
-          template: "@html.tpl"
-          output: trivy-img-report.html
-          ignore-unfixed: true
-          vuln-type: os,library
+          image-ref: 'resume-matcher:local'
+          format: 'html'
+          output: 'trivy-img-report.html'
+          severity: 'CRITICAL,HIGH'
 
-      - name: Upload Trivy Image Report Artifact
-        if: always()
+      - name: Upload Trivy Image Report
         uses: actions/upload-artifact@v4
         with:
-          name: trivy-img-report
+          name: trivy-img-report.html
           path: trivy-img-report.html
 
-  email:
-    name: Email Combined Reports
-    needs: [owasp, test, sonarcloud, trivy-fs, trivy-img]
+  send-reports:
+    needs: [dependency-check, trivy-fs, trivy-img]
     runs-on: ubuntu-latest
+    if: always()
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          name: dependency-check-report
-          path: .
-      - uses: actions/download-artifact@v4
-        with:
-          name: test-summary-report
-          path: .
-      - uses: actions/download-artifact@v4
-        with:
-          name: sonar-summary-report
-          path: .
-      - uses: actions/download-artifact@v4
-        with:
-          name: trivy-fs-report
-          path: .
-      - uses: actions/download-artifact@v4
-        with:
-          name: trivy-img-report
-          path: .
-      - name: Send Email with Reports
-        uses: dawidd6/action-send-mail@611879133a9569642c41be66f4a323286e9b8a3b
+      - name: Download all workflow artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Display structure of downloaded files
+        run: ls -R
+
+      - name: Send Security Reports Email
+        uses: dawidd6/action-send-mail@42942bc2f8fba4e611b459a018967a6a7c78c68c
         with:
           server_address: smtp.gmail.com
           server_port: 465
-          username: ${{ secrets.EMAIL_USER }}
-          password: ${{ secrets.EMAIL_PASS }}
-          subject: CI & Security Reports - Resume Matcher
-          to: ${{ secrets.EMAIL_USER }}
-          from: ${{ secrets.EMAIL_USER }}
-          content_type: text/html
-          body: |
-            <h2>CI Pipeline & Security Reports</h2>
-            <p><strong>Status:</strong> All validation, test, and security jobs have executed against the <em>main</em> branch.</p>
-            <h3>1. OWASP Dependency Check</h3>
-            <p>See attached <em>dependency-check-report.html</em> for dependency vulnerabilities.</p>
-            <h3>2. Jest Test Suite</h3>
-            <p>See attached <em>test-summary.html</em> for full test execution and code coverage details.</p>
-            <h3>3. SonarCloud Security Analysis</h3>
-            <p>See attached <em>sonar-summary.html</em> for active code issues report.</p>
-            <h3>4. Trivy Filesystem Scan</h3>
-            <p>See attached <em>trivy-fs-report.html</em> for source code vulnerability details.</p>
-            <h3>5. Trivy Image Scan</h3>
-            <p>See attached <em>trivy-img-report.html</em> for container image vulnerability findings.</p>
+          username: ${{ secrets.EMAIL_USERNAME }}
+          password: ${{ secrets.EMAIL_PASSWORD }}
+          subject: "Security Reports - Resume Matcher"
+          body: "Please find attached the latest OWASP Dependency-Check, Trivy Filesystem, and Trivy Image scan reports."
+          to: ${{ secrets.EMAIL_RECIPIENT }}
+          from: "Resume Matcher CI/CD"
           attachments: |
-            dependency-check-report.html
-            test-summary.html
-            sonar-summary.html
-            trivy-fs-report.html
-            trivy-img-report.html
+            dependency-check-report.html/dependency-check-report.html,
+            trivy-fs-report.html/trivy-fs-report.html,
+            trivy-img-report.html/trivy-img-report.html
