@@ -52,13 +52,16 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Download HTML template
+        run: wget https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl -O contrib.tpl
+
       - name: Run Trivy vulnerability scanner in fs mode
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           scan-type: 'fs'
           scan-ref: '.'
           format: 'template'
-          template: '@/contrib/html.tpl'
+          template: '@contrib.tpl'
           output: 'trivy-fs-report.html'
           severity: 'CRITICAL,HIGH'
 
@@ -85,12 +88,15 @@ jobs:
           load: true
           tags: resume-matcher:local
 
+      - name: Download HTML template
+        run: wget https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl -O contrib.tpl
+
       - name: Run Trivy vulnerability scanner on Docker image
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
         with:
           image-ref: 'resume-matcher:local'
           format: 'template'
-          template: '@/contrib/html.tpl'
+          template: '@contrib.tpl'
           output: 'trivy-img-report.html'
           severity: 'CRITICAL,HIGH'
 
@@ -120,7 +126,7 @@ jobs:
           password: ${{ secrets.EMAIL_PASS }}
           subject: "Security Reports - Resume Matcher"
           body: "Please find attached the latest OWASP Dependency-Check, Trivy Filesystem, and Trivy Image scan reports."
-          to: ${{ secrets.EMAIL_RECIPIENT }}
+          to: "kaifkhanmohammed718@gmail.com"
           from: "kaifkhanmohammed718@gmail.com"
           attachments: |
             dependency-check-report/dependency-check-report.html,
