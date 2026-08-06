@@ -53,19 +53,19 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run Trivy vulnerability scanner in fs mode
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        uses: aquasecurity/trivy-action@master
         with:
           scan-type: 'fs'
           scan-ref: '.'
-          format: 'html'
-          output: 'trivy-fs-report.html'
+          format: 'json'
+          output: 'trivy-fs-report.json'
           severity: 'CRITICAL,HIGH'
 
       - name: Upload Trivy FS Report
         uses: actions/upload-artifact@v4
         with:
-          name: trivy-fs-report.html
-          path: trivy-fs-report.html
+          name: trivy-fs-report.json
+          path: trivy-fs-report.json
 
   trivy-img:
     runs-on: ubuntu-latest
@@ -85,18 +85,18 @@ jobs:
           tags: resume-matcher:local
 
       - name: Run Trivy vulnerability scanner on Docker image
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        uses: aquasecurity/trivy-action@master
         with:
           image-ref: 'resume-matcher:local'
-          format: 'html'
-          output: 'trivy-img-report.html'
+          format: 'json'
+          output: 'trivy-img-report.json'
           severity: 'CRITICAL,HIGH'
 
       - name: Upload Trivy Image Report
         uses: actions/upload-artifact@v4
         with:
-          name: trivy-img-report.html
-          path: trivy-img-report.html
+          name: trivy-img-report.json
+          path: trivy-img-report.json
 
   send-reports:
     needs: [dependency-check, trivy-fs, trivy-img]
@@ -110,7 +110,7 @@ jobs:
         run: ls -R
 
       - name: Send Security Reports Email
-        uses: dawidd6/action-send-mail@42942bc2f8fba4e611b459a018967a6a7c78c68c
+        uses: dawidd6/action-send-mail@v3
         with:
           server_address: smtp.gmail.com
           server_port: 465
@@ -119,8 +119,8 @@ jobs:
           subject: "Security Reports - Resume Matcher"
           body: "Please find attached the latest OWASP Dependency-Check, Trivy Filesystem, and Trivy Image scan reports."
           to: ${{ secrets.EMAIL_RECIPIENT }}
-          from: "Resume Matcher CI/CD"
+          from: ${{ secrets.EMAIL_USERNAME }}
           attachments: |
             dependency-check-report.html/dependency-check-report.html,
-            trivy-fs-report.html/trivy-fs-report.html,
-            trivy-img-report.html/trivy-img-report.html
+            trivy-fs-report.json/trivy-fs-report.json,
+            trivy-img-report.json/trivy-img-report.json
