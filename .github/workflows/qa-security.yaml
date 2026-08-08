@@ -5,6 +5,12 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
+env: # Global env so all jobs inherit
+  GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+  DB_HOST: ${{ secrets.DB_HOST }}
+  DB_USER: ${{ secrets.DB_USER }}
+  DB_PASS: ${{ secrets.DB_PASS }}
+
 jobs:
   integration-tests:
     runs-on: ubuntu-latest
@@ -41,6 +47,11 @@ jobs:
       - name: Install dependencies
         run: npm install
       - name: Start App
+        env: # explicitly pass secrets to app runtime
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          DB_HOST: ${{ secrets.DB_HOST }}
+          DB_USER: ${{ secrets.DB_USER }}
+          DB_PASS: ${{ secrets.DB_PASS }}
         run: npm start &
       - name: Wait for App
         run: npx wait-on http://localhost:3000
