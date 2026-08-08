@@ -7,7 +7,7 @@ on:
 
 env: # Global env so all jobs inherit
   GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-  DB_HOST: ${{ secrets.DB_HOST }}
+  DB_HOST: localhost
   DB_USER: ${{ secrets.DB_USER }}
   DB_PASS: ${{ secrets.DB_PASS }}
 
@@ -18,13 +18,13 @@ jobs:
       postgres:
         image: postgres:15
         env:
-          POSTGRES_USER: ${{ secrets.DB_USER }}
-          POSTGRES_PASSWORD: ${{ secrets.DB_PASS }}
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
           POSTGRES_DB: resume_db
         ports:
           - 5432:5432
         options: >-
-          --health-cmd="pg_isready -U ${{ secrets.DB_USER }}"
+          --health-cmd="pg_isready -U postgres"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
@@ -35,6 +35,8 @@ jobs:
       - name: Run Cypress Integration Tests
         env:
           DB_HOST: localhost
+          DB_USER: postgres
+          DB_PASS: postgres
         run: npm run cypress:ci
       - name: Upload Cypress Report
         uses: actions/upload-artifact@v4
@@ -62,13 +64,13 @@ jobs:
       postgres:
         image: postgres:15
         env:
-          POSTGRES_USER: ${{ secrets.DB_USER }}
-          POSTGRES_PASSWORD: ${{ secrets.DB_PASS }}
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
           POSTGRES_DB: resume_db
         ports:
           - 5432:5432
         options: >-
-          --health-cmd="pg_isready -U ${{ secrets.DB_USER }}"
+          --health-cmd="pg_isready -U postgres"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
@@ -80,8 +82,8 @@ jobs:
         env:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           DB_HOST: localhost
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASS: ${{ secrets.DB_PASS }}
+          DB_USER: postgres
+          DB_PASS: postgres
         run: npm start &
       - name: Wait for App
         run: npx wait-on --timeout=60000 http://localhost:3000
