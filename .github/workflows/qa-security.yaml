@@ -24,10 +24,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Install k6
-        run: sudo apt-get install -y k6
       - name: Run k6 Load Test
-        run: k6 run tests/load.js --out json=results/k6.json
+        uses: grafana/k6-action@v0.3.0
+        with:
+          filename: tests/load.js
       - name: Upload k6 Results
         uses: actions/upload-artifact@v4
         with:
@@ -37,6 +37,13 @@ jobs:
   dast-scan:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: npm install
+      - name: Start App
+        run: npm start &
+      - name: Wait for App
+        run: npx wait-on http://localhost:3000
       - name: Run OWASP ZAP Scan
         uses: zaproxy/action-full-scan@v0.7.0
         with:
@@ -63,8 +70,8 @@ jobs:
           username: ${{ secrets.EMAIL_USER }}
           password: ${{ secrets.EMAIL_PASS }}
           subject: "QA + Security Pipeline Results"
-          to: "kaifkhanmohammed718@gmail.com"
-          from: "kaifkhanmohammed718@gmail.com"
+          to: "kaif@example.com"
+          from: ${{ secrets.EMAIL_USER }}
           content_type: text/html
           body: |
             <h2>QA + Security Pipeline Results</h2>
