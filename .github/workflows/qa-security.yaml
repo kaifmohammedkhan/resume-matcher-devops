@@ -1,0 +1,77 @@
+name: QA + Security Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  integration-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: npm install
+      - name: Run Cypress Integration Tests
+        run: npm run cypress:ci
+      - name: Upload Cypress Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: cypress-report
+          path: cypress/reports
+
+  performance-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install k6
+        run: sudo apt-get install -y k6
+      - name: Run k6 Load Test
+        run: k6 run tests/load.js --out json=results/k6.json
+      - name: Upload k6 Results
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-results
+          path: results/
+
+  dast-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run OWASP ZAP Scan
+        uses: zaproxy/action-full-scan@v0.7.0
+        with:
+          target: "http://localhost:3000"
+      - name: Upload ZAP Report
+        uses: actions/upload-artifact@v4
+        with:
+          name: zap-report
+          path: report/
+
+  email-report:
+    needs: [integration-tests, performance-tests, dast-scan]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all reports
+        uses: actions/download-artifact@v4
+        with:
+          path: reports
+      - name: Send Email Report
+        uses: dawidd6/action-send-mail@611879133a9569642c41be66f4a323286e9b8a3b
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.EMAIL_USER }}
+          password: ${{ secrets.EMAIL_PASS }}
+          subject: "QA + Security Pipeline Results"
+          to: "kaifkhanmohammed718@gmail.com"
+          from: "kaifkhanmohammed718@gmail.com"
+          content_type: text/html
+          body: |
+            <h2>QA + Security Pipeline Results</h2>
+            <p><strong>Integration Tests:</strong> See attached Cypress report.</p>
+            <p><strong>Performance Tests:</strong> See attached k6 results.</p>
+            <p><strong>DAST Scan:</strong> See attached ZAP report.</p>
+          attachments: |
+            reports/cypress-report/*
+            reports/k6-results/*
+            reports/zap-report/*
