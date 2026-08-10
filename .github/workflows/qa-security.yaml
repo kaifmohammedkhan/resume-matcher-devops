@@ -7,7 +7,7 @@ on:
 
 env: # Global env so all jobs inherit
   GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-  DB_HOST: localhost
+  DB_HOST: postgres
   DB_USER: ${{ secrets.DB_USER }}
   DB_PASS: ${{ secrets.DB_PASS }}
 
@@ -42,19 +42,19 @@ jobs:
         env:
           PORT: 3000
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          DB_HOST: localhost
+          DB_HOST: postgres
           DB_USER: postgres
           DB_PASS: postgres
         run: |
           npm start > app.log 2>&1 &
       - name: Wait for App
-        run: npx wait-on --timeout=60000 http://localhost:3000
+        run: npx wait-on --timeout=60000 http://127.0.0.1:3000
       - name: Print App Logs on Failure
         if: failure()
         run: cat app.log
       - name: Run Cypress Integration Tests
         env:
-          DB_HOST: localhost
+          DB_HOST: postgres
           DB_USER: postgres
           DB_PASS: postgres
         run: npm run cypress:ci
@@ -90,13 +90,13 @@ jobs:
         env:
           PORT: 3000
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          DB_HOST: localhost
+          DB_HOST: postgres
           DB_USER: postgres
           DB_PASS: postgres
         run: |
           npm start > app.log 2>&1 &
       - name: Wait for App
-        run: npx wait-on --timeout=60000 http://localhost:3000
+        run: npx wait-on --timeout=60000 http://127.0.0.1:3000
       - name: Print App Logs on Failure
         if: failure()
         run: cat app.log
@@ -135,13 +135,13 @@ jobs:
         env:
           PORT: 3000
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          DB_HOST: localhost
+          DB_HOST: postgres
           DB_USER: postgres
           DB_PASS: postgres
         run: |
           npm start > app.log 2>&1 &
       - name: Wait for App
-        run: npx wait-on --timeout=60000 http://localhost:3000
+        run: npx wait-on --timeout=60000 http://127.0.0.1:3000
       - name: Print App Logs on Failure
         if: failure()
         run: cat app.log
