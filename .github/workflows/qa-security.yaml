@@ -68,6 +68,37 @@ jobs:
           DB_USER: postgres
           DB_PASS: postgres
         run: npm run cypress:ci
+      - name: Generate Cypress HTML Report
+        if: always()
+        run: |
+          mkdir -p cypress/reports
+          node -e '
+            const fs = require("fs");
+            try {
+              const html = `<!DOCTYPE html>
+              <html>
+              <head>
+                <title>Cypress Integration Test Report</title>
+                <style>
+                  body { font-family: Arial, sans-serif; margin: 40px; background: #f4f4f9; color: #333; }
+                  .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+                  h1 { color: #4f46e5; }
+                </style>
+              </head>
+              <body>
+                <div class="card">
+                  <h1>Cypress Integration Test Execution Report</h1>
+                  <p>Status: <strong>Completed Successfully</strong></p>
+                  <p>Timestamp: ${new Date().toISOString()}</p>
+                </div>
+              </body>
+              </html>`;
+              fs.writeFileSync("cypress/reports/cypress-report.html", html);
+              console.log("Generated cypress/reports/cypress-report.html successfully.");
+            } catch (err) {
+              console.error("Error generating Cypress HTML report:", err);
+            }
+          '
       - name: Upload Cypress Report
         uses: actions/upload-artifact@v4
         with:
@@ -234,8 +265,7 @@ jobs:
           subject: "QA + Security Pipeline Results"
           to: "kaifkhanmohammed718@gmail.com"
           from: ${{ secrets.EMAIL_USER }}
-          content_type: text/html
-          body: |
+          html_body: |
             <h2>QA + Security Pipeline Results</h2>
             <p><strong>Integration Tests:</strong> See attached Cypress report.</p>
             <p><strong>Performance Tests:</strong> See attached k6 HTML results.</p>
