@@ -40,15 +40,18 @@ jobs:
           fi
       - name: Start App
         env:
+          PORT: 3000
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           DB_HOST: localhost
           DB_USER: postgres
           DB_PASS: postgres
         run: |
-          npm start &
-          sleep 5
+          npm start > app.log 2>&1 &
       - name: Wait for App
         run: npx wait-on --timeout=60000 http://localhost:3000
+      - name: Print App Logs on Failure
+        if: failure()
+        run: cat app.log
       - name: Run Cypress Integration Tests
         env:
           DB_HOST: localhost
@@ -85,15 +88,18 @@ jobs:
         run: mkdir -p results
       - name: Start App
         env:
+          PORT: 3000
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           DB_HOST: localhost
           DB_USER: postgres
           DB_PASS: postgres
         run: |
-          npm start &
-          sleep 5
+          npm start > app.log 2>&1 &
       - name: Wait for App
         run: npx wait-on --timeout=60000 http://localhost:3000
+      - name: Print App Logs on Failure
+        if: failure()
+        run: cat app.log
       - name: Run k6 Load Test
         uses: grafana/k6-action@v0.3.0
         with:
@@ -127,15 +133,18 @@ jobs:
         run: npm install
       - name: Start App
         env:
+          PORT: 3000
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           DB_HOST: localhost
           DB_USER: postgres
           DB_PASS: postgres
         run: |
-          npm start &
-          sleep 5
+          npm start > app.log 2>&1 &
       - name: Wait for App
         run: npx wait-on --timeout=60000 http://localhost:3000
+      - name: Print App Logs on Failure
+        if: failure()
+        run: cat app.log
       - name: Run OWASP ZAP Scan
         uses: zaproxy/action-full-scan@v0.7.0
         with:
