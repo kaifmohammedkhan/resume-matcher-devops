@@ -93,8 +93,8 @@ jobs:
           DB_PASS: postgres
         run: |
           npm start &
-          sleep 5
-          ps -ef | grep node
+          sleep 15
+          netstat -tln
       - name: Wait for App
         run: npx wait-on --timeout=60000 http://localhost:3000
       - name: Run OWASP ZAP Scan
