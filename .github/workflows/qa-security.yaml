@@ -32,6 +32,12 @@ jobs:
       - uses: actions/checkout@v4
       - name: Install dependencies
         run: npm install
+      - name: Ensure Cypress Config
+        run: |
+          if [ ! -f cypress.config.js ]; then
+            echo "Missing cypress.config.js"
+            exit 1
+          fi
       - name: Run Cypress Integration Tests
         env:
           DB_HOST: localhost
@@ -52,6 +58,7 @@ jobs:
         uses: grafana/k6-action@v0.3.0
         with:
           filename: tests/load.js
+          flags: --out json=results/output.json
       - name: Upload k6 Results
         uses: actions/upload-artifact@v4
         with:
@@ -84,7 +91,10 @@ jobs:
           DB_HOST: localhost
           DB_USER: postgres
           DB_PASS: postgres
-        run: npm start &
+        run: |
+          npm start &
+          sleep 5
+          ps -ef | grep node
       - name: Wait for App
         run: npx wait-on --timeout=60000 http://localhost:3000
       - name: Run OWASP ZAP Scan
