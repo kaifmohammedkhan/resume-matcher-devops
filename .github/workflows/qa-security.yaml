@@ -38,6 +38,17 @@ jobs:
             echo "Missing cypress.config.js"
             exit 1
           fi
+      - name: Start App
+        env:
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          DB_HOST: localhost
+          DB_USER: postgres
+          DB_PASS: postgres
+        run: |
+          npm start &
+          sleep 5
+      - name: Wait for App
+        run: npx wait-on --timeout=60000 http://localhost:3000
       - name: Run Cypress Integration Tests
         env:
           DB_HOST: localhost
@@ -52,8 +63,37 @@ jobs:
 
   performance-tests:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: resume_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
     steps:
       - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: npm install
+      - name: Create results directory
+        run: mkdir -p results
+      - name: Start App
+        env:
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          DB_HOST: localhost
+          DB_USER: postgres
+          DB_PASS: postgres
+        run: |
+          npm start &
+          sleep 5
+      - name: Wait for App
+        run: npx wait-on --timeout=60000 http://localhost:3000
       - name: Run k6 Load Test
         uses: grafana/k6-action@v0.3.0
         with:
@@ -93,8 +133,7 @@ jobs:
           DB_PASS: postgres
         run: |
           npm start &
-          sleep 15
-          netstat -tln
+          sleep 5
       - name: Wait for App
         run: npx wait-on --timeout=60000 http://localhost:3000
       - name: Run OWASP ZAP Scan
