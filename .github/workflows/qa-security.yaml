@@ -2,9 +2,13 @@ name: QA Pipeline
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
 
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 env:
   GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
@@ -51,7 +55,7 @@ jobs:
 
 
       # ----------------------------------------------------------
-      # Node
+      # Node.js
       # ----------------------------------------------------------
 
       - name: Setup Node.js
@@ -76,6 +80,7 @@ jobs:
       - name: Build Application
         run: |
           if npm run | grep -q "build"; then
+            echo "Build script found."
             npm run build
           else
             echo "No build script found. Skipping build."
@@ -90,12 +95,15 @@ jobs:
         run: |
           echo "Searching for Cypress E2E specs..."
 
-          if ! find cypress/e2e -type f \( \
-            -name '*.cy.js' -o \
-            -name '*.cy.jsx' -o \
-            -name '*.cy.ts' -o \
-            -name '*.cy.tsx' \
-          \) -print -quit 2>/dev/null | grep -q .; then
+          if ! find cypress/e2e \
+            -type f \
+            \( \
+              -name '*.cy.js' \
+              -o -name '*.cy.jsx' \
+              -o -name '*.cy.ts' \
+              -o -name '*.cy.tsx' \
+            \) \
+            -print -quit 2>/dev/null | grep -q .; then
 
             echo ""
             echo "ERROR: No Cypress E2E spec files were found."
@@ -114,12 +122,15 @@ jobs:
           echo "Cypress specs found:"
           echo ""
 
-          find cypress/e2e -type f \( \
-            -name '*.cy.js' -o \
-            -name '*.cy.jsx' -o \
-            -name '*.cy.ts' -o \
-            -name '*.cy.tsx' \
-          \) -print
+          find cypress/e2e \
+            -type f \
+            \( \
+              -name '*.cy.js' \
+              -o -name '*.cy.jsx' \
+              -o -name '*.cy.ts' \
+              -o -name '*.cy.tsx' \
+            \) \
+            -print
 
 
       # ----------------------------------------------------------
@@ -147,6 +158,7 @@ jobs:
 
           echo "Application PID: $APP_PID"
 
+          echo ""
           echo "Waiting for application..."
 
           for i in {1..30}; do
@@ -158,10 +170,16 @@ jobs:
               http://127.0.0.1:3000/ \
               > /dev/null 2>&1; then
 
-              echo "Application is ready on http://127.0.0.1:3000"
+              echo ""
+              echo "=========================================="
+              echo "Application is READY"
+              echo "=========================================="
+              echo ""
+              echo "URL: http://127.0.0.1:3000"
+              echo "PID: $APP_PID"
+              echo ""
 
               exit 0
-
             fi
 
             if ! kill -0 "$APP_PID" 2>/dev/null; then
@@ -173,13 +191,11 @@ jobs:
               cat cypress/reports/app.log || true
 
               exit 1
-
             fi
 
             echo "Waiting for application... attempt $i/30"
 
             sleep 2
-
           done
 
           echo ""
@@ -219,7 +235,10 @@ jobs:
 
           CYPRESS_EXIT=${PIPESTATUS[0]}
 
+          echo ""
           echo "Cypress exit code: $CYPRESS_EXIT"
+
+          echo "$CYPRESS_EXIT" > cypress/reports/cypress-exit-code.txt
 
           exit "$CYPRESS_EXIT"
 
@@ -235,22 +254,43 @@ jobs:
           mkdir -p cypress/reports
 
           {
-            echo "=== Cypress Diagnostics ==="
-            echo "Timestamp: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
-            echo "Cypress result: ${{ steps.cypress_tests.outcome }}"
-            echo ""
-
-            echo "=== Cypress Specs ==="
-            find cypress/e2e -type f 2>/dev/null || true
+            echo "=========================================="
+            echo "Cypress Diagnostics"
+            echo "=========================================="
 
             echo ""
+            echo "Timestamp:"
+            date -u '+%Y-%m-%dT%H:%M:%SZ'
 
-            echo "=== Application Log ==="
+            echo ""
+            echo "Cypress step outcome:"
+            echo "${{ steps.cypress_tests.outcome }}"
+
+            echo ""
+            echo "Cypress exit code:"
+            cat cypress/reports/cypress-exit-code.txt 2>/dev/null || true
+
+            echo ""
+            echo "=========================================="
+            echo "Cypress Specs"
+            echo "=========================================="
+
+            find cypress/e2e \
+              -type f \
+              2>/dev/null || true
+
+            echo ""
+            echo "=========================================="
+            echo "Application Log"
+            echo "=========================================="
+
             cat cypress/reports/app.log 2>/dev/null || true
 
             echo ""
+            echo "=========================================="
+            echo "Cypress Console Log"
+            echo "=========================================="
 
-            echo "=== Cypress Console Log ==="
             cat cypress/reports/cypress-run.log 2>/dev/null || true
 
           } > cypress/reports/diagnostics.log
@@ -267,7 +307,6 @@ jobs:
           CYPRESS_STEP_OUTCOME: ${{ steps.cypress_tests.outcome }}
 
         run: |
-
           python3 <<'PYTHON'
 
           import html
@@ -283,10 +322,12 @@ jobs:
               exist_ok=True
           )
 
+
           def esc(value):
               return html.escape(
                   str(value if value is not None else "")
               )
+
 
           def seconds(value):
 
@@ -299,6 +340,7 @@ jobs:
                   return f"{round(n * 1000)}ms"
 
               return f"{n:.2f}s"
+
 
           xml_files = sorted(
               REPORT_DIR.glob("junit-*.xml")
@@ -314,21 +356,27 @@ jobs:
 
           duration_total = 0.0
 
+
           for xml_file in xml_files:
 
               try:
                   root = ET.parse(xml_file).getroot()
+
               except Exception as error:
+
                   print(
                       f"Could not parse {xml_file}: {error}"
                   )
+
                   continue
+
 
               roots = (
                   [root]
                   if root.tag == "testsuite"
                   else root.findall(".//testsuite")
               )
+
 
               for suite in roots:
 
@@ -337,6 +385,7 @@ jobs:
                       xml_file.name
                   )
 
+
                   try:
                       suite_time = float(
                           suite.attrib.get(
@@ -344,13 +393,16 @@ jobs:
                               "0"
                           ) or 0
                       )
+
                   except Exception:
                       suite_time = 0
+
 
                   cases = suite.findall("testcase")
 
                   suite_failed = 0
                   suite_skipped = 0
+
 
                   for case in cases:
 
@@ -364,6 +416,7 @@ jobs:
                           suite_name
                       )
 
+
                       try:
                           test_time = float(
                               case.attrib.get(
@@ -371,11 +424,14 @@ jobs:
                                   "0"
                               ) or 0
                           )
+
                       except Exception:
                           test_time = 0
 
+
                       failure = case.find("failure")
                       skipped_node = case.find("skipped")
+
 
                       if failure is not None:
 
@@ -391,6 +447,7 @@ jobs:
 
                           stack = failure.text or ""
 
+
                       elif skipped_node is not None:
 
                           state = "skipped"
@@ -401,6 +458,7 @@ jobs:
                           message = ""
                           stack = ""
 
+
                       else:
 
                           state = "passed"
@@ -410,7 +468,9 @@ jobs:
                           message = ""
                           stack = ""
 
+
                       total += 1
+
 
                       tests.append({
                           "spec": suite_name,
@@ -422,6 +482,7 @@ jobs:
                           "stack": stack
                       })
 
+
                   suites.append({
                       "name": suite_name,
                       "tests": len(cases),
@@ -429,6 +490,7 @@ jobs:
                       "skipped": suite_skipped,
                       "duration": suite_time
                   })
+
 
                   duration_total += suite_time
 
@@ -438,13 +500,21 @@ jobs:
               "unknown"
           )
 
+
           if total == 0:
+
               status = "FAILED"
+
           elif failed > 0:
+
               status = "FAILED"
+
           elif step_outcome == "failure":
+
               status = "FAILED"
+
           else:
+
               status = "PASSED"
 
 
@@ -458,12 +528,15 @@ jobs:
           def command(*args, default="Unknown"):
 
               try:
+
                   return subprocess.check_output(
                       args,
                       text=True,
                       stderr=subprocess.DEVNULL
                   ).strip()
+
               except Exception:
+
                   return default
 
 
@@ -475,15 +548,18 @@ jobs:
               "version"
           )
 
+
           chrome_version = command(
               "google-chrome",
               "--version"
           )
 
+
           node_version = command(
               "node",
               "--version"
           )
+
 
           timestamp = command(
               "date",
@@ -493,14 +569,15 @@ jobs:
 
 
           run_url = (
-              f"{os.environ.get('GITHUB_SERVER_URL','')}/"
-              f"{os.environ.get('GITHUB_REPOSITORY','')}/"
+              f"{os.environ.get('GITHUB_SERVER_URL', '')}/"
+              f"{os.environ.get('GITHUB_REPOSITORY', '')}/"
               f"actions/runs/"
-              f"{os.environ.get('GITHUB_RUN_ID','')}"
+              f"{os.environ.get('GITHUB_RUN_ID', '')}"
           )
 
 
           suite_rows = ""
+
 
           for suite in suites:
 
@@ -535,6 +612,7 @@ jobs:
 
           test_rows = ""
 
+
           for test in tests:
 
               icon = (
@@ -545,6 +623,7 @@ jobs:
                   else "•"
               )
 
+
               state_class = (
                   "danger-text"
                   if test["state"] == "failed"
@@ -552,6 +631,7 @@ jobs:
                   if test["state"] == "passed"
                   else "warning-text"
               )
+
 
               test_rows += f"""
               <tr>
@@ -586,6 +666,7 @@ jobs:
 
           failure_rows = ""
 
+
           for test in failures:
 
               failure_rows += f"""
@@ -613,9 +694,7 @@ jobs:
                   )}
                 </p>
 
-                <pre>
-                  {esc(test["stack"])}
-                </pre>
+                <pre>{esc(test["stack"])}</pre>
 
               </div>
               """
@@ -638,6 +717,9 @@ jobs:
           <head>
 
             <meta charset="UTF-8">
+
+            <meta name="viewport"
+                  content="width=device-width, initial-scale=1.0">
 
             <title>
               Cypress E2E Test Report
@@ -986,6 +1068,7 @@ jobs:
               encoding="utf-8"
           )
 
+
           print(
               "Generated Cypress HTML report."
           )
@@ -994,7 +1077,7 @@ jobs:
 
 
       # ----------------------------------------------------------
-      # Upload Cypress artifact
+      # Upload Cypress artifacts
       # ----------------------------------------------------------
 
       - name: Upload Cypress Report and Diagnostics
@@ -1011,19 +1094,27 @@ jobs:
             cypress/videos/
 
           if-no-files-found: warn
+          retention-days: 14
 
 
       # ----------------------------------------------------------
       # Fail Cypress stage
+      #
+      # This is intentionally AFTER diagnostics/report generation.
       # ----------------------------------------------------------
 
       - name: Fail Cypress Stage
         if: always() && steps.cypress_tests.outcome == 'failure'
 
         run: |
-
-          echo "Cypress E2E tests failed."
+          echo "=========================================="
+          echo "Cypress E2E tests FAILED"
+          echo "=========================================="
+          echo ""
           echo "k6 will not run."
+          echo ""
+          echo "Cypress report and diagnostics were uploaded."
+          echo ""
 
           exit 1
 
@@ -1033,18 +1124,16 @@ jobs:
   #
   # k6 runs ONLY after Cypress passes.
   #
-  # IMPORTANT:
   # k6 is installed directly on the GitHub runner.
   #
-  # This allows:
+  # Therefore:
   #
-  #   k6 -> 127.0.0.1:3000 -> Node.js application
+  # k6 -> 127.0.0.1:3000 -> Node.js application
   #
-  # instead of:
+  # NOT:
   #
-  #   k6 container -> localhost:3000
+  # k6 container -> localhost:3000
   #
-  # which caused the connection-refused failure.
   # ============================================================
 
   k6-load-test:
@@ -1086,12 +1175,11 @@ jobs:
 
 
       # ----------------------------------------------------------
-      # Node
+      # Node.js
       # ----------------------------------------------------------
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
-
         with:
           node-version: 22
           cache: npm
@@ -1111,8 +1199,8 @@ jobs:
 
       - name: Build Application
         run: |
-
           if npm run | grep -q "build"; then
+            echo "Build script found."
             npm run build
           else
             echo "No build script found. Skipping build."
@@ -1125,13 +1213,13 @@ jobs:
 
       - name: Verify k6 Script
         run: |
-
           if [ ! -f tests/load.js ]; then
 
+            echo ""
             echo "ERROR: tests/load.js was not found."
+            echo ""
 
             exit 1
-
           fi
 
           echo ""
@@ -1143,7 +1231,7 @@ jobs:
 
 
       # ----------------------------------------------------------
-      # Install k6 DIRECTLY on GitHub runner
+      # Install k6 directly on GitHub runner
       #
       # DO NOT use grafana/k6-action here.
       #
@@ -1161,7 +1249,6 @@ jobs:
 
       - name: Verify k6 Installation
         run: |
-
           echo "k6 version:"
           k6 version
 
@@ -1170,14 +1257,22 @@ jobs:
           hostname
 
           echo ""
-          echo "Testing localhost connectivity before k6..."
+          echo "Node:"
+          node --version
 
-          curl \
-            --silent \
-            --show-error \
-            --fail \
-            http://127.0.0.1:3000/ \
-            > /dev/null 2>&1 || true
+          echo ""
+          echo "Testing localhost connectivity before application startup..."
+
+          HTTP_STATUS=$(
+            curl \
+              --silent \
+              --output /dev/null \
+              --write-out "%{http_code}" \
+              http://127.0.0.1:3000/ \
+              || true
+          )
+
+          echo "HTTP status before application startup: $HTTP_STATUS"
 
 
       # ----------------------------------------------------------
@@ -1185,7 +1280,6 @@ jobs:
       # ----------------------------------------------------------
 
       - name: Start Application
-
         env:
           PORT: 3000
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
@@ -1194,7 +1288,6 @@ jobs:
           DB_PASS: ${{ secrets.DB_PASS }}
 
         run: |
-
           mkdir -p results
 
           echo "Starting application..."
@@ -1207,6 +1300,7 @@ jobs:
 
           echo "Application PID: $APP_PID"
 
+          echo ""
           echo "Waiting for application..."
 
           for i in {1..30}; do
@@ -1228,7 +1322,6 @@ jobs:
               echo ""
 
               exit 0
-
             fi
 
             if ! kill -0 "$APP_PID" 2>/dev/null; then
@@ -1240,13 +1333,11 @@ jobs:
               cat results/app.log || true
 
               exit 1
-
             fi
 
             echo "Waiting for application... attempt $i/30"
 
             sleep 2
-
           done
 
           echo ""
@@ -1264,7 +1355,6 @@ jobs:
 
       - name: Verify Application Before k6
         run: |
-
           echo "Checking application..."
 
           HTTP_STATUS=$(
@@ -1287,29 +1377,22 @@ jobs:
             cat results/app.log || true
 
             exit 1
-
           fi
 
           echo ""
           echo "Application is reachable."
-          echo "k6 will target: http://127.0.0.1:3000"
+          echo "k6 target: http://127.0.0.1:3000"
 
 
       # ----------------------------------------------------------
-      # Actual k6 execution
-      #
-      # k6 runs directly on the runner.
-      # Therefore localhost works correctly.
+      # k6 execution
       # ----------------------------------------------------------
 
       - name: Run k6 Load Test
-
         id: k6_tests
-
         continue-on-error: true
 
         run: |
-
           echo ""
           echo "=========================================="
           echo "Starting k6 Load Test"
@@ -1351,7 +1434,6 @@ jobs:
         if: always()
 
         run: |
-
           mkdir -p results
 
           {
@@ -1409,12 +1491,12 @@ jobs:
           K6_STEP_OUTCOME: ${{ steps.k6_tests.outcome }}
 
         run: |
-
           mkdir -p results
 
           node <<'NODE'
 
           const fs = require('fs');
+
 
           function esc(value) {
             return String(value ?? '')
@@ -1425,6 +1507,7 @@ jobs:
               .replace(/'/g, '&#39;');
           }
 
+
           function num(value) {
 
             const n = Number(value);
@@ -1434,12 +1517,14 @@ jobs:
               : null;
           }
 
+
           function metric(summary, name) {
 
             return summary?.metrics?.[name] || {
               values: {}
             };
           }
+
 
           function metricValue(
             summary,
@@ -1452,6 +1537,7 @@ jobs:
               name
             ).values?.[key];
           }
+
 
           function duration(value) {
 
@@ -1470,6 +1556,7 @@ jobs:
             ).toFixed(2)} s`;
           }
 
+
           function percentage(value) {
 
             const n = num(value);
@@ -1482,6 +1569,7 @@ jobs:
               n * 100
             ).toFixed(2)}%`;
           }
+
 
           function bytes(value) {
 
@@ -1542,9 +1630,7 @@ jobs:
                 'Could not parse summary.json:',
                 error.message
               );
-
             }
-
           }
 
 
@@ -1574,13 +1660,16 @@ jobs:
                 'utf8'
               ).split(/\r?\n/);
 
+
             for (const line of lines) {
 
               if (!line.trim()) {
                 continue;
               }
 
+
               let event;
+
 
               try {
 
@@ -1589,16 +1678,18 @@ jobs:
               } catch (_) {
 
                 continue;
-
               }
+
 
               const timestamp =
                 event.data?.time;
+
 
               if (timestamp) {
 
                 const time =
                   new Date(timestamp).getTime();
+
 
                 if (
                   Number.isFinite(time)
@@ -1612,6 +1703,7 @@ jobs:
                           time
                         );
 
+
                   lastTime =
                     lastTime === null
                       ? time
@@ -1619,10 +1711,9 @@ jobs:
                           lastTime,
                           time
                         );
-
                 }
-
               }
+
 
               if (
                 event.metric !== 'http_reqs' ||
@@ -1631,10 +1722,13 @@ jobs:
                 continue;
               }
 
+
               rawHttpPoints++;
+
 
               const tags =
                 event.data?.tags || {};
+
 
               const status =
                 String(
@@ -1642,11 +1736,13 @@ jobs:
                   'unknown'
                 );
 
+
               const method =
                 String(
                   tags.method ||
                   'unknown'
                 );
+
 
               const endpoint =
                 String(
@@ -1655,14 +1751,17 @@ jobs:
                   'unknown'
                 );
 
+
               const key =
                 `${method} ${endpoint}`;
+
 
               statusCounts[status] =
                 (
                   statusCounts[status] ||
                   0
                 ) + 1;
+
 
               if (
                 !endpointCounts[key]
@@ -1675,10 +1774,11 @@ jobs:
                   failures: 0,
                   statuses: {}
                 };
-
               }
 
+
               endpointCounts[key].requests++;
+
 
               endpointCounts[key]
                 .statuses[status] =
@@ -1688,43 +1788,43 @@ jobs:
                   0
                 ) + 1;
 
+
               if (
                 /^[45]/.test(status)
               ) {
 
                 endpointCounts[key]
                   .failures++;
-
               }
+
 
               if (tags.error) {
 
                 const error =
                   String(tags.error);
 
+
                 errorCounts[error] =
                   (
                     errorCounts[error] ||
                     0
                   ) + 1;
-
               }
+
 
               if (tags.error_code) {
 
                 const code =
                   `error_code=${tags.error_code}`;
 
+
                 errorCounts[code] =
                   (
                     errorCounts[code] ||
                     0
                   ) + 1;
-
               }
-
             }
-
           }
 
 
@@ -1741,11 +1841,13 @@ jobs:
               'http_req_duration'
             );
 
+
           const checks =
             metric(
               summary,
               'checks'
             );
+
 
           const iterations =
             metric(
@@ -1753,11 +1855,13 @@ jobs:
               'iterations'
             );
 
+
           const iterationDuration =
             metric(
               summary,
               'iteration_duration'
             );
+
 
           const vus =
             metric(
@@ -1765,17 +1869,20 @@ jobs:
               'vus'
             );
 
+
           const vusMax =
             metric(
               summary,
               'vus_max'
             );
 
+
           const received =
             metric(
               summary,
               'data_received'
             );
+
 
           const sent =
             metric(
@@ -1799,21 +1906,21 @@ jobs:
                       data.thresholds || {}
                     ).map(
                       ([threshold, ok]) => `
-                      <tr>
-                        <td>${esc(name)}</td>
-                        <td>${esc(threshold)}</td>
-                        <td class="${
-                          ok
-                            ? 'success-text'
-                            : 'danger-text'
-                        }">
-                          ${
+                        <tr>
+                          <td>${esc(name)}</td>
+                          <td>${esc(threshold)}</td>
+                          <td class="${
                             ok
-                              ? '✓ PASSED'
-                              : '✗ FAILED'
-                          }
-                        </td>
-                      </tr>
+                              ? 'success-text'
+                              : 'danger-text'
+                          }">
+                            ${
+                              ok
+                                ? '✓ PASSED'
+                                : '✗ FAILED'
+                            }
+                          </td>
+                        </tr>
                       `
                     )
                 )
@@ -1836,21 +1943,21 @@ jobs:
             )
             .map(
               ([status, count]) => `
-              <tr>
-                <td>${esc(status)}</td>
-                <td>${count}</td>
-                <td>
-                  ${
-                    rawHttpPoints
-                      ? (
-                          count /
-                          rawHttpPoints *
-                          100
-                        ).toFixed(2)
-                      : '0.00'
-                  }%
-                </td>
-              </tr>
+                <tr>
+                  <td>${esc(status)}</td>
+                  <td>${count}</td>
+                  <td>
+                    ${
+                      rawHttpPoints
+                        ? (
+                            count /
+                            rawHttpPoints *
+                            100
+                          ).toFixed(2)
+                        : '0.00'
+                    }%
+                  </td>
+                </tr>
               `
             )
             .join('');
@@ -1871,42 +1978,42 @@ jobs:
             )
             .map(
               item => `
-              <tr>
+                <tr>
 
-                <td>
-                  ${esc(item.method)}
-                </td>
+                  <td>
+                    ${esc(item.method)}
+                  </td>
 
-                <td>
-                  ${esc(item.endpoint)}
-                </td>
+                  <td>
+                    ${esc(item.endpoint)}
+                  </td>
 
-                <td>
-                  ${item.requests}
-                </td>
+                  <td>
+                    ${item.requests}
+                  </td>
 
-                <td class="${
-                  item.failures
-                    ? 'danger-text'
-                    : 'success-text'
-                }">
-                  ${item.failures}
-                </td>
+                  <td class="${
+                    item.failures
+                      ? 'danger-text'
+                      : 'success-text'
+                  }">
+                    ${item.failures}
+                  </td>
 
-                <td>
-                  ${
-                    Object.entries(
-                      item.statuses
-                    )
-                    .map(
-                      ([s, c]) =>
-                        `${esc(s)}: ${c}`
-                    )
-                    .join('<br>')
-                  }
-                </td>
+                  <td>
+                    ${
+                      Object.entries(
+                        item.statuses
+                      )
+                      .map(
+                        ([s, c]) =>
+                          `${esc(s)}: ${c}`
+                      )
+                      .join('<br>')
+                    }
+                  </td>
 
-              </tr>
+                </tr>
               `
             )
             .join('');
@@ -1927,10 +2034,10 @@ jobs:
             )
             .map(
               ([error, count]) => `
-              <tr>
-                <td>${esc(error)}</td>
-                <td>${count}</td>
-              </tr>
+                <tr>
+                  <td>${esc(error)}</td>
+                  <td>${count}</td>
+                </tr>
               `
             )
             .join('');
@@ -1975,6 +2082,9 @@ jobs:
           <head>
 
             <meta charset="UTF-8">
+
+            <meta name="viewport"
+                  content="width=device-width, initial-scale=1.0">
 
             <title>
               k6 Load Test Report
@@ -2103,6 +2213,10 @@ jobs:
                 background: #0d1117;
                 padding: 2px 5px;
                 border-radius: 4px;
+              }
+
+              a {
+                color: #58a6ff;
               }
 
             </style>
@@ -2892,6 +3006,7 @@ jobs:
             report
           );
 
+
           console.log(
             'Generated results/k6-report.html successfully.'
           );
@@ -2900,7 +3015,7 @@ jobs:
 
 
       # ----------------------------------------------------------
-      # Upload k6 artifact
+      # Upload k6 artifacts
       # ----------------------------------------------------------
 
       - name: Upload k6 Report and Diagnostics
@@ -2915,6 +3030,7 @@ jobs:
             results/
 
           if-no-files-found: warn
+          retention-days: 14
 
 
       # ----------------------------------------------------------
@@ -2925,15 +3041,16 @@ jobs:
         if: always() && steps.k6_tests.outcome == 'failure'
 
         run: |
-
-          echo "k6 load test failed."
-
+          echo "=========================================="
+          echo "k6 load test FAILED"
+          echo "=========================================="
           echo ""
           echo "Check:"
           echo "  results/k6-console.log"
           echo "  results/summary.json"
           echo "  results/output.json"
           echo "  results/app.log"
+          echo "  results/diagnostics.log"
           echo ""
 
           exit 1
@@ -2945,21 +3062,21 @@ jobs:
   # ALWAYS RUNS
   #
   # Cypress PASS
-  #     ↓
+  #      ↓
   # k6 RUNS
-  #     ↓
+  #      ↓
   # QA REPORTS
-  #     ↓
+  #      ↓
   # EMAIL
   #
   # OR
   #
   # Cypress FAIL
-  #     ↓
+  #      ↓
   # k6 SKIPPED
-  #     ↓
+  #      ↓
   # QA REPORTS
-  #     ↓
+  #      ↓
   # EMAIL
   #
   # ============================================================
@@ -3017,7 +3134,6 @@ jobs:
         if: always()
 
         run: |
-
           set +e
 
           mkdir -p reports/cypress
@@ -3070,6 +3186,9 @@ jobs:
           <head>
 
             <meta charset="UTF-8">
+
+            <meta name="viewport"
+                  content="width=device-width, initial-scale=1.0">
 
             <title>
               Cypress E2E Report
@@ -3173,6 +3292,9 @@ jobs:
 
             <meta charset="UTF-8">
 
+            <meta name="viewport"
+                  content="width=device-width, initial-scale=1.0">
+
             <title>
               k6 Load Test Report
             </title>
@@ -3258,33 +3380,24 @@ jobs:
           K6_RESULT: ${{ needs.k6-load-test.result }}
 
         run: |
-
           mkdir -p reports
 
 
           if [ "$CYPRESS_RESULT" = "success" ]; then
-
             CYPRESS_CLASS="passed"
-
           else
-
             CYPRESS_CLASS="failed"
-
           fi
 
 
           if [ "$K6_RESULT" = "success" ]; then
-
             K6_CLASS="passed"
 
           elif [ "$K6_RESULT" = "skipped" ]; then
-
             K6_CLASS="neutral"
 
           else
-
             K6_CLASS="failed"
-
           fi
 
 
@@ -3311,6 +3424,9 @@ jobs:
           <head>
 
             <meta charset="UTF-8">
+
+            <meta name="viewport"
+                  content="width=device-width, initial-scale=1.0">
 
             <title>
               QA Pipeline Summary
@@ -3516,6 +3632,24 @@ jobs:
 
               </div>
 
+
+              <div class="card">
+
+                <h2>
+                  Pipeline Decision
+                </h2>
+
+                <p>
+                  Cypress must pass before k6 is executed.
+                </p>
+
+                <p>
+                  QA reporting and email notification execute
+                  regardless of Cypress or k6 result.
+                </p>
+
+              </div>
+
             </div>
 
           </body>
@@ -3533,7 +3667,6 @@ jobs:
         if: always()
 
         run: |
-
           echo ""
           echo "=================================================="
           echo "EMAIL ATTACHMENT VERIFICATION"
@@ -3584,7 +3717,6 @@ jobs:
             echo "ERROR: One or more email attachments are missing."
 
             exit 1
-
           fi
 
 
@@ -3602,16 +3734,16 @@ jobs:
         uses: actions/upload-artifact@v4
 
         with:
-
           name: qa-reports
 
           path: reports/
 
           if-no-files-found: error
+          retention-days: 14
 
 
       # ----------------------------------------------------------
-      # Send email
+      # Send QA report email
       # ----------------------------------------------------------
 
       - name: Send QA Report Email
@@ -3649,6 +3781,7 @@ jobs:
               font-family:Arial,sans-serif;
               max-width:700px;
               margin:auto;
+              color:#24292f;
             ">
 
               <h2>
@@ -3674,6 +3807,21 @@ jobs:
                 </strong>
 
                 ${{ needs.k6-load-test.result }}
+
+              </p>
+
+              <p>
+
+                <strong>
+                  Overall Result:
+                </strong>
+
+                ${
+                  needs.cypress-e2e.result == 'success' &&
+                  needs.k6-load-test.result == 'success'
+                  && 'PASSED'
+                  || 'FAILED'
+                }
 
               </p>
 
@@ -3757,10 +3905,17 @@ jobs:
                 to view the complete reports.
               </p>
 
+              <hr>
+
+              <p style="font-size:12px;color:#6e7781;">
+
+                GitHub Actions QA Pipeline
+
+              </p>
+
             </div>
 
           attachments: |
-
             reports/qa-summary.html
             reports/cypress/cypress-report.html
             reports/k6/k6-report.html
