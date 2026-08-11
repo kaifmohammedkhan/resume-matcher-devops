@@ -10,11 +10,24 @@ on:
 permissions:
   contents: read
 
+# ============================================================
+# ONLY APPLICATION SECRET USED GLOBALLY
+#
+# Available repository secrets:
+#   EMAIL_PASS
+#   EMAIL_USER
+#   GOOGLE_API_KEY
+#   NVD_API_KEY
+#   SONAR_HOST
+#   SONAR_ORG
+#   SONAR_PROJECT_KEY
+#   SONAR_TOKEN
+#
+# DB_USER / DB_PASS ARE INTENTIONALLY NOT USED.
+# ============================================================
+
 env:
   GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-  DB_HOST: 127.0.0.1
-  DB_USER: ${{ secrets.DB_USER }}
-  DB_PASS: ${{ secrets.DB_PASS }}
 
 jobs:
 
@@ -48,8 +61,16 @@ jobs:
 
     steps:
 
+      # ----------------------------------------------------------
+      # Checkout
+      # ----------------------------------------------------------
+
       - name: Checkout Repository
         uses: actions/checkout@v4
+
+      # ----------------------------------------------------------
+      # Node.js
+      # ----------------------------------------------------------
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -57,8 +78,16 @@ jobs:
           node-version: 22
           cache: npm
 
+      # ----------------------------------------------------------
+      # Dependencies
+      # ----------------------------------------------------------
+
       - name: Install Dependencies
         run: npm ci
+
+      # ----------------------------------------------------------
+      # Build
+      # ----------------------------------------------------------
 
       - name: Build Application
         run: |
@@ -69,6 +98,10 @@ jobs:
             echo "No build script found. Skipping build."
           fi
 
+      # ----------------------------------------------------------
+      # Verify Cypress Specs
+      # ----------------------------------------------------------
+
       - name: Verify Cypress Specs
         run: |
           echo "Searching for Cypress E2E specs..."
@@ -77,35 +110,57 @@ jobs:
             -type f \
             \( \
               -name '*.cy.js' \
-              -o -name '*.cy.jsx' \
-              -o -name '*.cy.ts' \
-              -o -name '*.cy.tsx' \
+              -o \
+              -name '*.cy.jsx' \
+              -o \
+              -name '*.cy.ts' \
+              -o \
+              -name '*.cy.tsx' \
             \) \
             -print -quit 2>/dev/null | grep -q .; then
 
+            echo ""
             echo "ERROR: No Cypress E2E specs found."
             echo "Expected location: cypress/e2e/"
+            echo ""
             exit 1
           fi
 
+          echo ""
           echo "Cypress specs found:"
           find cypress/e2e \
             -type f \
             \( \
               -name '*.cy.js' \
-              -o -name '*.cy.jsx' \
-              -o -name '*.cy.ts' \
-              -o -name '*.cy.tsx' \
+              -o \
+              -name '*.cy.jsx' \
+              -o \
+              -name '*.cy.ts' \
+              -o \
+              -name '*.cy.tsx' \
             \) \
             -print
+
+      # ----------------------------------------------------------
+      # Start Application
+      #
+      # IMPORTANT:
+      #
+      # DB_USER / DB_PASS are intentionally NOT supplied here.
+      #
+      # PostgreSQL service itself is configured with:
+      #
+      #   user     = postgres
+      #   password = postgres
+      #   database = resume_db
+      #
+      # The application must provide/default its own DB credentials.
+      # ----------------------------------------------------------
 
       - name: Start Application
         env:
           PORT: 3000
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          DB_HOST: 127.0.0.1
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASS: ${{ secrets.DB_PASS }}
         run: |
           mkdir -p cypress/reports
 
@@ -114,11 +169,13 @@ jobs:
           npm start > cypress/reports/app.log 2>&1 &
 
           APP_PID=$!
+
           echo "$APP_PID" > cypress/reports/app.pid
 
           echo "Application PID: $APP_PID"
 
           for i in {1..30}; do
+
             if curl \
               --silent \
               --show-error \
@@ -135,27 +192,38 @@ jobs:
             fi
 
             if ! kill -0 "$APP_PID" 2>/dev/null; then
+              echo ""
               echo "ERROR: Application exited unexpectedly."
+              echo ""
+
               cat cypress/reports/app.log || true
+
               exit 1
             fi
 
             echo "Waiting for application... attempt $i/30"
+
             sleep 2
+
           done
 
+          echo ""
           echo "ERROR: Application failed to become ready."
+          echo ""
+
           cat cypress/reports/app.log || true
+
           exit 1
+
+      # ----------------------------------------------------------
+      # Cypress
+      # ----------------------------------------------------------
 
       - name: Run Cypress E2E Tests
         id: cypress_tests
         continue-on-error: true
         env:
           CYPRESS_baseUrl: http://127.0.0.1:3000
-          DB_HOST: 127.0.0.1
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASS: ${{ secrets.DB_PASS }}
         run: |
           mkdir -p cypress/reports
 
@@ -168,9 +236,14 @@ jobs:
 
           CYPRESS_EXIT=${PIPESTATUS[0]}
 
-          echo "$CYPRESS_EXIT" > cypress/reports/cypress-exit-code.txt
+          echo "$CYPRESS_EXIT" \
+            > cypress/reports/cypress-exit-code.txt
 
           exit "$CYPRESS_EXIT"
+
+      # ----------------------------------------------------------
+      # Diagnostics
+      # ----------------------------------------------------------
 
       - name: Capture Cypress Diagnostics
         if: always()
@@ -210,6 +283,10 @@ jobs:
 
           } > cypress/reports/diagnostics.log
 
+      # ----------------------------------------------------------
+      # Upload Cypress Reports
+      # ----------------------------------------------------------
+
       - name: Upload Cypress Reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -221,6 +298,10 @@ jobs:
             cypress/videos/
           if-no-files-found: warn
 
+      # ----------------------------------------------------------
+      # Fail Cypress Stage
+      # ----------------------------------------------------------
+
       - name: Fail Cypress Stage
         if: always() && steps.cypress_tests.outcome == 'failure'
         run: |
@@ -231,6 +312,7 @@ jobs:
           echo "k6 testing will NOT run."
           echo ""
           echo "Review the cypress-e2e-report artifact."
+
           exit 1
 
 
@@ -240,9 +322,9 @@ jobs:
   # Runs ONLY after Cypress passes.
   #
   # Purpose:
-  #   - Application is reachable
+  #   - Application reachable
   #   - HTTP 200
-  #   - Response < 500ms
+  #   - Response time < 500ms
   #
   # Target:
   #   http://127.0.0.1:3000
@@ -278,8 +360,16 @@ jobs:
 
     steps:
 
+      # ----------------------------------------------------------
+      # Checkout
+      # ----------------------------------------------------------
+
       - name: Checkout Repository
         uses: actions/checkout@v4
+
+      # ----------------------------------------------------------
+      # Node.js
+      # ----------------------------------------------------------
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -287,42 +377,72 @@ jobs:
           node-version: 22
           cache: npm
 
+      # ----------------------------------------------------------
+      # Dependencies
+      # ----------------------------------------------------------
+
       - name: Install Dependencies
         run: npm ci
+
+      # ----------------------------------------------------------
+      # Build
+      # ----------------------------------------------------------
 
       - name: Build Application
         run: |
           if npm run | grep -q "build"; then
             npm run build
+          else
+            echo "No build script found. Skipping build."
           fi
+
+      # ----------------------------------------------------------
+      # Setup k6
+      # ----------------------------------------------------------
 
       - name: Setup k6
         uses: grafana/setup-k6-action@v1
 
+      # ----------------------------------------------------------
+      # Verify k6 Script
+      # ----------------------------------------------------------
+
       - name: Verify k6 Script
         run: |
           if [ ! -f tests/load.js ]; then
+            echo ""
             echo "ERROR: tests/load.js not found."
+            echo ""
             exit 1
           fi
 
+          echo ""
           echo "k6 script:"
+          echo "tests/load.js"
+          echo ""
+
           cat tests/load.js
+
+      # ----------------------------------------------------------
+      # Start Application
+      #
+      # DB_USER / DB_PASS intentionally omitted.
+      # ----------------------------------------------------------
 
       - name: Start Application
         env:
           PORT: 3000
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          DB_HOST: 127.0.0.1
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASS: ${{ secrets.DB_PASS }}
         run: |
           mkdir -p results
 
           npm start > results/app.log 2>&1 &
 
           APP_PID=$!
+
           echo "$APP_PID" > results/app.pid
+
+          echo "Application PID: $APP_PID"
 
           for i in {1..30}; do
 
@@ -334,23 +454,37 @@ jobs:
               > /dev/null 2>&1; then
 
               echo "Application is READY."
+
               exit 0
             fi
 
             if ! kill -0 "$APP_PID" 2>/dev/null; then
+              echo ""
               echo "Application exited unexpectedly."
+              echo ""
+
               cat results/app.log || true
+
               exit 1
             fi
 
-            echo "Waiting for application... $i/30"
+            echo "Waiting for application... attempt $i/30"
+
             sleep 2
 
           done
 
+          echo ""
           echo "Application failed to start."
+          echo ""
+
           cat results/app.log || true
+
           exit 1
+
+      # ----------------------------------------------------------
+      # k6 Smoke
+      # ----------------------------------------------------------
 
       - name: Run k6 Smoke Test
         id: k6_smoke
@@ -375,9 +509,14 @@ jobs:
 
           set -e
 
-          echo "$K6_EXIT" > results/smoke-exit-code.txt
+          echo "$K6_EXIT" \
+            > results/smoke-exit-code.txt
 
           exit "$K6_EXIT"
+
+      # ----------------------------------------------------------
+      # Diagnostics
+      # ----------------------------------------------------------
 
       - name: Capture Smoke Diagnostics
         if: always()
@@ -386,6 +525,10 @@ jobs:
             echo "=========================================="
             echo "k6 Smoke Diagnostics"
             echo "=========================================="
+
+            echo ""
+            echo "Timestamp:"
+            date -u '+%Y-%m-%dT%H:%M:%SZ'
 
             echo ""
             echo "Step outcome:"
@@ -418,6 +561,10 @@ jobs:
 
           } > results/smoke-diagnostics.log
 
+      # ----------------------------------------------------------
+      # Upload
+      # ----------------------------------------------------------
+
       - name: Upload k6 Smoke Reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -425,6 +572,10 @@ jobs:
           name: k6-smoke-test-report
           path: results/
           if-no-files-found: warn
+
+      # ----------------------------------------------------------
+      # Fail Smoke Stage
+      # ----------------------------------------------------------
 
       - name: Fail k6 Smoke Stage
         if: always() && steps.k6_smoke.outcome == 'failure'
@@ -436,13 +587,12 @@ jobs:
           echo "Load testing will NOT run."
           echo ""
           echo "Review the k6-smoke-test-report artifact."
+
           exit 1
 
 
   # ============================================================
   # 3. k6 LOAD TEST
-  #
-  # Runs ONLY after:
   #
   # Cypress PASS
   #      ↓
@@ -450,13 +600,9 @@ jobs:
   #      ↓
   # k6 Load
   #
-  # The same tests/load.js script is used.
-  #
-  # CLI controls the load:
-  #
+  # CLI controls:
   #   --vus 10
   #   --duration 30s
-  #
   # ============================================================
 
   k6-load-test:
@@ -489,8 +635,16 @@ jobs:
 
     steps:
 
+      # ----------------------------------------------------------
+      # Checkout
+      # ----------------------------------------------------------
+
       - name: Checkout Repository
         uses: actions/checkout@v4
+
+      # ----------------------------------------------------------
+      # Node.js
+      # ----------------------------------------------------------
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -498,32 +652,52 @@ jobs:
           node-version: 22
           cache: npm
 
+      # ----------------------------------------------------------
+      # Dependencies
+      # ----------------------------------------------------------
+
       - name: Install Dependencies
         run: npm ci
+
+      # ----------------------------------------------------------
+      # Build
+      # ----------------------------------------------------------
 
       - name: Build Application
         run: |
           if npm run | grep -q "build"; then
             npm run build
+          else
+            echo "No build script found. Skipping build."
           fi
+
+      # ----------------------------------------------------------
+      # Setup k6
+      # ----------------------------------------------------------
 
       - name: Setup k6
         uses: grafana/setup-k6-action@v1
+
+      # ----------------------------------------------------------
+      # Start Application
+      #
+      # DB_USER / DB_PASS intentionally omitted.
+      # ----------------------------------------------------------
 
       - name: Start Application
         env:
           PORT: 3000
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          DB_HOST: 127.0.0.1
-          DB_USER: ${{ secrets.DB_USER }}
-          DB_PASS: ${{ secrets.DB_PASS }}
         run: |
           mkdir -p results
 
           npm start > results/app.log 2>&1 &
 
           APP_PID=$!
+
           echo "$APP_PID" > results/app.pid
+
+          echo "Application PID: $APP_PID"
 
           for i in {1..30}; do
 
@@ -535,23 +709,37 @@ jobs:
               > /dev/null 2>&1; then
 
               echo "Application is READY."
+
               exit 0
             fi
 
             if ! kill -0 "$APP_PID" 2>/dev/null; then
+              echo ""
               echo "Application exited unexpectedly."
+              echo ""
+
               cat results/app.log || true
+
               exit 1
             fi
 
-            echo "Waiting for application... $i/30"
+            echo "Waiting for application... attempt $i/30"
+
             sleep 2
 
           done
 
+          echo ""
           echo "Application failed to start."
+          echo ""
+
           cat results/app.log || true
+
           exit 1
+
+      # ----------------------------------------------------------
+      # Verify Application
+      # ----------------------------------------------------------
 
       - name: Verify Application Before Load Test
         run: |
@@ -567,14 +755,22 @@ jobs:
           echo "HTTP status: $HTTP_STATUS"
 
           if [ "$HTTP_STATUS" = "000" ]; then
+            echo ""
             echo "ERROR: Application is unreachable."
+            echo ""
+
             cat results/app.log || true
+
             exit 1
           fi
 
+          echo ""
           echo "Application is reachable."
           echo "Target: http://127.0.0.1:3000"
 
+      # ----------------------------------------------------------
+      # k6 Load
+      # ----------------------------------------------------------
 
       - name: Run k6 Load Test
         id: k6_load
@@ -603,13 +799,17 @@ jobs:
 
           set -e
 
-          echo "$K6_EXIT" > results/k6-exit-code.txt
+          echo "$K6_EXIT" \
+            > results/k6-exit-code.txt
 
           echo ""
           echo "k6 exit code: $K6_EXIT"
 
           exit "$K6_EXIT"
 
+      # ----------------------------------------------------------
+      # Diagnostics
+      # ----------------------------------------------------------
 
       - name: Capture Load Diagnostics
         if: always()
@@ -654,6 +854,9 @@ jobs:
 
           } > results/diagnostics.log
 
+      # ----------------------------------------------------------
+      # Upload
+      # ----------------------------------------------------------
 
       - name: Upload k6 Load Reports
         if: always()
@@ -663,6 +866,9 @@ jobs:
           path: results/
           if-no-files-found: warn
 
+      # ----------------------------------------------------------
+      # Fail Load Stage
+      # ----------------------------------------------------------
 
       - name: Fail k6 Load Stage
         if: always() && steps.k6_load.outcome == 'failure'
@@ -676,20 +882,26 @@ jobs:
           echo "  results/output.json"
           echo "  results/k6-console.log"
           echo "  results/diagnostics.log"
+
           exit 1
 
 
   # ============================================================
-  # 4. QA PASS
+  # 4. QA PASS / FAIL + HTML REPORT + EMAIL
   #
-  # This stage always runs so we get one final QA decision.
+  # This job ALWAYS runs.
   #
-  # PASS requires:
+  # Final decision:
   #
-  #   Cypress      = success
-  #   k6 Smoke     = success
-  #   k6 Load      = success
+  # Cypress PASS
+  #      ↓
+  # k6 Smoke PASS
+  #      ↓
+  # k6 Load PASS
+  #      ↓
+  # QA PASS
   #
+  # Email is sent for BOTH PASS and FAIL.
   # ============================================================
 
   qa-pass:
@@ -706,6 +918,10 @@ jobs:
 
     steps:
 
+      # ----------------------------------------------------------
+      # Download Cypress report
+      # ----------------------------------------------------------
+
       - name: Download Cypress Report
         if: always()
         uses: actions/download-artifact@v4
@@ -713,6 +929,10 @@ jobs:
           name: cypress-e2e-report
           path: reports/cypress
         continue-on-error: true
+
+      # ----------------------------------------------------------
+      # Download k6 Smoke report
+      # ----------------------------------------------------------
 
       - name: Download k6 Smoke Report
         if: always()
@@ -722,6 +942,10 @@ jobs:
           path: reports/k6-smoke
         continue-on-error: true
 
+      # ----------------------------------------------------------
+      # Download k6 Load report
+      # ----------------------------------------------------------
+
       - name: Download k6 Load Report
         if: always()
         uses: actions/download-artifact@v4
@@ -730,17 +954,465 @@ jobs:
           path: reports/k6-load
         continue-on-error: true
 
-      - name: Generate QA Summary
+      # ----------------------------------------------------------
+      # Generate HTML Email Report
+      #
+      # APP_NAME / ENVIRONMENT are no longer GitHub variables.
+      # They are fixed pipeline labels.
+      # ----------------------------------------------------------
+
+      - name: Generate HTML QA Report
+        if: always()
         env:
           CYPRESS_RESULT: ${{ needs.cypress-e2e.result }}
           K6_SMOKE_RESULT: ${{ needs.k6-smoke-test.result }}
           K6_LOAD_RESULT: ${{ needs.k6-load-test.result }}
-        run: |
-          echo "=========================================="
-          echo "FINAL QA RESULT"
-          echo "=========================================="
-          echo ""
 
+          REPOSITORY: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
+          RUN_NUMBER: ${{ github.run_number }}
+          RUN_ID: ${{ github.run_id }}
+          ACTOR: ${{ github.actor }}
+
+        run: |
+          mkdir -p reports
+
+          if [ "$CYPRESS_RESULT" = "success" ] && \
+             [ "$K6_SMOKE_RESULT" = "success" ] && \
+             [ "$K6_LOAD_RESULT" = "success" ]; then
+
+            QA_STATUS="PASS"
+            QA_STATUS_ICON="✅"
+
+          else
+
+            QA_STATUS="FAIL"
+            QA_STATUS_ICON="❌"
+
+          fi
+
+          if [ "$CYPRESS_RESULT" = "success" ]; then
+            CYPRESS_CLASS="pass-text"
+          else
+            CYPRESS_CLASS="fail-text"
+          fi
+
+          if [ "$K6_SMOKE_RESULT" = "success" ]; then
+            K6_SMOKE_CLASS="pass-text"
+          else
+            K6_SMOKE_CLASS="fail-text"
+          fi
+
+          if [ "$K6_LOAD_RESULT" = "success" ]; then
+            K6_LOAD_CLASS="pass-text"
+          else
+            K6_LOAD_CLASS="fail-text"
+          fi
+
+          if [ "$QA_STATUS" = "PASS" ]; then
+            QA_CLASS="pass"
+          else
+            QA_CLASS="fail"
+          fi
+
+          cat > reports/qa-email.html <<EOF
+          <!DOCTYPE html>
+          <html>
+
+          <head>
+            <meta charset="UTF-8">
+
+            <style>
+
+              body {
+                margin: 0;
+                padding: 0;
+                background: #f4f6f8;
+                font-family: Arial, Helvetica, sans-serif;
+                color: #1f2937;
+              }
+
+              .container {
+                max-width: 760px;
+                margin: 30px auto;
+                background: #ffffff;
+                border-radius: 12px;
+                overflow: hidden;
+                box-shadow: 0 4px 18px rgba(0,0,0,0.08);
+              }
+
+              .header {
+                padding: 28px 32px;
+                background: #111827;
+                color: #ffffff;
+              }
+
+              .header h1 {
+                margin: 0;
+                font-size: 25px;
+              }
+
+              .header p {
+                margin: 8px 0 0;
+                color: #d1d5db;
+              }
+
+              .status {
+                padding: 25px 32px;
+                text-align: center;
+                background: #f9fafb;
+                border-bottom: 1px solid #e5e7eb;
+              }
+
+              .status h2 {
+                margin: 0;
+                font-size: 30px;
+              }
+
+              .status.pass h2 {
+                color: #15803d;
+              }
+
+              .status.fail h2 {
+                color: #b91c1c;
+              }
+
+              .content {
+                padding: 28px 32px;
+              }
+
+              table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 15px;
+              }
+
+              th {
+                background: #f3f4f6;
+                text-align: left;
+                padding: 12px;
+                border-bottom: 1px solid #d1d5db;
+              }
+
+              td {
+                padding: 12px;
+                border-bottom: 1px solid #e5e7eb;
+              }
+
+              .pass-text {
+                color: #15803d;
+                font-weight: bold;
+              }
+
+              .fail-text {
+                color: #b91c1c;
+                font-weight: bold;
+              }
+
+              .meta {
+                background: #f9fafb;
+                border-radius: 8px;
+                padding: 18px;
+                margin-top: 25px;
+              }
+
+              .meta p {
+                margin: 7px 0;
+              }
+
+              .button {
+                display: inline-block;
+                margin-top: 20px;
+                padding: 12px 20px;
+                background: #2563eb;
+                color: #ffffff !important;
+                text-decoration: none;
+                border-radius: 7px;
+                font-weight: bold;
+              }
+
+              .footer {
+                padding: 20px 32px;
+                background: #f9fafb;
+                color: #6b7280;
+                font-size: 12px;
+              }
+
+            </style>
+          </head>
+
+          <body>
+
+            <div class="container">
+
+              <div class="header">
+                <h1>Resume Matcher — QA Pipeline</h1>
+                <p>QA validation pipeline</p>
+              </div>
+
+              <div class="status ${QA_CLASS}">
+                <h2>${QA_STATUS_ICON} QA ${QA_STATUS}</h2>
+              </div>
+
+              <div class="content">
+
+                <h2>Pipeline Results</h2>
+
+                <table>
+
+                  <tr>
+                    <th>Stage</th>
+                    <th>Result</th>
+                  </tr>
+
+                  <tr>
+                    <td>Cypress E2E</td>
+                    <td class="${CYPRESS_CLASS}">
+                      ${CYPRESS_RESULT}
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td>k6 Smoke Test</td>
+                    <td class="${K6_SMOKE_CLASS}">
+                      ${K6_SMOKE_RESULT}
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td>k6 Load Test</td>
+                    <td class="${K6_LOAD_CLASS}">
+                      ${K6_LOAD_RESULT}
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td>
+                      <strong>Final QA Decision</strong>
+                    </td>
+
+                    <td>
+                      <strong>QA ${QA_STATUS}</strong>
+                    </td>
+                  </tr>
+
+                </table>
+
+                <div class="meta">
+
+                  <p>
+                    <strong>Repository:</strong>
+                    ${REPOSITORY}
+                  </p>
+
+                  <p>
+                    <strong>Branch:</strong>
+                    ${BRANCH}
+                  </p>
+
+                  <p>
+                    <strong>Commit:</strong>
+                    ${COMMIT}
+                  </p>
+
+                  <p>
+                    <strong>Run:</strong>
+                    #${RUN_NUMBER}
+                  </p>
+
+                  <p>
+                    <strong>Triggered by:</strong>
+                    ${ACTOR}
+                  </p>
+
+                </div>
+
+                <a
+                  class="button"
+                  href="https://github.com/${REPOSITORY}/actions/runs/${RUN_ID}">
+                  View GitHub Actions Run
+                </a>
+
+              </div>
+
+              <div class="footer">
+                Automated QA notification generated by GitHub Actions.
+              </div>
+
+            </div>
+
+          </body>
+
+          </html>
+          EOF
+
+          echo "HTML QA report generated:"
+          ls -lh reports/qa-email.html
+
+      # ----------------------------------------------------------
+      # Package complete reports
+      # ----------------------------------------------------------
+
+      - name: Package QA Reports
+        if: always()
+        run: |
+          mkdir -p reports/archive
+
+          cp \
+            reports/qa-email.html \
+            reports/archive/qa-email.html
+
+          tar -czf reports/qa-reports.tar.gz \
+            reports/cypress \
+            reports/k6-smoke \
+            reports/k6-load \
+            reports/archive/qa-email.html \
+            2>/dev/null || true
+
+          echo "QA report archive:"
+
+          ls -lh \
+            reports/qa-reports.tar.gz \
+            2>/dev/null || true
+
+      # ----------------------------------------------------------
+      # GitHub Summary
+      # ----------------------------------------------------------
+
+      - name: Publish QA Decision
+        if: always()
+        env:
+          CYPRESS_RESULT: ${{ needs.cypress-e2e.result }}
+          K6_SMOKE_RESULT: ${{ needs.k6-smoke-test.result }}
+          K6_LOAD_RESULT: ${{ needs.k6-load-test.result }}
+
+        run: |
+
+          if [ "$CYPRESS_RESULT" = "success" ] && \
+             [ "$K6_SMOKE_RESULT" = "success" ] && \
+             [ "$K6_LOAD_RESULT" = "success" ]; then
+
+            QA_STATUS="PASS"
+
+          else
+
+            QA_STATUS="FAIL"
+
+          fi
+
+          {
+            echo "## QA Pipeline Result"
+            echo ""
+
+            echo "| Stage | Result |"
+            echo "|---|---|"
+            echo "| Cypress E2E | $CYPRESS_RESULT |"
+            echo "| k6 Smoke | $K6_SMOKE_RESULT |"
+            echo "| k6 Load | $K6_LOAD_RESULT |"
+            echo "| **Final QA** | **$QA_STATUS** |"
+
+            echo ""
+            echo "**Pipeline:** Cypress → k6 Smoke → k6 Load → QA"
+
+            echo ""
+
+            echo "[View GitHub Actions Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
+
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      # ----------------------------------------------------------
+      # Upload final reports
+      # ----------------------------------------------------------
+
+      - name: Upload Final QA Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-final-report
+          path: |
+            reports/
+          if-no-files-found: warn
+
+      # ----------------------------------------------------------
+      # SEND HTML EMAIL
+      #
+      # Uses ONLY the email secrets that actually exist:
+      #
+      #   EMAIL_USER
+      #   EMAIL_PASS
+      #
+      # No MAIL_* or QA_EMAIL_* variables are required.
+      # ----------------------------------------------------------
+
+      - name: Send QA HTML Email
+        if: always()
+        continue-on-error: true
+        uses: dawidd6/action-send-mail@v18
+
+        with:
+
+          server_address: smtp.gmail.com
+
+          server_port: 465
+
+          secure: true
+
+          username: ${{ secrets.EMAIL_USER }}
+
+          password: ${{ secrets.EMAIL_PASS }}
+
+          from: ${{ secrets.EMAIL_USER }}
+
+          to: ${{ secrets.EMAIL_USER }}
+
+          subject: "Resume Matcher - QA Pipeline #${{ github.run_number }} - ${{ needs.cypress-e2e.result == 'success' && needs.k6-smoke-test.result == 'success' && needs.k6-load-test.result == 'success' && 'PASS' || 'FAIL' }}"
+
+          body: |
+            QA Pipeline completed.
+
+            Repository: ${{ github.repository }}
+            Branch: ${{ github.ref_name }}
+            Run: #${{ github.run_number }}
+
+            Pipeline:
+            Cypress E2E → k6 Smoke → k6 Load → QA
+
+            Cypress: ${{ needs.cypress-e2e.result }}
+            k6 Smoke: ${{ needs.k6-smoke-test.result }}
+            k6 Load: ${{ needs.k6-load-test.result }}
+
+            View run:
+            https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+          html_body: file://reports/qa-email.html
+
+          attachments: |
+            reports/qa-email.html
+            reports/qa-reports.tar.gz
+
+      # ----------------------------------------------------------
+      # FINAL QA GATE
+      #
+      # This MUST be last.
+      #
+      # Email/reporting does not affect QA decision.
+      # ----------------------------------------------------------
+
+      - name: Final QA Gate
+        if: always()
+        env:
+          CYPRESS_RESULT: ${{ needs.cypress-e2e.result }}
+          K6_SMOKE_RESULT: ${{ needs.k6-smoke-test.result }}
+          K6_LOAD_RESULT: ${{ needs.k6-load-test.result }}
+
+        run: |
+
+          echo "=========================================="
+          echo "FINAL QA GATE"
+          echo "=========================================="
+
+          echo ""
           echo "Cypress E2E : $CYPRESS_RESULT"
           echo "k6 Smoke    : $K6_SMOKE_RESULT"
           echo "k6 Load     : $K6_LOAD_RESULT"
@@ -771,19 +1443,5 @@ jobs:
             echo "k6 Load:     $K6_LOAD_RESULT"
 
             exit 1
-          fi
 
-      - name: Publish QA Decision
-        if: always()
-        run: |
-          {
-            echo "## QA Pipeline Result"
-            echo ""
-            echo "| Stage | Result |"
-            echo "|---|---|"
-            echo "| Cypress E2E | ${{ needs.cypress-e2e.result }} |"
-            echo "| k6 Smoke | ${{ needs.k6-smoke-test.result }} |"
-            echo "| k6 Load | ${{ needs.k6-load-test.result }} |"
-            echo ""
-            echo "**Pipeline:** Cypress → k6 Smoke → k6 Load → QA"
-          } >> "$GITHUB_STEP_SUMMARY"
+          fi
