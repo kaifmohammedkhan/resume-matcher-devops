@@ -914,7 +914,7 @@ jobs:
 
 
   # ============================================================
-  # 4. QA PASS / FAIL + INDIVIDUAL HTML STAGE REPORTS
+  # 4. QA PASS / FAIL + INDIVIDUAL HTML STAGE REPORTS + EMAIL
   # ============================================================
 
   qa-pass:
@@ -966,3 +966,57 @@ jobs:
             -type f \
             -print \
             2>/dev/null || true
+
+      - name: Generate Individual HTML Stage Reports
+        if: always()
+        env:
+          CYPRESS_RESULT: ${{ needs.cypress-e2e.result }}
+          K6_SMOKE_RESULT: ${{ needs.k6-smoke-test.result }}
+          K6_LOAD_RESULT: ${{ needs.k6-load-test.result }}
+
+          REPOSITORY: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
+          RUN_NUMBER: ${{ github.run_number }}
+          RUN_ID: ${{ github.run_id }}
+          ACTOR: ${{ github.actor }}
+        run: |
+          set -e
+          mkdir -p reports/html
+
+          # Basic placeholder generator to ensure files exist for attachments
+          echo "<html><body><h1>Cypress Test Result: $CYPRESS_RESULT</h1></body></html>" > reports/html/cypress-e2e-report.html
+          echo "<html><body><h1>k6 Smoke Result: $K6_SMOKE_RESULT</h1></body></html>" > reports/html/k6-smoke-report.html
+          echo "<html><body><h1>k6 Load Result: $K6_LOAD_RESULT</h1></body></html>" > reports/html/k6-load-report.html
+
+      # ==========================================================
+      # SEND EMAIL NOTIFICATION WITH REPORTS
+      # ==========================================================
+
+      - name: Send QA Report Email
+        if: always()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.EMAIL_USER }}
+          password: ${{ secrets.EMAIL_PASS }}
+          subject: "QA Pipeline Report [${{ github.ref_name }}] - Run #${{ github.run_number }} (${{ job.status }})"
+          to: ${{ secrets.QA_EMAIL_TO }}
+          cc: ${{ secrets.QA_EMAIL_CC }}
+          body: |
+            Hi,
+
+            The QA Pipeline for repository ${{ github.repository }} has finished execution.
+            
+            - Branch: ${{ github.ref_name }}
+            - Commit: ${{ github.sha }}
+            - Status: ${{ job.status }}
+
+            Please find the attached HTML test reports for Cypress, k6 Smoke, and k6 Load tests.
+
+            Regards,
+            QA Automation Pipeline
+          attachments: |
+            reports/html/*.html
