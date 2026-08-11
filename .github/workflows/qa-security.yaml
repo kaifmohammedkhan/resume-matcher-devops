@@ -11,19 +11,20 @@ permissions:
   contents: read
 
 # ============================================================
-# ONLY APPLICATION SECRET USED GLOBALLY
+# GLOBAL ENVIRONMENT
 #
-# Available repository secrets:
-#   EMAIL_PASS
-#   EMAIL_USER
-#   GOOGLE_API_KEY
-#   NVD_API_KEY
-#   SONAR_HOST
-#   SONAR_ORG
-#   SONAR_PROJECT_KEY
-#   SONAR_TOKEN
+# DB_USER / DB_PASS are intentionally NOT provided by
+# GitHub Actions.
 #
-# DB_USER / DB_PASS ARE INTENTIONALLY NOT USED.
+# The application must provide its own defaults when these
+# variables are absent.
+#
+# PostgreSQL service credentials:
+#
+#   user     = postgres
+#   password = postgres
+#   database = resume_db
+#
 # ============================================================
 
 env:
@@ -123,11 +124,13 @@ jobs:
             echo "ERROR: No Cypress E2E specs found."
             echo "Expected location: cypress/e2e/"
             echo ""
+
             exit 1
           fi
 
           echo ""
           echo "Cypress specs found:"
+
           find cypress/e2e \
             -type f \
             \( \
@@ -146,7 +149,7 @@ jobs:
       #
       # IMPORTANT:
       #
-      # DB_USER / DB_PASS are intentionally NOT supplied here.
+      # DB_USER / DB_PASS are intentionally NOT supplied.
       #
       # PostgreSQL service itself is configured with:
       #
@@ -154,7 +157,9 @@ jobs:
       #   password = postgres
       #   database = resume_db
       #
-      # The application must provide/default its own DB credentials.
+      # The Node.js application must provide/default its own
+      # database credentials when these environment variables
+      # are absent.
       # ----------------------------------------------------------
 
       - name: Start Application
@@ -192,6 +197,7 @@ jobs:
             fi
 
             if ! kill -0 "$APP_PID" 2>/dev/null; then
+
               echo ""
               echo "ERROR: Application exited unexpectedly."
               echo ""
@@ -297,6 +303,7 @@ jobs:
             cypress/screenshots/
             cypress/videos/
           if-no-files-found: warn
+          retention-days: 14
 
       # ----------------------------------------------------------
       # Fail Cypress Stage
@@ -322,12 +329,14 @@ jobs:
   # Runs ONLY after Cypress passes.
   #
   # Purpose:
-  #   - Application reachable
-  #   - HTTP 200
-  #   - Response time < 500ms
+  #
+  # - Application reachable
+  # - HTTP 200
+  # - Response time < 500ms
   #
   # Target:
-  #   http://127.0.0.1:3000
+  #
+  # http://127.0.0.1:3000
   # ============================================================
 
   k6-smoke-test:
@@ -413,6 +422,7 @@ jobs:
             echo ""
             echo "ERROR: tests/load.js not found."
             echo ""
+
             exit 1
           fi
 
@@ -459,6 +469,7 @@ jobs:
             fi
 
             if ! kill -0 "$APP_PID" 2>/dev/null; then
+
               echo ""
               echo "Application exited unexpectedly."
               echo ""
@@ -572,6 +583,7 @@ jobs:
           name: k6-smoke-test-report
           path: results/
           if-no-files-found: warn
+          retention-days: 14
 
       # ----------------------------------------------------------
       # Fail Smoke Stage
@@ -601,8 +613,9 @@ jobs:
   # k6 Load
   #
   # CLI controls:
-  #   --vus 10
-  #   --duration 30s
+  #
+  # --vus 10
+  # --duration 30s
   # ============================================================
 
   k6-load-test:
@@ -714,6 +727,7 @@ jobs:
             fi
 
             if ! kill -0 "$APP_PID" 2>/dev/null; then
+
               echo ""
               echo "Application exited unexpectedly."
               echo ""
@@ -755,6 +769,7 @@ jobs:
           echo "HTTP status: $HTTP_STATUS"
 
           if [ "$HTTP_STATUS" = "000" ]; then
+
             echo ""
             echo "ERROR: Application is unreachable."
             echo ""
@@ -865,6 +880,7 @@ jobs:
           name: k6-load-test-report
           path: results/
           if-no-files-found: warn
+          retention-days: 14
 
       # ----------------------------------------------------------
       # Fail Load Stage
@@ -887,21 +903,22 @@ jobs:
 
 
   # ============================================================
-  # 4. QA PASS / FAIL + HTML REPORT + EMAIL
+  # 4. QA PASS / FAIL + INDIVIDUAL HTML STAGE REPORTS + EMAIL
   #
-  # This job ALWAYS runs.
+  # IMPORTANT:
   #
-  # Final decision:
+  # This job MUST remain under jobs:.
   #
-  # Cypress PASS
-  #      ↓
-  # k6 Smoke PASS
-  #      ↓
-  # k6 Load PASS
-  #      ↓
-  # QA PASS
+  # It ALWAYS runs.
   #
-  # Email is sent for BOTH PASS and FAIL.
+  # Generates:
+  #
+  #   1. cypress-e2e-report.html
+  #   2. k6-smoke-report.html
+  #   3. k6-load-report.html
+  #   4. qa-summary.html
+  #
+  # NO tar.gz is created.
   # ============================================================
 
   qa-pass:
@@ -918,9 +935,9 @@ jobs:
 
     steps:
 
-      # ----------------------------------------------------------
-      # Download Cypress report
-      # ----------------------------------------------------------
+      # ==========================================================
+      # DOWNLOAD CYPRESS REPORT
+      # ==========================================================
 
       - name: Download Cypress Report
         if: always()
@@ -930,9 +947,10 @@ jobs:
           path: reports/cypress
         continue-on-error: true
 
-      # ----------------------------------------------------------
-      # Download k6 Smoke report
-      # ----------------------------------------------------------
+
+      # ==========================================================
+      # DOWNLOAD k6 SMOKE REPORT
+      # ==========================================================
 
       - name: Download k6 Smoke Report
         if: always()
@@ -942,9 +960,10 @@ jobs:
           path: reports/k6-smoke
         continue-on-error: true
 
-      # ----------------------------------------------------------
-      # Download k6 Load report
-      # ----------------------------------------------------------
+
+      # ==========================================================
+      # DOWNLOAD k6 LOAD REPORT
+      # ==========================================================
 
       - name: Download k6 Load Report
         if: always()
@@ -954,14 +973,29 @@ jobs:
           path: reports/k6-load
         continue-on-error: true
 
-      # ----------------------------------------------------------
-      # Generate HTML Email Report
-      #
-      # APP_NAME / ENVIRONMENT are no longer GitHub variables.
-      # They are fixed pipeline labels.
-      # ----------------------------------------------------------
 
-      - name: Generate HTML QA Report
+      # ==========================================================
+      # SHOW DOWNLOADED REPORT STRUCTURE
+      # ==========================================================
+
+      - name: Inspect Downloaded QA Artifacts
+        if: always()
+        run: |
+          echo "=========================================="
+          echo "DOWNLOADED QA ARTIFACTS"
+          echo "=========================================="
+
+          find reports \
+            -type f \
+            -print \
+            2>/dev/null || true
+
+
+      # ==========================================================
+      # GENERATE INDIVIDUAL HTML REPORTS
+      # ==========================================================
+
+      - name: Generate Individual HTML Stage Reports
         if: always()
         env:
           CYPRESS_RESULT: ${{ needs.cypress-e2e.result }}
@@ -976,52 +1010,56 @@ jobs:
           ACTOR: ${{ github.actor }}
 
         run: |
-          mkdir -p reports
+          set -e
 
-          if [ "$CYPRESS_RESULT" = "success" ] && \
-             [ "$K6_SMOKE_RESULT" = "success" ] && \
-             [ "$K6_LOAD_RESULT" = "success" ]; then
+          mkdir -p reports/html
 
-            QA_STATUS="PASS"
-            QA_STATUS_ICON="✅"
 
-          else
+          # ======================================================
+          # HTML ESCAPE FUNCTION
+          # ======================================================
 
-            QA_STATUS="FAIL"
-            QA_STATUS_ICON="❌"
+          escape_html() {
 
-          fi
+            if [ -f "$1" ]; then
 
-          if [ "$CYPRESS_RESULT" = "success" ]; then
-            CYPRESS_CLASS="pass-text"
-          else
-            CYPRESS_CLASS="fail-text"
-          fi
+              sed \
+                -e 's/\&/\&amp;/g' \
+                -e 's/</\&lt;/g' \
+                -e 's/>/\&gt;/g' \
+                -e 's/"/\&quot;/g' \
+                "$1"
 
-          if [ "$K6_SMOKE_RESULT" = "success" ]; then
-            K6_SMOKE_CLASS="pass-text"
-          else
-            K6_SMOKE_CLASS="fail-text"
-          fi
+            else
 
-          if [ "$K6_LOAD_RESULT" = "success" ]; then
-            K6_LOAD_CLASS="pass-text"
-          else
-            K6_LOAD_CLASS="fail-text"
-          fi
+              echo "No log file found."
 
-          if [ "$QA_STATUS" = "PASS" ]; then
-            QA_CLASS="pass"
-          else
-            QA_CLASS="fail"
-          fi
+            fi
+          }
 
-          cat > reports/qa-email.html <<EOF
+
+          # ======================================================
+          # COMMON HTML HEADER
+          # ======================================================
+
+          generate_header() {
+
+            cat <<EOF
+
           <!DOCTYPE html>
-          <html>
+
+          <html lang="en">
 
           <head>
+
             <meta charset="UTF-8">
+
+            <meta
+              name="viewport"
+              content="width=device-width, initial-scale=1.0"
+            >
+
+            <title>$1</title>
 
             <style>
 
@@ -1034,7 +1072,7 @@ jobs:
               }
 
               .container {
-                max-width: 760px;
+                max-width: 1100px;
                 margin: 30px auto;
                 background: #ffffff;
                 border-radius: 12px;
@@ -1050,7 +1088,7 @@ jobs:
 
               .header h1 {
                 margin: 0;
-                font-size: 25px;
+                font-size: 26px;
               }
 
               .header p {
@@ -1061,8 +1099,15 @@ jobs:
               .status {
                 padding: 25px 32px;
                 text-align: center;
-                background: #f9fafb;
                 border-bottom: 1px solid #e5e7eb;
+              }
+
+              .status.pass {
+                background: #ecfdf5;
+              }
+
+              .status.fail {
+                background: #fef2f2;
               }
 
               .status h2 {
@@ -1070,33 +1115,857 @@ jobs:
                 font-size: 30px;
               }
 
-              .status.pass h2 {
+              .pass-text {
                 color: #15803d;
+                font-weight: bold;
               }
 
-              .status.fail h2 {
+              .fail-text {
                 color: #b91c1c;
+                font-weight: bold;
               }
 
               .content {
-                padding: 28px 32px;
+                padding: 32px;
+              }
+
+              .meta {
+                background: #f9fafb;
+                border-radius: 8px;
+                padding: 18px;
+                margin-bottom: 28px;
+              }
+
+              .meta p {
+                margin: 7px 0;
+              }
+
+              .section {
+                margin-top: 28px;
+              }
+
+              .section h2 {
+                font-size: 20px;
+                border-bottom: 2px solid #e5e7eb;
+                padding-bottom: 10px;
+              }
+
+              .log {
+                background: #111827;
+                color: #e5e7eb;
+                padding: 18px;
+                border-radius: 8px;
+                overflow-x: auto;
+                white-space: pre-wrap;
+                word-break: break-word;
+                font-family: Consolas, Monaco, monospace;
+                font-size: 13px;
+                line-height: 1.5;
+                max-height: 650px;
+                overflow-y: auto;
+              }
+
+              .summary {
+                background: #f9fafb;
+                border: 1px solid #e5e7eb;
+                padding: 18px;
+                border-radius: 8px;
+                white-space: pre-wrap;
+                font-family: Consolas, Monaco, monospace;
+                font-size: 13px;
+                overflow-x: auto;
+              }
+
+              .footer {
+                padding: 20px 32px;
+                background: #f9fafb;
+                color: #6b7280;
+                font-size: 12px;
+              }
+
+            </style>
+
+          </head>
+
+          <body>
+
+          <div class="container">
+
+          EOF
+          }
+
+
+          # ======================================================
+          # CYPRESS E2E HTML REPORT
+          # ======================================================
+
+          if [ "$CYPRESS_RESULT" = "success" ]; then
+
+            CYPRESS_STATUS_CLASS="pass"
+            CYPRESS_ICON="✅"
+
+          else
+
+            CYPRESS_STATUS_CLASS="fail"
+            CYPRESS_ICON="❌"
+
+          fi
+
+
+          CYPRESS_EXIT_CODE="N/A"
+
+          if [ -f reports/cypress/cypress-exit-code.txt ]; then
+            CYPRESS_EXIT_CODE=$(cat reports/cypress/cypress-exit-code.txt)
+          fi
+
+
+          {
+            generate_header "Cypress E2E Test Report"
+
+            cat <<EOF
+
+          <div class="header">
+
+            <h1>Cypress E2E Test Report</h1>
+
+            <p>Resume Matcher QA Pipeline</p>
+
+          </div>
+
+          <div class="status $CYPRESS_STATUS_CLASS">
+
+            <h2>
+              $CYPRESS_ICON Cypress E2E — $CYPRESS_RESULT
+            </h2>
+
+          </div>
+
+          <div class="content">
+
+            <div class="meta">
+
+              <p>
+                <strong>Stage:</strong>
+                Cypress E2E Tests
+              </p>
+
+              <p>
+                <strong>Result:</strong>
+                $CYPRESS_RESULT
+              </p>
+
+              <p>
+                <strong>Exit Code:</strong>
+                $CYPRESS_EXIT_CODE
+              </p>
+
+              <p>
+                <strong>Repository:</strong>
+                $REPOSITORY
+              </p>
+
+              <p>
+                <strong>Branch:</strong>
+                $BRANCH
+              </p>
+
+              <p>
+                <strong>Commit:</strong>
+                $COMMIT
+              </p>
+
+              <p>
+                <strong>Run:</strong>
+                #$RUN_NUMBER
+              </p>
+
+              <p>
+                <strong>Triggered By:</strong>
+                $ACTOR
+              </p>
+
+            </div>
+
+            <div class="section">
+
+              <h2>Application Log</h2>
+
+              <div class="log">
+
+          EOF
+
+            escape_html reports/cypress/app.log
+
+            cat <<EOF
+
+              </div>
+
+            </div>
+
+
+            <div class="section">
+
+              <h2>Cypress Console Log</h2>
+
+              <div class="log">
+
+          EOF
+
+            escape_html reports/cypress/cypress-run.log
+
+            cat <<EOF
+
+              </div>
+
+            </div>
+
+
+            <div class="section">
+
+              <h2>Diagnostics</h2>
+
+              <div class="log">
+
+          EOF
+
+            escape_html reports/cypress/diagnostics.log
+
+            cat <<EOF
+
+              </div>
+
+            </div>
+
+          </div>
+
+          <div class="footer">
+
+            Generated by GitHub Actions QA Pipeline.
+
+          </div>
+
+          </div>
+
+          </body>
+
+          </html>
+
+          EOF
+
+          } > reports/html/cypress-e2e-report.html
+
+
+          # ======================================================
+          # k6 SMOKE HTML REPORT
+          # ======================================================
+
+          if [ "$K6_SMOKE_RESULT" = "success" ]; then
+
+            SMOKE_STATUS_CLASS="pass"
+            SMOKE_ICON="✅"
+
+          else
+
+            SMOKE_STATUS_CLASS="fail"
+            SMOKE_ICON="❌"
+
+          fi
+
+
+          SMOKE_EXIT_CODE="N/A"
+
+          if [ -f reports/k6-smoke/results/smoke-exit-code.txt ]; then
+
+            SMOKE_EXIT_CODE=$(
+              cat reports/k6-smoke/results/smoke-exit-code.txt
+            )
+
+          elif [ -f reports/k6-smoke/smoke-exit-code.txt ]; then
+
+            SMOKE_EXIT_CODE=$(
+              cat reports/k6-smoke/smoke-exit-code.txt
+            )
+
+          fi
+
+
+          {
+            generate_header "k6 Smoke Test Report"
+
+            cat <<EOF
+
+          <div class="header">
+
+            <h1>k6 Smoke Test Report</h1>
+
+            <p>Resume Matcher QA Pipeline</p>
+
+          </div>
+
+          <div class="status $SMOKE_STATUS_CLASS">
+
+            <h2>
+              $SMOKE_ICON k6 Smoke Test — $K6_SMOKE_RESULT
+            </h2>
+
+          </div>
+
+          <div class="content">
+
+            <div class="meta">
+
+              <p>
+                <strong>Stage:</strong>
+                k6 Smoke Test
+              </p>
+
+              <p>
+                <strong>Result:</strong>
+                $K6_SMOKE_RESULT
+              </p>
+
+              <p>
+                <strong>Exit Code:</strong>
+                $SMOKE_EXIT_CODE
+              </p>
+
+              <p>
+                <strong>Target:</strong>
+                http://127.0.0.1:3000
+              </p>
+
+              <p>
+                <strong>Repository:</strong>
+                $REPOSITORY
+              </p>
+
+              <p>
+                <strong>Branch:</strong>
+                $BRANCH
+              </p>
+
+              <p>
+                <strong>Commit:</strong>
+                $COMMIT
+              </p>
+
+              <p>
+                <strong>Run:</strong>
+                #$RUN_NUMBER
+              </p>
+
+              <p>
+                <strong>Triggered By:</strong>
+                $ACTOR
+              </p>
+
+            </div>
+
+
+            <div class="section">
+
+              <h2>Application Log</h2>
+
+              <div class="log">
+
+          EOF
+
+            if [ -f reports/k6-smoke/results/app.log ]; then
+
+              escape_html reports/k6-smoke/results/app.log
+
+            else
+
+              escape_html reports/k6-smoke/app.log
+
+            fi
+
+            cat <<EOF
+
+              </div>
+
+            </div>
+
+
+            <div class="section">
+
+              <h2>k6 Console Log</h2>
+
+              <div class="log">
+
+          EOF
+
+            if [ -f reports/k6-smoke/results/smoke-console.log ]; then
+
+              escape_html \
+                reports/k6-smoke/results/smoke-console.log
+
+            else
+
+              escape_html \
+                reports/k6-smoke/smoke-console.log
+
+            fi
+
+            cat <<EOF
+
+              </div>
+
+            </div>
+
+
+            <div class="section">
+
+              <h2>k6 Summary</h2>
+
+              <div class="summary">
+
+          EOF
+
+            if [ -f reports/k6-smoke/results/smoke-summary.json ]; then
+
+              escape_html \
+                reports/k6-smoke/results/smoke-summary.json
+
+            else
+
+              escape_html \
+                reports/k6-smoke/smoke-summary.json
+
+            fi
+
+            cat <<EOF
+
+              </div>
+
+            </div>
+
+
+            <div class="section">
+
+              <h2>Smoke Diagnostics</h2>
+
+              <div class="log">
+
+          EOF
+
+            if [ -f reports/k6-smoke/results/smoke-diagnostics.log ]; then
+
+              escape_html \
+                reports/k6-smoke/results/smoke-diagnostics.log
+
+            else
+
+              escape_html \
+                reports/k6-smoke/smoke-diagnostics.log
+
+            fi
+
+            cat <<EOF
+
+              </div>
+
+            </div>
+
+          </div>
+
+          <div class="footer">
+
+            Generated by GitHub Actions QA Pipeline.
+
+          </div>
+
+          </div>
+
+          </body>
+
+          </html>
+
+          EOF
+
+          } > reports/html/k6-smoke-report.html
+
+
+          # ======================================================
+          # k6 LOAD HTML REPORT
+          # ======================================================
+
+          if [ "$K6_LOAD_RESULT" = "success" ]; then
+
+            LOAD_STATUS_CLASS="pass"
+            LOAD_ICON="✅"
+
+          else
+
+            LOAD_STATUS_CLASS="fail"
+            LOAD_ICON="❌"
+
+          fi
+
+
+          LOAD_EXIT_CODE="N/A"
+
+          if [ -f reports/k6-load/results/k6-exit-code.txt ]; then
+
+            LOAD_EXIT_CODE=$(
+              cat reports/k6-load/results/k6-exit-code.txt
+            )
+
+          elif [ -f reports/k6-load/k6-exit-code.txt ]; then
+
+            LOAD_EXIT_CODE=$(
+              cat reports/k6-load/k6-exit-code.txt
+            )
+
+          fi
+
+
+          {
+            generate_header "k6 Load Test Report"
+
+            cat <<EOF
+
+          <div class="header">
+
+            <h1>k6 Load Test Report</h1>
+
+            <p>Resume Matcher QA Pipeline</p>
+
+          </div>
+
+          <div class="status $LOAD_STATUS_CLASS">
+
+            <h2>
+              $LOAD_ICON k6 Load Test — $K6_LOAD_RESULT
+            </h2>
+
+          </div>
+
+          <div class="content">
+
+            <div class="meta">
+
+              <p>
+                <strong>Stage:</strong>
+                k6 Load Test
+              </p>
+
+              <p>
+                <strong>Result:</strong>
+                $K6_LOAD_RESULT
+              </p>
+
+              <p>
+                <strong>Exit Code:</strong>
+                $LOAD_EXIT_CODE
+              </p>
+
+              <p>
+                <strong>Target:</strong>
+                http://127.0.0.1:3000
+              </p>
+
+              <p>
+                <strong>Virtual Users:</strong>
+                10
+              </p>
+
+              <p>
+                <strong>Duration:</strong>
+                30 seconds
+              </p>
+
+              <p>
+                <strong>Repository:</strong>
+                $REPOSITORY
+              </p>
+
+              <p>
+                <strong>Branch:</strong>
+                $BRANCH
+              </p>
+
+              <p>
+                <strong>Commit:</strong>
+                $COMMIT
+              </p>
+
+              <p>
+                <strong>Run:</strong>
+                #$RUN_NUMBER
+              </p>
+
+              <p>
+                <strong>Triggered By:</strong>
+                $ACTOR
+              </p>
+
+            </div>
+
+
+            <div class="section">
+
+              <h2>Application Log</h2>
+
+              <div class="log">
+
+          EOF
+
+            if [ -f reports/k6-load/results/app.log ]; then
+
+              escape_html reports/k6-load/results/app.log
+
+            else
+
+              escape_html reports/k6-load/app.log
+
+            fi
+
+            cat <<EOF
+
+              </div>
+
+            </div>
+
+
+            <div class="section">
+
+              <h2>k6 Console Log</h2>
+
+              <div class="log">
+
+          EOF
+
+            if [ -f reports/k6-load/results/k6-console.log ]; then
+
+              escape_html \
+                reports/k6-load/results/k6-console.log
+
+            else
+
+              escape_html \
+                reports/k6-load/k6-console.log
+
+            fi
+
+            cat <<EOF
+
+              </div>
+
+            </div>
+
+
+            <div class="section">
+
+              <h2>k6 Summary</h2>
+
+              <div class="summary">
+
+          EOF
+
+            if [ -f reports/k6-load/results/summary.json ]; then
+
+              escape_html \
+                reports/k6-load/results/summary.json
+
+            else
+
+              escape_html \
+                reports/k6-load/summary.json
+
+            fi
+
+            cat <<EOF
+
+              </div>
+
+            </div>
+
+
+            <div class="section">
+
+              <h2>Load Diagnostics</h2>
+
+              <div class="log">
+
+          EOF
+
+            if [ -f reports/k6-load/results/diagnostics.log ]; then
+
+              escape_html \
+                reports/k6-load/results/diagnostics.log
+
+            else
+
+              escape_html \
+                reports/k6-load/diagnostics.log
+
+            fi
+
+            cat <<EOF
+
+              </div>
+
+            </div>
+
+          </div>
+
+          <div class="footer">
+
+            Generated by GitHub Actions QA Pipeline.
+
+          </div>
+
+          </div>
+
+          </body>
+
+          </html>
+
+          EOF
+
+          } > reports/html/k6-load-report.html
+
+
+          # ======================================================
+          # SHOW GENERATED REPORTS
+          # ======================================================
+
+          echo ""
+          echo "=========================================="
+          echo "INDIVIDUAL HTML REPORTS"
+          echo "=========================================="
+
+          ls -lh reports/html/
+
+
+      # ==========================================================
+      # FINAL QA SUMMARY HTML
+      #
+      # This is the overall decision.
+      #
+      # It does NOT replace the three individual reports.
+      # ==========================================================
+
+      - name: Generate Final QA HTML Summary
+        if: always()
+        env:
+          CYPRESS_RESULT: ${{ needs.cypress-e2e.result }}
+          K6_SMOKE_RESULT: ${{ needs.k6-smoke-test.result }}
+          K6_LOAD_RESULT: ${{ needs.k6-load-test.result }}
+
+          REPOSITORY: ${{ github.repository }}
+          BRANCH: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
+          RUN_NUMBER: ${{ github.run_number }}
+          RUN_ID: ${{ github.run_id }}
+          ACTOR: ${{ github.actor }}
+
+        run: |
+
+          mkdir -p reports/html
+
+
+          if [ "$CYPRESS_RESULT" = "success" ] && \
+             [ "$K6_SMOKE_RESULT" = "success" ] && \
+             [ "$K6_LOAD_RESULT" = "success" ]; then
+
+            QA_STATUS="PASS"
+            QA_ICON="✅"
+            QA_CLASS="pass"
+
+          else
+
+            QA_STATUS="FAIL"
+            QA_ICON="❌"
+            QA_CLASS="fail"
+
+          fi
+
+
+          cat > reports/html/qa-summary.html <<EOF
+
+          <!DOCTYPE html>
+
+          <html lang="en">
+
+          <head>
+
+            <meta charset="UTF-8">
+
+            <meta
+              name="viewport"
+              content="width=device-width, initial-scale=1.0"
+            >
+
+            <title>QA Pipeline Summary</title>
+
+            <style>
+
+              body {
+                margin: 0;
+                padding: 0;
+                background: #f4f6f8;
+                font-family: Arial, Helvetica, sans-serif;
+                color: #1f2937;
+              }
+
+              .container {
+                max-width: 900px;
+                margin: 30px auto;
+                background: #ffffff;
+                border-radius: 12px;
+                overflow: hidden;
+                box-shadow: 0 4px 18px rgba(0,0,0,0.08);
+              }
+
+              .header {
+                padding: 30px;
+                background: #111827;
+                color: #ffffff;
+              }
+
+              .header h1 {
+                margin: 0;
+              }
+
+              .status {
+                padding: 30px;
+                text-align: center;
+              }
+
+              .status.pass {
+                background: #ecfdf5;
+                color: #15803d;
+              }
+
+              .status.fail {
+                background: #fef2f2;
+                color: #b91c1c;
+              }
+
+              .status h2 {
+                margin: 0;
+                font-size: 34px;
+              }
+
+              .content {
+                padding: 30px;
               }
 
               table {
                 width: 100%;
                 border-collapse: collapse;
-                margin-top: 15px;
               }
 
               th {
                 background: #f3f4f6;
                 text-align: left;
-                padding: 12px;
-                border-bottom: 1px solid #d1d5db;
+                padding: 14px;
               }
 
               td {
-                padding: 12px;
+                padding: 14px;
                 border-bottom: 1px solid #e5e7eb;
               }
 
@@ -1112,173 +1981,224 @@ jobs:
 
               .meta {
                 background: #f9fafb;
-                border-radius: 8px;
                 padding: 18px;
-                margin-top: 25px;
+                border-radius: 8px;
+                margin-bottom: 25px;
               }
 
               .meta p {
                 margin: 7px 0;
               }
 
-              .button {
-                display: inline-block;
-                margin-top: 20px;
-                padding: 12px 20px;
-                background: #2563eb;
-                color: #ffffff !important;
+              a {
+                color: #2563eb;
                 text-decoration: none;
-                border-radius: 7px;
                 font-weight: bold;
               }
 
               .footer {
-                padding: 20px 32px;
+                padding: 20px 30px;
                 background: #f9fafb;
                 color: #6b7280;
                 font-size: 12px;
               }
 
             </style>
+
           </head>
 
           <body>
 
-            <div class="container">
+          <div class="container">
 
-              <div class="header">
-                <h1>Resume Matcher — QA Pipeline</h1>
-                <p>QA validation pipeline</p>
-              </div>
+            <div class="header">
 
-              <div class="status ${QA_CLASS}">
-                <h2>${QA_STATUS_ICON} QA ${QA_STATUS}</h2>
-              </div>
+              <h1>
+                Resume Matcher — QA Pipeline
+              </h1>
 
-              <div class="content">
-
-                <h2>Pipeline Results</h2>
-
-                <table>
-
-                  <tr>
-                    <th>Stage</th>
-                    <th>Result</th>
-                  </tr>
-
-                  <tr>
-                    <td>Cypress E2E</td>
-                    <td class="${CYPRESS_CLASS}">
-                      ${CYPRESS_RESULT}
-                    </td>
-                  </tr>
-
-                  <tr>
-                    <td>k6 Smoke Test</td>
-                    <td class="${K6_SMOKE_CLASS}">
-                      ${K6_SMOKE_RESULT}
-                    </td>
-                  </tr>
-
-                  <tr>
-                    <td>k6 Load Test</td>
-                    <td class="${K6_LOAD_CLASS}">
-                      ${K6_LOAD_RESULT}
-                    </td>
-                  </tr>
-
-                  <tr>
-                    <td>
-                      <strong>Final QA Decision</strong>
-                    </td>
-
-                    <td>
-                      <strong>QA ${QA_STATUS}</strong>
-                    </td>
-                  </tr>
-
-                </table>
-
-                <div class="meta">
-
-                  <p>
-                    <strong>Repository:</strong>
-                    ${REPOSITORY}
-                  </p>
-
-                  <p>
-                    <strong>Branch:</strong>
-                    ${BRANCH}
-                  </p>
-
-                  <p>
-                    <strong>Commit:</strong>
-                    ${COMMIT}
-                  </p>
-
-                  <p>
-                    <strong>Run:</strong>
-                    #${RUN_NUMBER}
-                  </p>
-
-                  <p>
-                    <strong>Triggered by:</strong>
-                    ${ACTOR}
-                  </p>
-
-                </div>
-
-                <a
-                  class="button"
-                  href="https://github.com/${REPOSITORY}/actions/runs/${RUN_ID}">
-                  View GitHub Actions Run
-                </a>
-
-              </div>
-
-              <div class="footer">
-                Automated QA notification generated by GitHub Actions.
-              </div>
+              <p>
+                Cypress → k6 Smoke → k6 Load
+              </p>
 
             </div>
+
+
+            <div class="status $QA_CLASS">
+
+              <h2>
+                $QA_ICON QA $QA_STATUS
+              </h2>
+
+            </div>
+
+
+            <div class="content">
+
+              <div class="meta">
+
+                <p>
+                  <strong>Repository:</strong>
+                  $REPOSITORY
+                </p>
+
+                <p>
+                  <strong>Branch:</strong>
+                  $BRANCH
+                </p>
+
+                <p>
+                  <strong>Commit:</strong>
+                  $COMMIT
+                </p>
+
+                <p>
+                  <strong>Run:</strong>
+                  #$RUN_NUMBER
+                </p>
+
+                <p>
+                  <strong>Triggered By:</strong>
+                  $ACTOR
+                </p>
+
+              </div>
+
+
+              <h2>
+                Pipeline Results
+              </h2>
+
+
+              <table>
+
+                <tr>
+                  <th>Stage</th>
+                  <th>Result</th>
+                  <th>HTML Report</th>
+                </tr>
+
+
+                <tr>
+
+                  <td>
+                    Cypress E2E
+                  </td>
+
+                  <td class="$(
+                    [ "$CYPRESS_RESULT" = "success" ] \
+                    && echo "pass-text" \
+                    || echo "fail-text"
+                  )">
+
+                    $CYPRESS_RESULT
+
+                  </td>
+
+                  <td>
+
+                    <a href="cypress-e2e-report.html">
+                      Open Cypress Report
+                    </a>
+
+                  </td>
+
+                </tr>
+
+
+                <tr>
+
+                  <td>
+                    k6 Smoke
+                  </td>
+
+                  <td class="$(
+                    [ "$K6_SMOKE_RESULT" = "success" ] \
+                    && echo "pass-text" \
+                    || echo "fail-text"
+                  )">
+
+                    $K6_SMOKE_RESULT
+
+                  </td>
+
+                  <td>
+
+                    <a href="k6-smoke-report.html">
+                      Open k6 Smoke Report
+                    </a>
+
+                  </td>
+
+                </tr>
+
+
+                <tr>
+
+                  <td>
+                    k6 Load
+                  </td>
+
+                  <td class="$(
+                    [ "$K6_LOAD_RESULT" = "success" ] \
+                    && echo "pass-text" \
+                    || echo "fail-text"
+                  )">
+
+                    $K6_LOAD_RESULT
+
+                  </td>
+
+                  <td>
+
+                    <a href="k6-load-report.html">
+                      Open k6 Load Report
+                    </a>
+
+                  </td>
+
+                </tr>
+
+
+                <tr>
+
+                  <td>
+                    <strong>Final QA Decision</strong>
+                  </td>
+
+                  <td>
+                    <strong>QA $QA_STATUS</strong>
+                  </td>
+
+                  <td>
+                    <strong>Final Decision</strong>
+                  </td>
+
+                </tr>
+
+              </table>
+
+            </div>
+
+
+            <div class="footer">
+
+              Generated by GitHub Actions QA Pipeline.
+
+            </div>
+
+          </div>
 
           </body>
 
           </html>
+
           EOF
 
-          echo "HTML QA report generated:"
-          ls -lh reports/qa-email.html
 
-      # ----------------------------------------------------------
-      # Package complete reports
-      # ----------------------------------------------------------
-
-      - name: Package QA Reports
-        if: always()
-        run: |
-          mkdir -p reports/archive
-
-          cp \
-            reports/qa-email.html \
-            reports/archive/qa-email.html
-
-          tar -czf reports/qa-reports.tar.gz \
-            reports/cypress \
-            reports/k6-smoke \
-            reports/k6-load \
-            reports/archive/qa-email.html \
-            2>/dev/null || true
-
-          echo "QA report archive:"
-
-          ls -lh \
-            reports/qa-reports.tar.gz \
-            2>/dev/null || true
-
-      # ----------------------------------------------------------
-      # GitHub Summary
-      # ----------------------------------------------------------
+      # ==========================================================
+      # PUBLISH GITHUB SUMMARY
+      # ==========================================================
 
       - name: Publish QA Decision
         if: always()
@@ -1301,19 +2221,32 @@ jobs:
 
           fi
 
+
           {
             echo "## QA Pipeline Result"
             echo ""
 
             echo "| Stage | Result |"
             echo "|---|---|"
+
             echo "| Cypress E2E | $CYPRESS_RESULT |"
             echo "| k6 Smoke | $K6_SMOKE_RESULT |"
             echo "| k6 Load | $K6_LOAD_RESULT |"
             echo "| **Final QA** | **$QA_STATUS** |"
 
             echo ""
+
             echo "**Pipeline:** Cypress → k6 Smoke → k6 Load → QA"
+
+            echo ""
+
+            echo "### Individual HTML Reports"
+            echo ""
+
+            echo "- \`cypress-e2e-report.html\`"
+            echo "- \`k6-smoke-report.html\`"
+            echo "- \`k6-load-report.html\`"
+            echo "- \`qa-summary.html\`"
 
             echo ""
 
@@ -1321,29 +2254,94 @@ jobs:
 
           } >> "$GITHUB_STEP_SUMMARY"
 
-      # ----------------------------------------------------------
-      # Upload final reports
-      # ----------------------------------------------------------
 
-      - name: Upload Final QA Reports
+      # ==========================================================
+      # VERIFY HTML REPORTS
+      # ==========================================================
+
+      - name: Verify HTML Reports
+        if: always()
+        run: |
+
+          echo "=========================================="
+          echo "VERIFYING HTML REPORTS"
+          echo "=========================================="
+
+          REQUIRED_FILES=(
+
+            "reports/html/cypress-e2e-report.html"
+            "reports/html/k6-smoke-report.html"
+            "reports/html/k6-load-report.html"
+            "reports/html/qa-summary.html"
+
+          )
+
+          FAILED=0
+
+
+          for FILE in "${REQUIRED_FILES[@]}"; do
+
+            if [ -f "$FILE" ]; then
+
+              SIZE=$(wc -c < "$FILE")
+
+              echo "✓ $FILE"
+              echo "  Size: ${SIZE} bytes"
+
+            else
+
+              echo "✗ MISSING: $FILE"
+
+              FAILED=1
+
+            fi
+
+          done
+
+
+          echo ""
+
+          if [ "$FAILED" -ne 0 ]; then
+
+            echo "ERROR: One or more HTML reports are missing."
+
+            exit 1
+
+          fi
+
+
+          echo "✓ All four HTML reports are present."
+
+
+      # ==========================================================
+      # UPLOAD INDIVIDUAL HTML REPORTS
+      #
+      # NO TAR.GZ
+      # ==========================================================
+
+      - name: Upload Individual HTML QA Reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qa-final-report
+          name: qa-html-reports
           path: |
-            reports/
-          if-no-files-found: warn
+            reports/html/cypress-e2e-report.html
+            reports/html/k6-smoke-report.html
+            reports/html/k6-load-report.html
+            reports/html/qa-summary.html
+          if-no-files-found: error
+          retention-days: 14
 
-      # ----------------------------------------------------------
+
+      # ==========================================================
       # SEND HTML EMAIL
       #
-      # Uses ONLY the email secrets that actually exist:
+      # Email is sent for BOTH PASS and FAIL.
       #
-      #   EMAIL_USER
-      #   EMAIL_PASS
+      # Four HTML files are attached separately.
       #
-      # No MAIL_* or QA_EMAIL_* variables are required.
-      # ----------------------------------------------------------
+      # NO TAR.GZ
+      # ==========================================================
 
       - name: Send QA HTML Email
         if: always()
@@ -1352,9 +2350,9 @@ jobs:
 
         with:
 
-          server_address: smtp.gmail.com
+          server_address: ${{ vars.MAIL_SERVER }}
 
-          server_port: 465
+          server_port: ${{ vars.MAIL_PORT }}
 
           secure: true
 
@@ -1364,9 +2362,18 @@ jobs:
 
           from: ${{ secrets.EMAIL_USER }}
 
-          to: ${{ secrets.EMAIL_USER }}
+          to: ${{ vars.QA_EMAIL_TO }}
 
-          subject: "Resume Matcher - QA Pipeline #${{ github.run_number }} - ${{ needs.cypress-e2e.result == 'success' && needs.k6-smoke-test.result == 'success' && needs.k6-load-test.result == 'success' && 'PASS' || 'FAIL' }}"
+          cc: ${{ vars.QA_EMAIL_CC }}
+
+          subject: >-
+            Resume Matcher - QA Pipeline
+            #${{ github.run_number }} -
+            ${{ needs.cypress-e2e.result == 'success'
+                && needs.k6-smoke-test.result == 'success'
+                && needs.k6-load-test.result == 'success'
+                && 'PASS'
+                || 'FAIL' }}
 
           body: |
             QA Pipeline completed.
@@ -1378,1037 +2385,84 @@ jobs:
             Pipeline:
             Cypress E2E → k6 Smoke → k6 Load → QA
 
-            Cypress: ${{ needs.cypress-e2e.result }}
-            k6 Smoke: ${{ needs.k6-smoke-test.result }}
-            k6 Load: ${{ needs.k6-load-test.result }}
+            Cypress E2E: ${{ needs.cypress-e2e.result }}
+            k6 Smoke:    ${{ needs.k6-smoke-test.result }}
+            k6 Load:     ${{ needs.k6-load-test.result }}
 
-            View run:
+            Individual HTML reports are attached:
+
+            - Cypress E2E HTML Report
+            - k6 Smoke HTML Report
+            - k6 Load HTML Report
+            - Overall QA Summary HTML Report
+
+            View GitHub Actions run:
+
             https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
-          html_body: file://reports/qa-email.html
+          html_body: file://reports/html/qa-summary.html
 
           attachments: |
-            reports/qa-email.html
-            reports/qa-reports.tar.gz
-
-# ============================================================
-# 4. QA PASS / FAIL + INDIVIDUAL HTML STAGE REPORTS + EMAIL
-#
-# Generates THREE separate HTML reports:
-#
-#   1. cypress-e2e-report.html
-#   2. k6-smoke-report.html
-#   3. k6-load-report.html
-#
-# Each report contains:
-#   - Stage result
-#   - Exit code
-#   - Application logs
-#   - Test console logs
-#   - k6 summary where applicable
-#
-# NO tar.gz archive is created.
-#
-# Email contains all three HTML reports as separate attachments.
-# ============================================================
-
-qa-pass:
-  name: QA PASS
-
-  needs:
-    - cypress-e2e
-    - k6-smoke-test
-    - k6-load-test
-
-  if: always()
-
-  runs-on: ubuntu-latest
-
-  steps:
-
-    # ========================================================
-    # DOWNLOAD CYPRESS REPORT
-    # ========================================================
-
-    - name: Download Cypress Report
-      if: always()
-      uses: actions/download-artifact@v4
-      with:
-        name: cypress-e2e-report
-        path: reports/cypress
-      continue-on-error: true
-
-
-    # ========================================================
-    # DOWNLOAD k6 SMOKE REPORT
-    # ========================================================
-
-    - name: Download k6 Smoke Report
-      if: always()
-      uses: actions/download-artifact@v4
-      with:
-        name: k6-smoke-test-report
-        path: reports/k6-smoke
-      continue-on-error: true
-
-
-    # ========================================================
-    # DOWNLOAD k6 LOAD REPORT
-    # ========================================================
-
-    - name: Download k6 Load Report
-      if: always()
-      uses: actions/download-artifact@v4
-      with:
-        name: k6-load-test-report
-        path: reports/k6-load
-      continue-on-error: true
-
-
-    # ========================================================
-    # GENERATE INDIVIDUAL HTML REPORTS
-    # ========================================================
-
-    - name: Generate Individual HTML Stage Reports
-      if: always()
-      env:
-        CYPRESS_RESULT: ${{ needs.cypress-e2e.result }}
-        K6_SMOKE_RESULT: ${{ needs.k6-smoke-test.result }}
-        K6_LOAD_RESULT: ${{ needs.k6-load-test.result }}
-
-        REPOSITORY: ${{ github.repository }}
-        BRANCH: ${{ github.ref_name }}
-        COMMIT: ${{ github.sha }}
-        RUN_NUMBER: ${{ github.run_number }}
-        RUN_ID: ${{ github.run_id }}
-        ACTOR: ${{ github.actor }}
-
-      run: |
-        set -e
-
-        mkdir -p reports/html
-
-        # ======================================================
-        # HTML ESCAPE FUNCTION
-        # ======================================================
-
-        escape_html() {
-          if [ -f "$1" ]; then
-            sed \
-              -e 's/\&/\&amp;/g' \
-              -e 's/</\&lt;/g' \
-              -e 's/>/\&gt;/g' \
-              -e 's/"/\&quot;/g' \
-              "$1"
-          else
-            echo "No log file found."
-          fi
-        }
-
-
-        # ======================================================
-        # COMMON HTML HEADER
-        # ======================================================
-
-        generate_header() {
-          cat <<EOF
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-          <title>$1</title>
-
-          <style>
-            body {
-              margin: 0;
-              padding: 0;
-              background: #f4f6f8;
-              font-family: Arial, Helvetica, sans-serif;
-              color: #1f2937;
-            }
-
-            .container {
-              max-width: 1100px;
-              margin: 30px auto;
-              background: #ffffff;
-              border-radius: 12px;
-              overflow: hidden;
-              box-shadow: 0 4px 18px rgba(0,0,0,0.08);
-            }
-
-            .header {
-              padding: 28px 32px;
-              background: #111827;
-              color: #ffffff;
-            }
-
-            .header h1 {
-              margin: 0;
-              font-size: 26px;
-            }
-
-            .header p {
-              margin: 8px 0 0;
-              color: #d1d5db;
-            }
-
-            .status {
-              padding: 25px 32px;
-              text-align: center;
-              border-bottom: 1px solid #e5e7eb;
-            }
-
-            .status.pass {
-              background: #ecfdf5;
-            }
-
-            .status.fail {
-              background: #fef2f2;
-            }
-
-            .status h2 {
-              margin: 0;
-              font-size: 30px;
-            }
-
-            .pass-text {
-              color: #15803d;
-              font-weight: bold;
-            }
-
-            .fail-text {
-              color: #b91c1c;
-              font-weight: bold;
-            }
-
-            .content {
-              padding: 32px;
-            }
-
-            .meta {
-              background: #f9fafb;
-              border-radius: 8px;
-              padding: 18px;
-              margin-bottom: 28px;
-            }
-
-            .meta p {
-              margin: 7px 0;
-            }
-
-            .section {
-              margin-top: 28px;
-            }
-
-            .section h2 {
-              font-size: 20px;
-              border-bottom: 2px solid #e5e7eb;
-              padding-bottom: 10px;
-            }
-
-            .log {
-              background: #111827;
-              color: #e5e7eb;
-              padding: 18px;
-              border-radius: 8px;
-              overflow-x: auto;
-              white-space: pre-wrap;
-              word-break: break-word;
-              font-family: Consolas, Monaco, monospace;
-              font-size: 13px;
-              line-height: 1.5;
-              max-height: 650px;
-              overflow-y: auto;
-            }
-
-            .summary {
-              background: #f9fafb;
-              border: 1px solid #e5e7eb;
-              padding: 18px;
-              border-radius: 8px;
-              white-space: pre-wrap;
-              font-family: Consolas, Monaco, monospace;
-              font-size: 13px;
-              overflow-x: auto;
-            }
-
-            table {
-              width: 100%;
-              border-collapse: collapse;
-            }
-
-            th {
-              background: #f3f4f6;
-              text-align: left;
-              padding: 12px;
-              border-bottom: 1px solid #d1d5db;
-            }
-
-            td {
-              padding: 12px;
-              border-bottom: 1px solid #e5e7eb;
-            }
-
-            .footer {
-              padding: 20px 32px;
-              background: #f9fafb;
-              color: #6b7280;
-              font-size: 12px;
-            }
-          </style>
-        </head>
-
-        <body>
-        <div class="container">
-        EOF
-        }
-
-
-        # ======================================================
-        # CYPRESS E2E HTML REPORT
-        # ======================================================
-
-        if [ "$CYPRESS_RESULT" = "success" ]; then
-          CYPRESS_STATUS_CLASS="pass"
-          CYPRESS_ICON="✅"
-        else
-          CYPRESS_STATUS_CLASS="fail"
-          CYPRESS_ICON="❌"
-        fi
-
-        CYPRESS_EXIT_CODE="N/A"
-
-        if [ -f reports/cypress/cypress-exit-code.txt ]; then
-          CYPRESS_EXIT_CODE=$(cat reports/cypress/cypress-exit-code.txt)
-        fi
-
-        {
-          generate_header "Cypress E2E Test Report"
-
-          cat <<EOF
-          <div class="header">
-            <h1>Cypress E2E Test Report</h1>
-            <p>Resume Matcher QA Pipeline</p>
-          </div>
-
-          <div class="status $CYPRESS_STATUS_CLASS">
-            <h2>$CYPRESS_ICON Cypress E2E — $CYPRESS_RESULT</h2>
-          </div>
-
-          <div class="content">
-
-            <div class="meta">
-              <p><strong>Stage:</strong> Cypress E2E Tests</p>
-              <p><strong>Result:</strong> $CYPRESS_RESULT</p>
-              <p><strong>Exit Code:</strong> $CYPRESS_EXIT_CODE</p>
-              <p><strong>Repository:</strong> $REPOSITORY</p>
-              <p><strong>Branch:</strong> $BRANCH</p>
-              <p><strong>Commit:</strong> $COMMIT</p>
-              <p><strong>Run:</strong> #$RUN_NUMBER</p>
-              <p><strong>Triggered By:</strong> $ACTOR</p>
-            </div>
-
-            <div class="section">
-              <h2>Application Log</h2>
-              <div class="log">
-        EOF
-
-          escape_html reports/cypress/app.log
-
-          cat <<EOF
-              </div>
-            </div>
-
-            <div class="section">
-              <h2>Cypress Console Log</h2>
-              <div class="log">
-        EOF
-
-          escape_html reports/cypress/cypress-run.log
-
-          cat <<EOF
-              </div>
-            </div>
-
-            <div class="section">
-              <h2>Diagnostics</h2>
-              <div class="log">
-        EOF
-
-          escape_html reports/cypress/diagnostics.log
-
-          cat <<EOF
-              </div>
-            </div>
-
-          </div>
-
-          <div class="footer">
-            Generated by GitHub Actions QA Pipeline.
-          </div>
-
-        </div>
-        </body>
-        </html>
-        EOF
-
-        } > reports/html/cypress-e2e-report.html
-
-
-        # ======================================================
-        # k6 SMOKE HTML REPORT
-        # ======================================================
-
-        if [ "$K6_SMOKE_RESULT" = "success" ]; then
-          SMOKE_STATUS_CLASS="pass"
-          SMOKE_ICON="✅"
-        else
-          SMOKE_STATUS_CLASS="fail"
-          SMOKE_ICON="❌"
-        fi
-
-        SMOKE_EXIT_CODE="N/A"
-
-        if [ -f reports/k6-smoke/results/smoke-exit-code.txt ]; then
-          SMOKE_EXIT_CODE=$(cat reports/k6-smoke/results/smoke-exit-code.txt)
-        elif [ -f reports/k6-smoke/smoke-exit-code.txt ]; then
-          SMOKE_EXIT_CODE=$(cat reports/k6-smoke/smoke-exit-code.txt)
-        fi
-
-        {
-          generate_header "k6 Smoke Test Report"
-
-          cat <<EOF
-          <div class="header">
-            <h1>k6 Smoke Test Report</h1>
-            <p>Resume Matcher QA Pipeline</p>
-          </div>
-
-          <div class="status $SMOKE_STATUS_CLASS">
-            <h2>$SMOKE_ICON k6 Smoke Test — $K6_SMOKE_RESULT</h2>
-          </div>
-
-          <div class="content">
-
-            <div class="meta">
-              <p><strong>Stage:</strong> k6 Smoke Test</p>
-              <p><strong>Result:</strong> $K6_SMOKE_RESULT</p>
-              <p><strong>Exit Code:</strong> $SMOKE_EXIT_CODE</p>
-              <p><strong>Target:</strong> http://127.0.0.1:3000</p>
-              <p><strong>Repository:</strong> $REPOSITORY</p>
-              <p><strong>Branch:</strong> $BRANCH</p>
-              <p><strong>Commit:</strong> $COMMIT</p>
-              <p><strong>Run:</strong> #$RUN_NUMBER</p>
-              <p><strong>Triggered By:</strong> $ACTOR</p>
-            </div>
-
-            <div class="section">
-              <h2>Application Log</h2>
-              <div class="log">
-          EOF
-
-          if [ -f reports/k6-smoke/results/app.log ]; then
-            escape_html reports/k6-smoke/results/app.log
-          else
-            escape_html reports/k6-smoke/app.log
-          fi
-
-          cat <<EOF
-              </div>
-            </div>
-
-            <div class="section">
-              <h2>k6 Console Log</h2>
-              <div class="log">
-          EOF
-
-          if [ -f reports/k6-smoke/results/smoke-console.log ]; then
-            escape_html reports/k6-smoke/results/smoke-console.log
-          else
-            escape_html reports/k6-smoke/smoke-console.log
-          fi
-
-          cat <<EOF
-              </div>
-            </div>
-
-            <div class="section">
-              <h2>k6 Summary</h2>
-              <div class="summary">
-          EOF
-
-          if [ -f reports/k6-smoke/results/smoke-summary.json ]; then
-            escape_html reports/k6-smoke/results/smoke-summary.json
-          else
-            escape_html reports/k6-smoke/smoke-summary.json
-          fi
-
-          cat <<EOF
-              </div>
-            </div>
-
-            <div class="section">
-              <h2>Smoke Diagnostics</h2>
-              <div class="log">
-          EOF
-
-          if [ -f reports/k6-smoke/results/smoke-diagnostics.log ]; then
-            escape_html reports/k6-smoke/results/smoke-diagnostics.log
-          else
-            escape_html reports/k6-smoke/smoke-diagnostics.log
-          fi
-
-          cat <<EOF
-              </div>
-            </div>
-
-          </div>
-
-          <div class="footer">
-            Generated by GitHub Actions QA Pipeline.
-          </div>
-
-        </div>
-        </body>
-        </html>
-        EOF
-
-        } > reports/html/k6-smoke-report.html
-
-
-        # ======================================================
-        # k6 LOAD HTML REPORT
-        # ======================================================
-
-        if [ "$K6_LOAD_RESULT" = "success" ]; then
-          LOAD_STATUS_CLASS="pass"
-          LOAD_ICON="✅"
-        else
-          LOAD_STATUS_CLASS="fail"
-          LOAD_ICON="❌"
-        fi
-
-        LOAD_EXIT_CODE="N/A"
-
-        if [ -f reports/k6-load/results/k6-exit-code.txt ]; then
-          LOAD_EXIT_CODE=$(cat reports/k6-load/results/k6-exit-code.txt)
-        elif [ -f reports/k6-load/k6-exit-code.txt ]; then
-          LOAD_EXIT_CODE=$(cat reports/k6-load/k6-exit-code.txt)
-        fi
-
-        {
-          generate_header "k6 Load Test Report"
-
-          cat <<EOF
-          <div class="header">
-            <h1>k6 Load Test Report</h1>
-            <p>Resume Matcher QA Pipeline</p>
-          </div>
-
-          <div class="status $LOAD_STATUS_CLASS">
-            <h2>$LOAD_ICON k6 Load Test — $K6_LOAD_RESULT</h2>
-          </div>
-
-          <div class="content">
-
-            <div class="meta">
-              <p><strong>Stage:</strong> k6 Load Test</p>
-              <p><strong>Result:</strong> $K6_LOAD_RESULT</p>
-              <p><strong>Exit Code:</strong> $LOAD_EXIT_CODE</p>
-              <p><strong>Target:</strong> http://127.0.0.1:3000</p>
-              <p><strong>Virtual Users:</strong> 10</p>
-              <p><strong>Duration:</strong> 30 seconds</p>
-              <p><strong>Repository:</strong> $REPOSITORY</p>
-              <p><strong>Branch:</strong> $BRANCH</p>
-              <p><strong>Commit:</strong> $COMMIT</p>
-              <p><strong>Run:</strong> #$RUN_NUMBER</p>
-              <p><strong>Triggered By:</strong> $ACTOR</p>
-            </div>
-
-            <div class="section">
-              <h2>Application Log</h2>
-              <div class="log">
-          EOF
-
-          if [ -f reports/k6-load/results/app.log ]; then
-            escape_html reports/k6-load/results/app.log
-          else
-            escape_html reports/k6-load/app.log
-          fi
-
-          cat <<EOF
-              </div>
-            </div>
-
-            <div class="section">
-              <h2>k6 Console Log</h2>
-              <div class="log">
-          EOF
-
-          if [ -f reports/k6-load/results/k6-console.log ]; then
-            escape_html reports/k6-load/results/k6-console.log
-          else
-            escape_html reports/k6-load/k6-console.log
-          fi
-
-          cat <<EOF
-              </div>
-            </div>
-
-            <div class="section">
-              <h2>k6 Summary</h2>
-              <div class="summary">
-          EOF
-
-          if [ -f reports/k6-load/results/summary.json ]; then
-            escape_html reports/k6-load/results/summary.json
-          else
-            escape_html reports/k6-load/summary.json
-          fi
-
-          cat <<EOF
-              </div>
-            </div>
-
-            <div class="section">
-              <h2>Load Diagnostics</h2>
-              <div class="log">
-          EOF
-
-          if [ -f reports/k6-load/results/diagnostics.log ]; then
-            escape_html reports/k6-load/results/diagnostics.log
-          else
-            escape_html reports/k6-load/diagnostics.log
-          fi
-
-          cat <<EOF
-              </div>
-            </div>
-
-          </div>
-
-          <div class="footer">
-            Generated by GitHub Actions QA Pipeline.
-          </div>
-
-        </div>
-        </body>
-        </html>
-        EOF
-
-        } > reports/html/k6-load-report.html
-
-
-        # ======================================================
-        # SHOW GENERATED REPORTS
-        # ======================================================
-
-        echo ""
-        echo "=========================================="
-        echo "INDIVIDUAL HTML REPORTS"
-        echo "=========================================="
-
-        ls -lh reports/html/
-
-
-    # ========================================================
-    # GENERATE FINAL QA SUMMARY HTML
-    #
-    # This is NOT a replacement for the three stage reports.
-    # It is only the overall QA decision.
-    # ========================================================
-
-    - name: Generate Final QA HTML Summary
-      if: always()
-      env:
-        CYPRESS_RESULT: ${{ needs.cypress-e2e.result }}
-        K6_SMOKE_RESULT: ${{ needs.k6-smoke-test.result }}
-        K6_LOAD_RESULT: ${{ needs.k6-load-test.result }}
-
-      run: |
-        mkdir -p reports/html
-
-        if [ "$CYPRESS_RESULT" = "success" ] && \
-           [ "$K6_SMOKE_RESULT" = "success" ] && \
-           [ "$K6_LOAD_RESULT" = "success" ]; then
-
-          QA_STATUS="PASS"
-          QA_ICON="✅"
-          QA_CLASS="pass"
-
-        else
-
-          QA_STATUS="FAIL"
-          QA_ICON="❌"
-          QA_CLASS="fail"
-
-        fi
-
-        cat > reports/html/qa-summary.html <<EOF
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-          <title>QA Pipeline Summary</title>
-
-          <style>
-            body {
-              margin: 0;
-              padding: 0;
-              background: #f4f6f8;
-              font-family: Arial, Helvetica, sans-serif;
-              color: #1f2937;
-            }
-
-            .container {
-              max-width: 900px;
-              margin: 30px auto;
-              background: #ffffff;
-              border-radius: 12px;
-              overflow: hidden;
-              box-shadow: 0 4px 18px rgba(0,0,0,0.08);
-            }
-
-            .header {
-              padding: 30px;
-              background: #111827;
-              color: #ffffff;
-            }
-
-            .header h1 {
-              margin: 0;
-            }
-
-            .status {
-              padding: 30px;
-              text-align: center;
-            }
-
-            .status.pass {
-              background: #ecfdf5;
-              color: #15803d;
-            }
-
-            .status.fail {
-              background: #fef2f2;
-              color: #b91c1c;
-            }
-
-            .status h2 {
-              margin: 0;
-              font-size: 34px;
-            }
-
-            .content {
-              padding: 30px;
-            }
-
-            table {
-              width: 100%;
-              border-collapse: collapse;
-            }
-
-            th {
-              background: #f3f4f6;
-              text-align: left;
-              padding: 14px;
-            }
-
-            td {
-              padding: 14px;
-              border-bottom: 1px solid #e5e7eb;
-            }
-
-            .pass-text {
-              color: #15803d;
-              font-weight: bold;
-            }
-
-            .fail-text {
-              color: #b91c1c;
-              font-weight: bold;
-            }
-
-            a {
-              color: #2563eb;
-              text-decoration: none;
-              font-weight: bold;
-            }
-
-            .footer {
-              padding: 20px 30px;
-              background: #f9fafb;
-              color: #6b7280;
-              font-size: 12px;
-            }
-          </style>
-        </head>
-
-        <body>
-
-          <div class="container">
-
-            <div class="header">
-              <h1>Resume Matcher — QA Pipeline</h1>
-              <p>Cypress → k6 Smoke → k6 Load</p>
-            </div>
-
-            <div class="status $QA_CLASS">
-              <h2>$QA_ICON QA $QA_STATUS</h2>
-            </div>
-
-            <div class="content">
-
-              <h2>Pipeline Results</h2>
-
-              <table>
-
-                <tr>
-                  <th>Stage</th>
-                  <th>Result</th>
-                  <th>HTML Report</th>
-                </tr>
-
-                <tr>
-                  <td>Cypress E2E</td>
-                  <td>$CYPRESS_RESULT</td>
-                  <td>
-                    <a href="cypress-e2e-report.html">
-                      Open Cypress Report
-                    </a>
-                  </td>
-                </tr>
-
-                <tr>
-                  <td>k6 Smoke</td>
-                  <td>$K6_SMOKE_RESULT</td>
-                  <td>
-                    <a href="k6-smoke-report.html">
-                      Open k6 Smoke Report
-                    </a>
-                  </td>
-                </tr>
-
-                <tr>
-                  <td>k6 Load</td>
-                  <td>$K6_LOAD_RESULT</td>
-                  <td>
-                    <a href="k6-load-report.html">
-                      Open k6 Load Report
-                    </a>
-                  </td>
-                </tr>
-
-              </table>
-
-            </div>
-
-            <div class="footer">
-              Generated by GitHub Actions QA Pipeline.
-            </div>
-
-          </div>
-
-        </body>
-        </html>
-        EOF
-
-
-    # ========================================================
-    # PUBLISH GITHUB SUMMARY
-    # ========================================================
-
-    - name: Publish QA Decision
-      if: always()
-      env:
-        CYPRESS_RESULT: ${{ needs.cypress-e2e.result }}
-        K6_SMOKE_RESULT: ${{ needs.k6-smoke-test.result }}
-        K6_LOAD_RESULT: ${{ needs.k6-load-test.result }}
-
-      run: |
-
-        if [ "$CYPRESS_RESULT" = "success" ] && \
-           [ "$K6_SMOKE_RESULT" = "success" ] && \
-           [ "$K6_LOAD_RESULT" = "success" ]; then
-
-          QA_STATUS="PASS"
-
-        else
-
-          QA_STATUS="FAIL"
-
-        fi
-
-        {
-          echo "## QA Pipeline Result"
-          echo ""
-          echo "| Stage | Result |"
-          echo "|---|---|"
-          echo "| Cypress E2E | $CYPRESS_RESULT |"
-          echo "| k6 Smoke | $K6_SMOKE_RESULT |"
-          echo "| k6 Load | $K6_LOAD_RESULT |"
-          echo "| **Final QA** | **$QA_STATUS** |"
-          echo ""
-          echo "**Pipeline:** Cypress → k6 Smoke → k6 Load → QA"
-          echo ""
-          echo "### Individual HTML Reports"
-          echo ""
-          echo "- \`cypress-e2e-report.html\`"
-          echo "- \`k6-smoke-report.html\`"
-          echo "- \`k6-load-report.html\`"
-          echo "- \`qa-summary.html\`"
-          echo ""
-          echo "[View GitHub Actions Run](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})"
-        } >> "$GITHUB_STEP_SUMMARY"
-
-
-    # ========================================================
-    # UPLOAD INDIVIDUAL HTML REPORTS
-    #
-    # NO TAR.GZ
-    # ========================================================
-
-    - name: Upload Individual HTML QA Reports
-      if: always()
-      uses: actions/upload-artifact@v4
-      with:
-        name: qa-html-reports
-        path: |
-          reports/html/cypress-e2e-report.html
-          reports/html/k6-smoke-report.html
-          reports/html/k6-load-report.html
-          reports/html/qa-summary.html
-        if-no-files-found: warn
-
-
-    # ========================================================
-    # SEND HTML EMAIL
-    #
-    # Email is sent for BOTH PASS and FAIL.
-    #
-    # Four HTML files are attached separately:
-    #
-    #   cypress-e2e-report.html
-    #   k6-smoke-report.html
-    #   k6-load-report.html
-    #   qa-summary.html
-    #
-    # NO TAR.GZ
-    # ========================================================
-
-    - name: Send QA HTML Email
-      if: always()
-      continue-on-error: true
-      uses: dawidd6/action-send-mail@v18
-
-      with:
-
-        server_address: ${{ vars.MAIL_SERVER }}
-
-        server_port: ${{ vars.MAIL_PORT }}
-
-        secure: true
-
-        username: ${{ secrets.EMAIL_USER }}
-
-        password: ${{ secrets.EMAIL_PASS }}
-
-        from: ${{ secrets.EMAIL_USER }}
-
-        to: ${{ vars.QA_EMAIL_TO }}
-
-        cc: ${{ vars.QA_EMAIL_CC }}
-
-        subject: "Resume Matcher - QA Pipeline #${{ github.run_number }} - ${{ needs.cypress-e2e.result == 'success' && needs.k6-smoke-test.result == 'success' && needs.k6-load-test.result == 'success' && 'PASS' || 'FAIL' }}"
-
-        body: |
-          QA Pipeline completed.
-
-          Repository: ${{ github.repository }}
-          Branch: ${{ github.ref_name }}
-          Run: #${{ github.run_number }}
-
-          Pipeline:
-          Cypress E2E → k6 Smoke → k6 Load → QA
-
-          Cypress E2E: ${{ needs.cypress-e2e.result }}
-          k6 Smoke:    ${{ needs.k6-smoke-test.result }}
-          k6 Load:     ${{ needs.k6-load-test.result }}
-
-          Individual HTML reports are attached:
-
-          - Cypress E2E HTML Report
-          - k6 Smoke HTML Report
-          - k6 Load HTML Report
-          - Overall QA Summary HTML Report
-
-          View GitHub Actions run:
-          https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}
-
-        html_body: file://reports/html/qa-summary.html
-
-        attachments: |
-          reports/html/cypress-e2e-report.html
-          reports/html/k6-smoke-report.html
-          reports/html/k6-load-report.html
-          reports/html/qa-summary.html
-
-
-    # ========================================================
-    # FINAL QA GATE
-    #
-    # MUST BE LAST.
-    #
-    # Reporting/email does not affect QA decision.
-    # ========================================================
-
-    - name: Final QA Gate
-      if: always()
-      env:
-        CYPRESS_RESULT: ${{ needs.cypress-e2e.result }}
-        K6_SMOKE_RESULT: ${{ needs.k6-smoke-test.result }}
-        K6_LOAD_RESULT: ${{ needs.k6-load-test.result }}
-
-      run: |
-
-        echo "=========================================="
-        echo "FINAL QA GATE"
-        echo "=========================================="
-
-        echo ""
-        echo "Cypress E2E : $CYPRESS_RESULT"
-        echo "k6 Smoke    : $K6_SMOKE_RESULT"
-        echo "k6 Load     : $K6_LOAD_RESULT"
-        echo ""
-
-        if [ "$CYPRESS_RESULT" = "success" ] && \
-           [ "$K6_SMOKE_RESULT" = "success" ] && \
-           [ "$K6_LOAD_RESULT" = "success" ]; then
+            reports/html/cypress-e2e-report.html
+            reports/html/k6-smoke-report.html
+            reports/html/k6-load-report.html
+            reports/html/qa-summary.html
+
+
+      # ==========================================================
+      # FINAL QA GATE
+      #
+      # MUST BE LAST.
+      #
+      # Reporting/email does not determine the QA result.
+      #
+      # The three actual test jobs determine the final decision.
+      # ==========================================================
+
+      - name: Final QA Gate
+        if: always()
+        env:
+          CYPRESS_RESULT: ${{ needs.cypress-e2e.result }}
+          K6_SMOKE_RESULT: ${{ needs.k6-smoke-test.result }}
+          K6_LOAD_RESULT: ${{ needs.k6-load-test.result }}
+
+        run: |
 
           echo "=========================================="
-          echo "QA PASS"
+          echo "FINAL QA GATE"
           echo "=========================================="
 
-          echo "Cypress E2E: PASS"
-          echo "k6 Smoke:    PASS"
-          echo "k6 Load:     PASS"
+          echo ""
+          echo "Cypress E2E : $CYPRESS_RESULT"
+          echo "k6 Smoke    : $K6_SMOKE_RESULT"
+          echo "k6 Load     : $K6_LOAD_RESULT"
+          echo ""
 
-          exit 0
 
-        else
+          if [ "$CYPRESS_RESULT" = "success" ] && \
+             [ "$K6_SMOKE_RESULT" = "success" ] && \
+             [ "$K6_LOAD_RESULT" = "success" ]; then
 
-          echo "=========================================="
-          echo "QA FAIL"
-          echo "=========================================="
+            echo "=========================================="
+            echo "QA PASS"
+            echo "=========================================="
 
-          echo "Cypress E2E: $CYPRESS_RESULT"
-          echo "k6 Smoke:    $K6_SMOKE_RESULT"
-          echo "k6 Load:     $K6_LOAD_RESULT"
+            echo "Cypress E2E: PASS"
+            echo "k6 Smoke:    PASS"
+            echo "k6 Load:     PASS"
 
-          exit 1
+            exit 0
 
-        fi
+          else
+
+            echo "=========================================="
+            echo "QA FAIL"
+            echo "=========================================="
+
+            echo "Cypress E2E: $CYPRESS_RESULT"
+            echo "k6 Smoke:    $K6_SMOKE_RESULT"
+            echo "k6 Load:     $K6_LOAD_RESULT"
+
+            exit 1
+
+          fi
