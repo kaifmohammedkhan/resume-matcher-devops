@@ -3,6 +3,7 @@ name: QA Pipeline
 on:
   push:
     branches: [main]
+
   workflow_dispatch:
 
 env:
@@ -16,6 +17,7 @@ jobs:
   # ============================================================
   # 1. CYPRESS E2E
   # ============================================================
+
   cypress-e2e:
     name: Cypress E2E Tests
     runs-on: ubuntu-latest
@@ -37,8 +39,17 @@ jobs:
 
     steps:
 
+      # ----------------------------------------------------------
+      # Checkout
+      # ----------------------------------------------------------
+
       - name: Checkout Repository
         uses: actions/checkout@v4
+
+
+      # ----------------------------------------------------------
+      # Node
+      # ----------------------------------------------------------
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -46,8 +57,18 @@ jobs:
           node-version: 22
           cache: npm
 
+
+      # ----------------------------------------------------------
+      # Dependencies
+      # ----------------------------------------------------------
+
       - name: Install Dependencies
         run: npm ci
+
+
+      # ----------------------------------------------------------
+      # Build
+      # ----------------------------------------------------------
 
       - name: Build Application
         run: |
@@ -57,9 +78,11 @@ jobs:
             echo "No build script found. Skipping build."
           fi
 
-      # --------------------------------------------------------
-      # REAL Cypress specs are required.
-      # --------------------------------------------------------
+
+      # ----------------------------------------------------------
+      # Verify Cypress specs
+      # ----------------------------------------------------------
+
       - name: Verify Cypress E2E Specs
         run: |
           echo "Searching for Cypress E2E specs..."
@@ -74,13 +97,11 @@ jobs:
             echo ""
             echo "ERROR: No Cypress E2E spec files were found."
             echo ""
-            echo "Add real Cypress tests under:"
+            echo "Add Cypress tests under:"
             echo "  cypress/e2e/"
             echo ""
-            echo "Examples:"
+            echo "Example:"
             echo "  cypress/e2e/home.cy.js"
-            echo "  cypress/e2e/upload-resume.cy.js"
-            echo "  cypress/e2e/navigation.cy.js"
             echo ""
 
             exit 1
@@ -88,6 +109,8 @@ jobs:
 
           echo ""
           echo "Cypress specs found:"
+          echo ""
+
           find cypress/e2e -type f \( \
             -name '*.cy.js' -o \
             -name '*.cy.jsx' -o \
@@ -95,9 +118,11 @@ jobs:
             -name '*.cy.tsx' \
           \) -print
 
-      # --------------------------------------------------------
+
+      # ----------------------------------------------------------
       # Start application
-      # --------------------------------------------------------
+      # ----------------------------------------------------------
+
       - name: Start Application
         env:
           PORT: 3000
@@ -105,6 +130,7 @@ jobs:
           DB_HOST: 127.0.0.1
           DB_USER: ${{ secrets.DB_USER }}
           DB_PASS: ${{ secrets.DB_PASS }}
+
         run: |
           mkdir -p cypress/reports
 
@@ -132,6 +158,7 @@ jobs:
               echo "Application is ready on http://127.0.0.1:3000"
 
               exit 0
+
             fi
 
             if ! kill -0 "$APP_PID" 2>/dev/null; then
@@ -143,11 +170,13 @@ jobs:
               cat cypress/reports/app.log || true
 
               exit 1
+
             fi
 
             echo "Waiting for application... attempt $i/30"
 
             sleep 2
+
           done
 
           echo ""
@@ -158,9 +187,11 @@ jobs:
 
           exit 1
 
-      # --------------------------------------------------------
+
+      # ----------------------------------------------------------
       # Cypress execution
-      # --------------------------------------------------------
+      # ----------------------------------------------------------
+
       - name: Run Cypress E2E Tests
         id: cypress_tests
         continue-on-error: true
@@ -189,11 +220,14 @@ jobs:
 
           exit "$CYPRESS_EXIT"
 
-      # --------------------------------------------------------
+
+      # ----------------------------------------------------------
       # Diagnostics
-      # --------------------------------------------------------
+      # ----------------------------------------------------------
+
       - name: Capture Cypress Diagnostics
         if: always()
+
         run: |
           mkdir -p cypress/reports
 
@@ -218,9 +252,11 @@ jobs:
 
           } > cypress/reports/diagnostics.log
 
-      # --------------------------------------------------------
-      # Detailed REAL Cypress HTML report
-      # --------------------------------------------------------
+
+      # ----------------------------------------------------------
+      # Generate Cypress HTML report
+      # ----------------------------------------------------------
+
       - name: Generate Detailed Cypress HTML Report
         if: always()
 
@@ -261,772 +297,741 @@ jobs:
 
               return f"{n:.2f}s"
 
-          try:
+          xml_files = sorted(
+              REPORT_DIR.glob("junit-*.xml")
+          )
 
-              xml_files = sorted(
-                  REPORT_DIR.glob("junit-*.xml")
+          suites = []
+          tests = []
+
+          total = 0
+          passed = 0
+          failed = 0
+          skipped = 0
+
+          duration_total = 0.0
+
+          for xml_file in xml_files:
+
+              try:
+                  root = ET.parse(xml_file).getroot()
+              except Exception as error:
+                  print(
+                      f"Could not parse {xml_file}: {error}"
+                  )
+                  continue
+
+              roots = (
+                  [root]
+                  if root.tag == "testsuite"
+                  else root.findall(".//testsuite")
               )
 
-              suites = []
-              tests = []
+              for suite in roots:
 
-              total = 0
-              passed = 0
-              failed = 0
-              skipped = 0
-
-              duration_total = 0.0
-
-              for xml_file in xml_files:
-
-                  try:
-                      root = ET.parse(xml_file).getroot()
-
-                  except Exception as error:
-
-                      print(
-                          f"Could not parse {xml_file}: {error}"
-                      )
-
-                      continue
-
-                  roots = (
-                      [root]
-                      if root.tag == "testsuite"
-                      else root.findall(".//testsuite")
+                  suite_name = suite.attrib.get(
+                      "name",
+                      xml_file.name
                   )
 
-                  for suite in roots:
+                  try:
+                      suite_time = float(
+                          suite.attrib.get(
+                              "time",
+                              "0"
+                          ) or 0
+                      )
+                  except Exception:
+                      suite_time = 0
 
-                      suite_name = suite.attrib.get(
+                  cases = suite.findall("testcase")
+
+                  suite_failed = 0
+                  suite_skipped = 0
+
+                  for case in cases:
+
+                      test_name = case.attrib.get(
                           "name",
-                          xml_file.name
+                          "Unnamed test"
+                      )
+
+                      classname = case.attrib.get(
+                          "classname",
+                          suite_name
                       )
 
                       try:
-                          suite_time = float(
-                              suite.attrib.get(
+                          test_time = float(
+                              case.attrib.get(
                                   "time",
                                   "0"
                               ) or 0
                           )
                       except Exception:
-                          suite_time = 0
+                          test_time = 0
 
-                      cases = suite.findall("testcase")
+                      failure = case.find("failure")
+                      skipped_node = case.find("skipped")
 
-                      suite_failed = 0
-                      suite_skipped = 0
+                      if failure is not None:
 
-                      for case in cases:
+                          state = "failed"
 
-                          test_name = case.attrib.get(
-                              "name",
-                              "Unnamed test"
+                          failed += 1
+                          suite_failed += 1
+
+                          message = failure.attrib.get(
+                              "message",
+                              "Test failed"
                           )
 
-                          classname = case.attrib.get(
-                              "classname",
-                              suite_name
-                          )
+                          stack = failure.text or ""
 
-                          try:
-                              test_time = float(
-                                  case.attrib.get(
-                                      "time",
-                                      "0"
-                                  ) or 0
-                              )
-                          except Exception:
-                              test_time = 0
+                      elif skipped_node is not None:
 
-                          failure = case.find("failure")
-                          skipped_node = case.find("skipped")
+                          state = "skipped"
 
-                          if failure is not None:
+                          skipped += 1
+                          suite_skipped += 1
 
-                              state = "failed"
+                          message = ""
+                          stack = ""
 
-                              failed += 1
-                              suite_failed += 1
+                      else:
 
-                              message = failure.attrib.get(
-                                  "message",
-                                  "Test failed"
-                              )
+                          state = "passed"
 
-                              stack = failure.text or ""
+                          passed += 1
 
-                          elif skipped_node is not None:
+                          message = ""
+                          stack = ""
 
-                              state = "skipped"
+                      total += 1
 
-                              skipped += 1
-                              suite_skipped += 1
-
-                              message = ""
-                              stack = ""
-
-                          else:
-
-                              state = "passed"
-
-                              passed += 1
-
-                              message = ""
-                              stack = ""
-
-                          total += 1
-
-                          tests.append({
-                              "spec": suite_name,
-                              "classname": classname,
-                              "name": test_name,
-                              "duration": test_time,
-                              "state": state,
-                              "message": message,
-                              "stack": stack
-                          })
-
-                      suites.append({
-                          "name": suite_name,
-                          "tests": len(cases),
-                          "failed": suite_failed,
-                          "skipped": suite_skipped,
-                          "duration": suite_time
+                      tests.append({
+                          "spec": suite_name,
+                          "classname": classname,
+                          "name": test_name,
+                          "duration": test_time,
+                          "state": state,
+                          "message": message,
+                          "stack": stack
                       })
 
-                      duration_total += suite_time
+                  suites.append({
+                      "name": suite_name,
+                      "tests": len(cases),
+                      "failed": suite_failed,
+                      "skipped": suite_skipped,
+                      "duration": suite_time
+                  })
 
-              step_outcome = os.environ.get(
-                  "CYPRESS_STEP_OUTCOME",
-                  "unknown"
-              )
+                  duration_total += suite_time
 
-              if total == 0:
-                  status = "FAILED"
 
-              elif failed > 0:
-                  status = "FAILED"
+          step_outcome = os.environ.get(
+              "CYPRESS_STEP_OUTCOME",
+              "unknown"
+          )
 
-              elif step_outcome == "failure":
-                  status = "FAILED"
+          if total == 0:
+              status = "FAILED"
+          elif failed > 0:
+              status = "FAILED"
+          elif step_outcome == "failure":
+              status = "FAILED"
+          else:
+              status = "PASSED"
 
-              else:
-                  status = "PASSED"
 
-              status_class = (
-                  "danger"
-                  if status == "FAILED"
-                  else "success"
-              )
+          status_class = (
+              "danger"
+              if status == "FAILED"
+              else "success"
+          )
 
-              def command(
-                  *args,
-                  default="Unknown"
-              ):
 
-                  try:
+          def command(*args, default="Unknown"):
 
-                      return subprocess.check_output(
-                          args,
-                          text=True,
-                          stderr=subprocess.DEVNULL
-                      ).strip()
+              try:
+                  return subprocess.check_output(
+                      args,
+                      text=True,
+                      stderr=subprocess.DEVNULL
+                  ).strip()
+              except Exception:
+                  return default
 
-                  except Exception:
 
-                      return default
+          cypress_version = command(
+              "npx",
+              "cypress",
+              "version",
+              "--component",
+              "version"
+          )
 
-              cypress_version = command(
-                  "npx",
-                  "cypress",
-                  "version",
-                  "--component",
-                  "version"
-              )
+          chrome_version = command(
+              "google-chrome",
+              "--version"
+          )
 
-              chrome_version = command(
-                  "google-chrome",
-                  "--version"
-              )
+          node_version = command(
+              "node",
+              "--version"
+          )
 
-              node_version = command(
-                  "node",
-                  "--version"
-              )
+          timestamp = command(
+              "date",
+              "-u",
+              "+%Y-%m-%dT%H:%M:%SZ"
+          )
 
-              timestamp = command(
-                  "date",
-                  "-u",
-                  "+%Y-%m-%dT%H:%M:%SZ"
-              )
 
-              run_url = (
-                  f"{os.environ.get('GITHUB_SERVER_URL','')}/"
-                  f"{os.environ.get('GITHUB_REPOSITORY','')}/"
-                  f"actions/runs/"
-                  f"{os.environ.get('GITHUB_RUN_ID','')}"
-              )
+          run_url = (
+              f"{os.environ.get('GITHUB_SERVER_URL','')}/"
+              f"{os.environ.get('GITHUB_REPOSITORY','')}/"
+              f"actions/runs/"
+              f"{os.environ.get('GITHUB_RUN_ID','')}"
+          )
 
-              suite_rows = ""
 
-              for suite in suites:
+          suite_rows = ""
 
-                  suite_rows += f"""
-                  <tr>
-                    <td>{esc(suite["name"])}</td>
-                    <td>{suite["tests"]}</td>
-                    <td class="{(
-                        "danger-text"
-                        if suite["failed"]
-                        else "success-text"
-                    )}">
-                      {"✗" if suite["failed"] else "✓"}
-                    </td>
-                    <td>{suite["failed"]}</td>
-                    <td>{suite["skipped"]}</td>
-                    <td>{seconds(suite["duration"])}</td>
-                  </tr>
-                  """
+          for suite in suites:
 
-              if not suite_rows:
+              suite_rows += f"""
+              <tr>
+                <td>{esc(suite["name"])}</td>
+                <td>{suite["tests"]}</td>
+                <td class="{
+                    "danger-text"
+                    if suite["failed"]
+                    else "success-text"
+                }">
+                  {"✗" if suite["failed"] else "✓"}
+                </td>
+                <td>{suite["failed"]}</td>
+                <td>{suite["skipped"]}</td>
+                <td>{seconds(suite["duration"])}</td>
+              </tr>
+              """
 
-                  suite_rows = """
-                  <tr>
-                    <td colspan="6">
-                      No Cypress JUnit results were generated.
-                    </td>
-                  </tr>
-                  """
 
-              test_rows = ""
+          if not suite_rows:
 
-              for test in tests:
+              suite_rows = """
+              <tr>
+                <td colspan="6">
+                  No Cypress JUnit results were generated.
+                </td>
+              </tr>
+              """
 
-                  icon = (
-                      "✓"
-                      if test["state"] == "passed"
-                      else
-                      "✗"
-                      if test["state"] == "failed"
-                      else
-                      "•"
-                  )
 
-                  state_class = (
-                      "danger-text"
-                      if test["state"] == "failed"
-                      else
-                      "success-text"
-                      if test["state"] == "passed"
-                      else
-                      "warning-text"
-                  )
+          test_rows = ""
 
-                  test_rows += f"""
-                  <tr>
-                    <td>{icon}</td>
-                    <td>{esc(test["spec"])}</td>
-                    <td>{esc(test["name"])}</td>
-                    <td>{seconds(test["duration"])}</td>
-                    <td class="{state_class}">
-                      {esc(test["state"].upper())}
-                    </td>
-                  </tr>
-                  """
+          for test in tests:
 
-              if not test_rows:
-
-                  test_rows = """
-                  <tr>
-                    <td colspan="5">
-                      No individual Cypress test results available.
-                    </td>
-                  </tr>
-                  """
-
-              failures = [
-                  test
-                  for test in tests
+              icon = (
+                  "✓"
+                  if test["state"] == "passed"
+                  else "✗"
                   if test["state"] == "failed"
-              ]
+                  else "•"
+              )
 
-              failure_rows = ""
+              state_class = (
+                  "danger-text"
+                  if test["state"] == "failed"
+                  else "success-text"
+                  if test["state"] == "passed"
+                  else "warning-text"
+              )
 
-              for test in failures:
+              test_rows += f"""
+              <tr>
+                <td>{icon}</td>
+                <td>{esc(test["spec"])}</td>
+                <td>{esc(test["name"])}</td>
+                <td>{seconds(test["duration"])}</td>
+                <td class="{state_class}">
+                  {esc(test["state"].upper())}
+                </td>
+              </tr>
+              """
 
-                  failure_rows += f"""
-                  <div class="failure-box">
 
-                    <h3>
-                      ✗ {esc(test["name"])}
-                    </h3>
+          if not test_rows:
 
-                    <p>
-                      <strong>Spec:</strong>
-                      {esc(test["spec"])}
-                    </p>
+              test_rows = """
+              <tr>
+                <td colspan="5">
+                  No individual Cypress test results available.
+                </td>
+              </tr>
+              """
 
-                    <p>
-                      <strong>Duration:</strong>
-                      {seconds(test["duration"])}
-                    </p>
 
-                    <p>
-                      <strong>Error:</strong>
-                      {esc(
-                          test["message"]
-                          or "Test failed"
-                      )}
-                    </p>
+          failures = [
+              test
+              for test in tests
+              if test["state"] == "failed"
+          ]
 
-                    <pre>
-                      {esc(test["stack"])}
-                    </pre>
 
-                  </div>
-                  """
+          failure_rows = ""
 
-              if not failure_rows:
+          for test in failures:
 
-                  failure_rows = """
-                  <p class="success-text">
-                    No failed Cypress tests.
-                  </p>
-                  """
+              failure_rows += f"""
+              <div class="failure-box">
 
-              report = f"""
-              <!DOCTYPE html>
+                <h3>
+                  ✗ {esc(test["name"])}
+                </h3>
 
-              <html>
+                <p>
+                  <strong>Spec:</strong>
+                  {esc(test["spec"])}
+                </p>
 
-              <head>
+                <p>
+                  <strong>Duration:</strong>
+                  {seconds(test["duration"])}
+                </p>
 
-                <meta charset="UTF-8">
+                <p>
+                  <strong>Error:</strong>
+                  {esc(
+                      test["message"]
+                      or "Test failed"
+                  )}
+                </p>
 
-                <title>
-                  Cypress E2E Test Report
-                </title>
+                <pre>
+                  {esc(test["stack"])}
+                </pre>
 
-                <style>
+              </div>
+              """
 
-                  body {{
-                    font-family: Arial, sans-serif;
-                    margin: 0;
-                    background: #0d1117;
-                    color: #c9d1d9;
-                  }}
 
-                  .container {{
-                    max-width: 1450px;
-                    margin: 0 auto;
-                    padding: 32px;
-                  }}
+          if not failure_rows:
 
-                  .card {{
-                    background: #161b22;
-                    border: 1px solid #30363d;
-                    border-radius: 10px;
-                    padding: 24px;
-                    margin-bottom: 22px;
-                  }}
+              failure_rows = """
+              <p class="success-text">
+                No failed Cypress tests.
+              </p>
+              """
 
-                  h1 {{
-                    color: #58a6ff;
-                  }}
 
-                  h2 {{
-                    color: #58a6ff;
-                    border-bottom:
-                      1px solid #30363d;
-                    padding-bottom: 8px;
-                  }}
+          report = f"""
+          <!DOCTYPE html>
 
-                  .status {{
-                    display: inline-block;
-                    padding: 8px 14px;
-                    border-radius: 6px;
-                    font-weight: bold;
-                  }}
+          <html>
 
-                  .success {{
-                    background: #12351f;
-                    color: #3fb950;
-                  }}
+          <head>
 
-                  .danger {{
-                    background: #3b1717;
-                    color: #ff7b72;
-                  }}
+            <meta charset="UTF-8">
 
-                  .success-text {{
-                    color: #3fb950;
-                    font-weight: bold;
-                  }}
+            <title>
+              Cypress E2E Test Report
+            </title>
 
-                  .danger-text {{
-                    color: #ff7b72;
-                    font-weight: bold;
-                  }}
+            <style>
 
-                  .warning-text {{
-                    color: #d29922;
-                    font-weight: bold;
-                  }}
+              body {{
+                font-family: Arial, sans-serif;
+                margin: 0;
+                background: #0d1117;
+                color: #c9d1d9;
+              }}
 
-                  .grid {{
-                    display: grid;
-                    grid-template-columns:
-                      repeat(
-                        auto-fit,
-                        minmax(160px, 1fr)
-                      );
-                    gap: 12px;
-                  }}
+              .container {{
+                max-width: 1450px;
+                margin: 0 auto;
+                padding: 32px;
+              }}
 
-                  .stat {{
-                    background: #0d1117;
-                    border: 1px solid #30363d;
-                    padding: 18px;
-                    border-radius: 8px;
-                  }}
+              .card {{
+                background: #161b22;
+                border: 1px solid #30363d;
+                border-radius: 10px;
+                padding: 24px;
+                margin-bottom: 22px;
+              }}
 
-                  .label {{
-                    color: #8b949e;
-                    font-size: 12px;
-                    text-transform: uppercase;
-                  }}
+              h1 {{
+                color: #58a6ff;
+              }}
 
-                  .value {{
-                    font-size: 25px;
-                    margin-top: 6px;
-                    font-weight: bold;
-                  }}
+              h2 {{
+                color: #58a6ff;
+                border-bottom: 1px solid #30363d;
+                padding-bottom: 8px;
+              }}
 
-                  table {{
-                    width: 100%;
-                    border-collapse: collapse;
-                    margin-top: 12px;
-                    font-size: 14px;
-                  }}
+              .status {{
+                display: inline-block;
+                padding: 8px 14px;
+                border-radius: 6px;
+                font-weight: bold;
+              }}
 
-                  th,
-                  td {{
-                    border: 1px solid #30363d;
-                    padding: 10px 12px;
-                    text-align: left;
-                    vertical-align: top;
-                  }}
+              .success {{
+                background: #12351f;
+                color: #3fb950;
+              }}
 
-                  th {{
-                    background: #21262d;
-                    color: #f0f6fc;
-                  }}
+              .danger {{
+                background: #3b1717;
+                color: #ff7b72;
+              }}
 
-                  tr:nth-child(even) {{
-                    background: #1b2028;
-                  }}
+              .success-text {{
+                color: #3fb950;
+                font-weight: bold;
+              }}
 
-                  .failure-box {{
-                    border:
-                      1px solid #6e2020;
-                    background: #210f0f;
-                    padding: 16px;
-                    margin: 12px 0;
-                    border-radius: 8px;
-                  }}
+              .danger-text {{
+                color: #ff7b72;
+                font-weight: bold;
+              }}
 
-                  pre {{
-                    white-space: pre-wrap;
-                    overflow-wrap: anywhere;
-                    background: #0d1117;
-                    border: 1px solid #30363d;
-                    padding: 12px;
-                    border-radius: 6px;
-                    color: #ff7b72;
-                  }}
+              .warning-text {{
+                color: #d29922;
+                font-weight: bold;
+              }}
 
-                  a {{
-                    color: #58a6ff;
-                  }}
+              .grid {{
+                display: grid;
+                grid-template-columns:
+                  repeat(
+                    auto-fit,
+                    minmax(160px, 1fr)
+                  );
+                gap: 12px;
+              }}
 
-                </style>
+              .stat {{
+                background: #0d1117;
+                border: 1px solid #30363d;
+                padding: 18px;
+                border-radius: 8px;
+              }}
 
-              </head>
+              .label {{
+                color: #8b949e;
+                font-size: 12px;
+                text-transform: uppercase;
+              }}
 
-              <body>
+              .value {{
+                font-size: 25px;
+                margin-top: 6px;
+                font-weight: bold;
+              }}
 
-                <div class="container">
+              table {{
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 12px;
+                font-size: 14px;
+              }}
 
-                  <div class="card">
+              th,
+              td {{
+                border: 1px solid #30363d;
+                padding: 10px 12px;
+                text-align: left;
+                vertical-align: top;
+              }}
 
-                    <h1>
-                      Cypress E2E Test Execution Report
-                    </h1>
+              th {{
+                background: #21262d;
+                color: #f0f6fc;
+              }}
 
-                    <span class="status {status_class}">
-                      {
-                        "✓"
-                        if status == "PASSED"
-                        else "✗"
-                      }
-                      {status}
-                    </span>
+              tr:nth-child(even) {{
+                background: #1b2028;
+              }}
 
-                    <p>
-                      <strong>Cypress:</strong>
-                      {esc(cypress_version)}
-                    </p>
+              .failure-box {{
+                border: 1px solid #6e2020;
+                background: #210f0f;
+                padding: 16px;
+                margin: 12px 0;
+                border-radius: 8px;
+              }}
 
-                    <p>
-                      <strong>Browser:</strong>
-                      {esc(chrome_version)}
-                      (headless)
-                    </p>
+              pre {{
+                white-space: pre-wrap;
+                overflow-wrap: anywhere;
+                background: #0d1117;
+                border: 1px solid #30363d;
+                padding: 12px;
+                border-radius: 6px;
+                color: #ff7b72;
+              }}
 
-                    <p>
-                      <strong>Node:</strong>
-                      {esc(node_version)}
-                    </p>
+              a {{
+                color: #58a6ff;
+              }}
 
-                    <p>
-                      <strong>Execution:</strong>
-                      GitHub Actions
-                    </p>
+            </style>
 
-                    <p>
-                      <strong>Timestamp:</strong>
-                      {esc(timestamp)}
-                    </p>
+          </head>
 
-                    <p>
-                      <strong>Workflow Run:</strong>
-                      <a href="{esc(run_url)}">
-                        Open GitHub Actions run
-                      </a>
-                    </p>
+          <body>
 
-                  </div>
+            <div class="container">
 
-                  <div class="card">
+              <div class="card">
 
-                    <h2>
-                      Test Summary
-                    </h2>
+                <h1>
+                  Cypress E2E Test Execution Report
+                </h1>
 
-                    <div class="grid">
+                <span class="status {status_class}">
+                  {
+                    "✓"
+                    if status == "PASSED"
+                    else "✗"
+                  }
+                  {status}
+                </span>
 
-                      <div class="stat">
-                        <div class="label">
-                          Specs
-                        </div>
-                        <div class="value">
-                          {len(suites)}
-                        </div>
-                      </div>
+                <p>
+                  <strong>Cypress:</strong>
+                  {esc(cypress_version)}
+                </p>
 
-                      <div class="stat">
-                        <div class="label">
-                          Tests
-                        </div>
-                        <div class="value">
-                          {total}
-                        </div>
-                      </div>
+                <p>
+                  <strong>Browser:</strong>
+                  {esc(chrome_version)}
+                  (headless)
+                </p>
 
-                      <div class="stat">
-                        <div class="label">
-                          Passed
-                        </div>
-                        <div class="value success-text">
-                          {passed}
-                        </div>
-                      </div>
+                <p>
+                  <strong>Node:</strong>
+                  {esc(node_version)}
+                </p>
 
-                      <div class="stat">
-                        <div class="label">
-                          Failed
-                        </div>
-                        <div class="value danger-text">
-                          {failed}
-                        </div>
-                      </div>
+                <p>
+                  <strong>Execution:</strong>
+                  GitHub Actions
+                </p>
 
-                      <div class="stat">
-                        <div class="label">
-                          Skipped
-                        </div>
-                        <div class="value warning-text">
-                          {skipped}
-                        </div>
-                      </div>
+                <p>
+                  <strong>Timestamp:</strong>
+                  {esc(timestamp)}
+                </p>
 
-                      <div class="stat">
-                        <div class="label">
-                          Duration
-                        </div>
-                        <div class="value">
-                          {seconds(duration_total)}
-                        </div>
-                      </div>
+                <p>
+                  <strong>Workflow Run:</strong>
+                  <a href="{esc(run_url)}">
+                    Open GitHub Actions run
+                  </a>
+                </p>
 
+              </div>
+
+
+              <div class="card">
+
+                <h2>
+                  Test Summary
+                </h2>
+
+                <div class="grid">
+
+                  <div class="stat">
+                    <div class="label">Specs</div>
+                    <div class="value">
+                      {len(suites)}
                     </div>
-
                   </div>
 
-                  <div class="card">
-
-                    <h2>
-                      Spec Results
-                    </h2>
-
-                    <table>
-
-                      <tr>
-                        <th>Spec</th>
-                        <th>Tests</th>
-                        <th>Status</th>
-                        <th>Failed</th>
-                        <th>Skipped</th>
-                        <th>Duration</th>
-                      </tr>
-
-                      {suite_rows}
-
-                    </table>
-
+                  <div class="stat">
+                    <div class="label">Tests</div>
+                    <div class="value">
+                      {total}
+                    </div>
                   </div>
 
-                  <div class="card">
-
-                    <h2>
-                      Individual Tests
-                    </h2>
-
-                    <table>
-
-                      <tr>
-                        <th></th>
-                        <th>Spec</th>
-                        <th>Test</th>
-                        <th>Duration</th>
-                        <th>Status</th>
-                      </tr>
-
-                      {test_rows}
-
-                    </table>
-
+                  <div class="stat">
+                    <div class="label">Passed</div>
+                    <div class="value success-text">
+                      {passed}
+                    </div>
                   </div>
 
-                  <div class="card">
-
-                    <h2>
-                      Failures & Diagnostics
-                    </h2>
-
-                    {failure_rows}
-
+                  <div class="stat">
+                    <div class="label">Failed</div>
+                    <div class="value danger-text">
+                      {failed}
+                    </div>
                   </div>
 
-                  <div class="card">
+                  <div class="stat">
+                    <div class="label">Skipped</div>
+                    <div class="value warning-text">
+                      {skipped}
+                    </div>
+                  </div>
 
-                    <h2>
-                      Artifacts
-                    </h2>
-
-                    <p>
-                      JUnit XML, Cypress console output,
-                      screenshots, videos, application logs,
-                      and diagnostics are included in the
-                      workflow artifacts.
-                    </p>
-
+                  <div class="stat">
+                    <div class="label">Duration</div>
+                    <div class="value">
+                      {seconds(duration_total)}
+                    </div>
                   </div>
 
                 </div>
 
-              </body>
+              </div>
 
-              </html>
-              """
 
-              (
-                  REPORT_DIR /
-                  "cypress-report.html"
-              ).write_text(
-                  report,
-                  encoding="utf-8"
-              )
+              <div class="card">
 
-              print(
-                  "Generated Cypress HTML report."
-              )
+                <h2>
+                  Spec Results
+                </h2>
 
-          except Exception as error:
+                <table>
 
-              fallback = f"""
-              <!DOCTYPE html>
-              <html>
-              <body style="
-                font-family:Arial;
-                background:#0d1117;
-                color:#c9d1d9;
-                padding:30px
-              ">
+                  <tr>
+                    <th>Spec</th>
+                    <th>Tests</th>
+                    <th>Status</th>
+                    <th>Failed</th>
+                    <th>Skipped</th>
+                    <th>Duration</th>
+                  </tr>
 
-                <h1>
-                  Cypress Report Generation Error
-                </h1>
+                  {suite_rows}
 
-                <pre>
-                  {esc(error)}
-                </pre>
+                </table>
 
-              </body>
-              </html>
-              """
+              </div>
 
-              (
-                  REPORT_DIR /
-                  "cypress-report.html"
-              ).write_text(
-                  fallback,
-                  encoding="utf-8"
-              )
 
-              print(
-                  f"Cypress report generation failed: {error}"
-              )
+              <div class="card">
+
+                <h2>
+                  Individual Tests
+                </h2>
+
+                <table>
+
+                  <tr>
+                    <th></th>
+                    <th>Spec</th>
+                    <th>Test</th>
+                    <th>Duration</th>
+                    <th>Status</th>
+                  </tr>
+
+                  {test_rows}
+
+                </table>
+
+              </div>
+
+
+              <div class="card">
+
+                <h2>
+                  Failures & Diagnostics
+                </h2>
+
+                {failure_rows}
+
+              </div>
+
+
+              <div class="card">
+
+                <h2>
+                  Artifacts
+                </h2>
+
+                <p>
+                  JUnit XML, Cypress console output,
+                  screenshots, videos, application logs,
+                  and diagnostics are included in the
+                  workflow artifacts.
+                </p>
+
+              </div>
+
+            </div>
+
+          </body>
+
+          </html>
+          """
+
+
+          (
+              REPORT_DIR /
+              "cypress-report.html"
+          ).write_text(
+              report,
+              encoding="utf-8"
+          )
+
+          print(
+              "Generated Cypress HTML report."
+          )
 
           PYTHON
 
+
+      # ----------------------------------------------------------
+      # Upload Cypress artifact
+      # ----------------------------------------------------------
+
       - name: Upload Cypress Report and Diagnostics
         if: always()
+
         uses: actions/upload-artifact@v4
+
         with:
           name: cypress-e2e-report
+
           path: |
             cypress/reports/
             cypress/screenshots/
             cypress/videos/
+
           if-no-files-found: warn
+
+
+      # ----------------------------------------------------------
+      # Fail Cypress stage
+      # ----------------------------------------------------------
 
       - name: Fail Cypress Stage
         if: always() && steps.cypress_tests.outcome == 'failure'
+
         run: |
+
           echo "Cypress E2E tests failed."
           echo "k6 will not run."
+
           exit 1
+
 
 
   # ============================================================
   # 2. k6 LOAD TEST
   #
-  # IMPORTANT:
-  # k6 executes ONLY after Cypress passes.
+  # k6 runs ONLY after Cypress passes.
   # ============================================================
+
   k6-load-test:
     name: k6 Load Test
 
@@ -1040,12 +1045,15 @@ jobs:
     services:
       postgres:
         image: postgres:15
+
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: resume_db
+
         ports:
           - 5432:5432
+
         options: >-
           --health-cmd="pg_isready -U postgres -d resume_db"
           --health-interval=10s
@@ -1054,47 +1062,90 @@ jobs:
 
     steps:
 
+      # ----------------------------------------------------------
+      # Checkout
+      # ----------------------------------------------------------
+
       - name: Checkout Repository
         uses: actions/checkout@v4
 
+
+      # ----------------------------------------------------------
+      # Node
+      # ----------------------------------------------------------
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
+
         with:
           node-version: 22
           cache: npm
 
+
+      # ----------------------------------------------------------
+      # Dependencies
+      # ----------------------------------------------------------
+
       - name: Install Dependencies
         run: npm ci
 
+
+      # ----------------------------------------------------------
+      # Build
+      # ----------------------------------------------------------
+
       - name: Build Application
         run: |
+
           if npm run | grep -q "build"; then
             npm run build
+          else
+            echo "No build script found. Skipping build."
           fi
+
+
+      # ----------------------------------------------------------
+      # Verify k6 script
+      # ----------------------------------------------------------
 
       - name: Verify k6 Script
         run: |
+
           if [ ! -f tests/load.js ]; then
+
             echo "ERROR: tests/load.js was not found."
+
             exit 1
+
           fi
 
+
+      # ----------------------------------------------------------
+      # Start application
+      # ----------------------------------------------------------
+
       - name: Start Application
+
         env:
           PORT: 3000
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           DB_HOST: 127.0.0.1
           DB_USER: ${{ secrets.DB_USER }}
           DB_PASS: ${{ secrets.DB_PASS }}
+
         run: |
 
           mkdir -p results
+
+          echo "Starting application..."
 
           npm start > results/app.log 2>&1 &
 
           APP_PID=$!
 
           echo "$APP_PID" > results/app.pid
+
+          echo "Application PID: $APP_PID"
 
           for i in {1..30}; do
 
@@ -1121,19 +1172,27 @@ jobs:
 
             fi
 
+            echo "Waiting for application... attempt $i/30"
+
             sleep 2
 
           done
+
+          echo "Application failed to become ready."
 
           cat results/app.log || true
 
           exit 1
 
-      # --------------------------------------------------------
+
+      # ----------------------------------------------------------
       # Actual k6 execution
-      # --------------------------------------------------------
+      # ----------------------------------------------------------
+
       - name: Run k6 Load Test
+
         id: k6_tests
+
         continue-on-error: true
 
         uses: grafana/k6-action@v0.3.0
@@ -1145,9 +1204,11 @@ jobs:
             --out json=results/output.json
             --summary-export=results/summary.json
 
-      # --------------------------------------------------------
-      # Generate REAL k6 report from summary.json/output.json
-      # --------------------------------------------------------
+
+      # ----------------------------------------------------------
+      # Generate detailed k6 HTML report
+      # ----------------------------------------------------------
+
       - name: Generate Detailed k6 HTML Report
         if: always()
 
@@ -1172,6 +1233,7 @@ jobs:
           }
 
           function num(value) {
+
             const n = Number(value);
 
             return Number.isFinite(n)
@@ -1180,6 +1242,7 @@ jobs:
           }
 
           function metric(summary, name) {
+
             return summary?.metrics?.[name] || {
               values: {}
             };
@@ -1190,6 +1253,7 @@ jobs:
             name,
             key
           ) {
+
             return metric(
               summary,
               name
@@ -1257,6 +1321,14 @@ jobs:
             ).toFixed(2)} GiB`;
           }
 
+
+          // ======================================================
+          // IMPORTANT:
+          // summary is declared BEFORE metric() is used.
+          // This fixes the previous:
+          // ReferenceError: summary is not defined
+          // ======================================================
+
           let summary = null;
 
           if (
@@ -1285,6 +1357,7 @@ jobs:
 
           }
 
+
           const statusCounts = {};
           const endpointCounts = {};
           const errorCounts = {};
@@ -1293,6 +1366,7 @@ jobs:
           let lastTime = null;
 
           let rawHttpPoints = 0;
+
 
           if (
             fs.existsSync(
@@ -1357,14 +1431,10 @@ jobs:
               }
 
               if (
-                event.metric !==
-                  'http_reqs' ||
-                event.type !==
-                  'Point'
+                event.metric !== 'http_reqs' ||
+                event.type !== 'Point'
               ) {
-
                 continue;
-
               }
 
               rawHttpPoints++;
@@ -1414,8 +1484,7 @@ jobs:
 
               }
 
-              endpointCounts[key]
-                .requests++;
+              endpointCounts[key].requests++;
 
               endpointCounts[key]
                 .statuses[status] =
@@ -1464,11 +1533,13 @@ jobs:
 
           }
 
+
           const observedDuration =
             firstTime !== null &&
             lastTime !== null
               ? lastTime - firstTime
               : null;
+
 
           const httpDuration =
             metric(
@@ -1518,126 +1589,142 @@ jobs:
               'data_sent'
             );
 
+
           const thresholdRows =
             summary?.metrics
               ? Object.entries(
                   summary.metrics
                 )
-                  .flatMap(
-                    ([name, data]) =>
-                      Object.entries(
-                        data.thresholds ||
-                        {}
-                      ).map(
-                        ([threshold, ok]) => `
-                        <tr>
-                          <td>${esc(name)}</td>
-                          <td>${esc(threshold)}</td>
-                          <td class="${
+                .flatMap(
+                  ([name, data]) =>
+                    Object.entries(
+                      data.thresholds || {}
+                    ).map(
+                      ([threshold, ok]) => `
+                      <tr>
+                        <td>${esc(name)}</td>
+                        <td>${esc(threshold)}</td>
+                        <td class="${
+                          ok
+                            ? 'success-text'
+                            : 'danger-text'
+                        }">
+                          ${
                             ok
-                              ? 'success-text'
-                              : 'danger-text'
-                          }">
-                            ${
-                              ok
-                                ? '✓ PASSED'
-                                : '✗ FAILED'
-                            }
-                          </td>
-                        </tr>
-                        `
-                      )
-                  )
-                  .join('')
+                              ? '✓ PASSED'
+                              : '✗ FAILED'
+                          }
+                        </td>
+                      </tr>
+                      `
+                    )
+                )
+                .join('')
               : '';
+
 
           const statusRows =
             Object.entries(
               statusCounts
             )
-              .sort(
-                (a, b) =>
-                  Number(a[0]) -
-                  Number(b[0])
-              )
-              .map(
-                ([status, count]) => `
-                <tr>
-                  <td>${esc(status)}</td>
-                  <td>${count}</td>
-                  <td>
-                    ${
-                      rawHttpPoints
-                        ? (
-                            count /
-                            rawHttpPoints *
-                            100
-                          ).toFixed(2)
-                        : '0.00'
-                    }%
-                  </td>
-                </tr>
-                `
-              )
-              .join('');
+            .sort(
+              (a, b) =>
+                Number(a[0]) -
+                Number(b[0])
+            )
+            .map(
+              ([status, count]) => `
+              <tr>
+                <td>${esc(status)}</td>
+                <td>${count}</td>
+                <td>
+                  ${
+                    rawHttpPoints
+                      ? (
+                          count /
+                          rawHttpPoints *
+                          100
+                        ).toFixed(2)
+                      : '0.00'
+                  }%
+                </td>
+              </tr>
+              `
+            )
+            .join('');
+
 
           const endpointRows =
             Object.values(
               endpointCounts
             )
-              .sort(
-                (a, b) =>
-                  b.requests -
-                  a.requests
-              )
-              .map(
-                item => `
-                <tr>
-                  <td>${esc(item.method)}</td>
-                  <td>${esc(item.endpoint)}</td>
-                  <td>${item.requests}</td>
-                  <td class="${
-                    item.failures
-                      ? 'danger-text'
-                      : 'success-text'
-                  }">
-                    ${item.failures}
-                  </td>
-                  <td>
-                    ${
-                      Object.entries(
-                        item.statuses
-                      )
-                        .map(
-                          ([s, c]) =>
-                            `${esc(s)}: ${c}`
-                        )
-                        .join('<br>')
-                    }
-                  </td>
-                </tr>
-                `
-              )
-              .join('');
+            .sort(
+              (a, b) =>
+                b.requests -
+                a.requests
+            )
+            .map(
+              item => `
+              <tr>
+
+                <td>
+                  ${esc(item.method)}
+                </td>
+
+                <td>
+                  ${esc(item.endpoint)}
+                </td>
+
+                <td>
+                  ${item.requests}
+                </td>
+
+                <td class="${
+                  item.failures
+                    ? 'danger-text'
+                    : 'success-text'
+                }">
+                  ${item.failures}
+                </td>
+
+                <td>
+                  ${
+                    Object.entries(
+                      item.statuses
+                    )
+                    .map(
+                      ([s, c]) =>
+                        `${esc(s)}: ${c}`
+                    )
+                    .join('<br>')
+                  }
+                </td>
+
+              </tr>
+              `
+            )
+            .join('');
+
 
           const errorRows =
             Object.entries(
               errorCounts
             )
-              .sort(
-                (a, b) =>
-                  b[1] -
-                  a[1]
-              )
-              .map(
-                ([error, count]) => `
-                <tr>
-                  <td>${esc(error)}</td>
-                  <td>${count}</td>
-                </tr>
-                `
-              )
-              .join('');
+            .sort(
+              (a, b) =>
+                b[1] -
+                a[1]
+            )
+            .map(
+              ([error, count]) => `
+              <tr>
+                <td>${esc(error)}</td>
+                <td>${count}</td>
+              </tr>
+              `
+            )
+            .join('');
+
 
           const thresholdFailed =
             Object.values(
@@ -1645,13 +1732,13 @@ jobs:
             ).some(
               metricData =>
                 Object.values(
-                  metricData.thresholds ||
-                  {}
+                  metricData.thresholds || {}
                 ).some(
                   result =>
                     result === false
                 )
             );
+
 
           const k6Failed =
             process.env.K6_STEP_OUTCOME ===
@@ -1659,10 +1746,12 @@ jobs:
             thresholdFailed ||
             !summary;
 
+
           const statusClass =
             k6Failed
               ? 'danger'
               : 'success';
+
 
           const report = `
           <!DOCTYPE html>
@@ -1860,6 +1949,7 @@ jobs:
 
               </div>
 
+
               ${
                 summary
                   ? `
@@ -1876,6 +1966,7 @@ jobs:
                     <div class="label">
                       HTTP Requests
                     </div>
+
                     <div class="value">
                       ${
                         metricValue(
@@ -1887,11 +1978,15 @@ jobs:
                     </div>
                   </div>
 
+
                   <div class="stat">
+
                     <div class="label">
                       Request Rate
                     </div>
+
                     <div class="value">
+
                       ${
                         metricValue(
                           summary,
@@ -1908,14 +2003,20 @@ jobs:
                             + ' req/s'
                           : 'N/A'
                       }
+
                     </div>
+
                   </div>
 
+
                   <div class="stat">
+
                     <div class="label">
                       Failed Requests
                     </div>
+
                     <div class="value danger-text">
+
                       ${
                         metricValue(
                           summary,
@@ -1923,14 +2024,20 @@ jobs:
                           'fails'
                         ) ?? 'N/A'
                       }
+
                     </div>
+
                   </div>
 
+
                   <div class="stat">
+
                     <div class="label">
                       Failure Rate
                     </div>
+
                     <div class="value danger-text">
+
                       ${
                         percentage(
                           metricValue(
@@ -1940,96 +2047,135 @@ jobs:
                           )
                         )
                       }
+
                     </div>
+
                   </div>
 
+
                   <div class="stat">
+
                     <div class="label">
                       Average
                     </div>
+
                     <div class="value">
+
                       ${
                         duration(
                           httpDuration
                             .values?.avg
                         )
                       }
+
                     </div>
+
                   </div>
 
+
                   <div class="stat">
+
                     <div class="label">
                       Median
                     </div>
+
                     <div class="value">
+
                       ${
                         duration(
                           httpDuration
                             .values?.med
                         )
                       }
+
                     </div>
+
                   </div>
 
+
                   <div class="stat">
+
                     <div class="label">
                       P90
                     </div>
+
                     <div class="value">
+
                       ${
                         duration(
                           httpDuration
                             .values?.['p(90)']
                         )
                       }
+
                     </div>
+
                   </div>
 
+
                   <div class="stat">
+
                     <div class="label">
                       P95
                     </div>
+
                     <div class="value">
+
                       ${
                         duration(
                           httpDuration
                             .values?.['p(95)']
                         )
                       }
+
                     </div>
+
                   </div>
 
+
                   <div class="stat">
+
                     <div class="label">
                       P99
                     </div>
+
                     <div class="value">
+
                       ${
                         duration(
                           httpDuration
                             .values?.['p(99)']
                         )
                       }
+
                     </div>
+
                   </div>
 
+
                   <div class="stat">
+
                     <div class="label">
                       Maximum
                     </div>
+
                     <div class="value">
+
                       ${
                         duration(
                           httpDuration
                             .values?.max
                         )
                       }
+
                     </div>
+
                   </div>
 
                 </div>
 
               </div>
+
 
               <div class="card">
 
@@ -2044,57 +2190,70 @@ jobs:
                     <th>Actual Result</th>
                   </tr>
 
+
                   <tr>
+
                     <td>
                       iteration_duration
                     </td>
 
                     <td>
+
                       avg=${
                         duration(
                           iterationDuration
                             .values?.avg
                         )
                       },
+
                       min=${
                         duration(
                           iterationDuration
                             .values?.min
                         )
                       },
+
                       med=${
                         duration(
                           iterationDuration
                             .values?.med
                         )
                       },
+
                       max=${
                         duration(
                           iterationDuration
                             .values?.max
                         )
                       },
+
                       p90=${
                         duration(
                           iterationDuration
                             .values?.['p(90)']
                         )
                       },
+
                       p95=${
                         duration(
                           iterationDuration
                             .values?.['p(95)']
                         )
                       }
+
                     </td>
+
                   </tr>
 
+
                   <tr>
+
                     <td>
                       iterations
                     </td>
 
                     <td>
+
                       ${
                         metricValue(
                           summary,
@@ -2123,15 +2282,20 @@ jobs:
                       }
 
                       )
+
                     </td>
+
                   </tr>
 
+
                   <tr>
+
                     <td>
                       vus
                     </td>
 
                     <td>
+
                       min=${
                         vus.values?.min ??
                         'N/A'
@@ -2141,15 +2305,20 @@ jobs:
                         vus.values?.max ??
                         'N/A'
                       }
+
                     </td>
+
                   </tr>
 
+
                   <tr>
+
                     <td>
                       vus_max
                     </td>
 
                     <td>
+
                       min=${
                         vusMax.values?.min ??
                         'N/A'
@@ -2159,12 +2328,15 @@ jobs:
                         vusMax.values?.max ??
                         'N/A'
                       }
+
                     </td>
+
                   </tr>
 
                 </table>
 
               </div>
+
 
               <div class="card">
 
@@ -2179,12 +2351,15 @@ jobs:
                     <th>Actual Result</th>
                   </tr>
 
+
                   <tr>
+
                     <td>
                       data_received
                     </td>
 
                     <td>
+
                       ${
                         bytes(
                           received
@@ -2202,15 +2377,20 @@ jobs:
                       }
 
                       /s)
+
                     </td>
+
                   </tr>
 
+
                   <tr>
+
                     <td>
                       data_sent
                     </td>
 
                     <td>
+
                       ${
                         bytes(
                           sent
@@ -2228,12 +2408,15 @@ jobs:
                       }
 
                       /s)
+
                     </td>
+
                   </tr>
 
                 </table>
 
               </div>
+
 
               <div class="card">
 
@@ -2265,6 +2448,7 @@ jobs:
                 </table>
 
               </div>
+
 
               <div class="card">
 
@@ -2299,6 +2483,7 @@ jobs:
 
               </div>
 
+
               <div class="card">
 
                 <h2>
@@ -2315,7 +2500,10 @@ jobs:
                   </tr>
 
                   <tr>
-                    <td>checks</td>
+
+                    <td>
+                      checks
+                    </td>
 
                     <td>
                       ${
@@ -2338,11 +2526,13 @@ jobs:
                         'N/A'
                       }
                     </td>
+
                   </tr>
 
                 </table>
 
               </div>
+
 
               <div class="card">
 
@@ -2374,6 +2564,7 @@ jobs:
                 </table>
 
               </div>
+
 
               <div class="card">
 
@@ -2415,19 +2606,24 @@ jobs:
                 </h2>
 
                 <p class="danger-text">
+
                   summary.json was not generated
                   or could not be parsed.
+
                 </p>
 
                 <p>
+
                   Check the k6 console log,
                   output.json and app.log.
+
                 </p>
 
               </div>
 
               `
               }
+
 
               <div class="card">
 
@@ -2436,25 +2632,19 @@ jobs:
                 </h2>
 
                 <p>
-                  <code>
-                    summary.json
-                  </code>
+                  <code>summary.json</code>
                   —
                   actual k6 end-of-test metrics.
                 </p>
 
                 <p>
-                  <code>
-                    output.json
-                  </code>
+                  <code>output.json</code>
                   —
                   detailed k6 JSON event stream.
                 </p>
 
                 <p>
-                  <code>
-                    app.log
-                  </code>
+                  <code>app.log</code>
                   —
                   application startup/runtime logs.
                 </p>
@@ -2468,6 +2658,7 @@ jobs:
           </html>
           `;
 
+
           fs.writeFileSync(
             'results/k6-report.html',
             report
@@ -2479,40 +2670,66 @@ jobs:
 
           NODE
 
+
+      # ----------------------------------------------------------
+      # Upload k6 artifact
+      # ----------------------------------------------------------
+
       - name: Upload k6 Report and Diagnostics
         if: always()
+
         uses: actions/upload-artifact@v4
+
         with:
           name: k6-load-test-report
+
           path: |
             results/
+
           if-no-files-found: warn
+
+
+      # ----------------------------------------------------------
+      # Fail k6 stage
+      # ----------------------------------------------------------
 
       - name: Fail k6 Stage
         if: always() && steps.k6_tests.outcome == 'failure'
+
         run: |
+
           echo "k6 load test failed."
+
           exit 1
+
 
 
   # ============================================================
   # 3. QA REPORTS
   #
-  # ALWAYS runs.
+  # ALWAYS RUNS
   #
-  # This means:
+  # Cypress PASS
+  #       ↓
+  # k6 RUNS
+  #       ↓
+  # QA REPORTS
+  #       ↓
+  # EMAIL
+  #
+  # OR
   #
   # Cypress FAIL
-  #      ↓
+  #       ↓
   # k6 SKIPPED
-  #      ↓
-  # QA Reports RUN
-  #      ↓
-  # Email sent
+  #       ↓
+  # QA REPORTS
+  #       ↓
+  # EMAIL
   #
   # ============================================================
-  qa-reports:
 
+  qa-reports:
     name: QA Reports
 
     needs:
@@ -2525,32 +2742,282 @@ jobs:
 
     steps:
 
-      - name: Download Cypress Report
+      # ----------------------------------------------------------
+      # Download Cypress artifact
+      # ----------------------------------------------------------
+
+      - name: Download Cypress Artifact
         if: always()
 
         uses: actions/download-artifact@v4
 
         with:
           name: cypress-e2e-report
-          path: reports/cypress
+          path: downloaded/cypress
 
         continue-on-error: true
 
-      - name: Download k6 Report
+
+      # ----------------------------------------------------------
+      # Download k6 artifact
+      # ----------------------------------------------------------
+
+      - name: Download k6 Artifact
         if: always()
 
         uses: actions/download-artifact@v4
 
         with:
           name: k6-load-test-report
-          path: reports/k6
+          path: downloaded/k6
 
         continue-on-error: true
 
-      # --------------------------------------------------------
-      # Combined QA summary
-      # --------------------------------------------------------
+
+      # ----------------------------------------------------------
+      # Normalize reports
+      # ----------------------------------------------------------
+
+      - name: Normalize QA Reports
+        if: always()
+
+        run: |
+
+          set +e
+
+          mkdir -p reports/cypress
+          mkdir -p reports/k6
+
+          echo ""
+          echo "=================================================="
+          echo "Downloaded Artifact Structure"
+          echo "=================================================="
+
+          find downloaded \
+            -type f \
+            -print 2>/dev/null || true
+
+
+          # ----------------------------------------------------
+          # Cypress report
+          # ----------------------------------------------------
+
+          echo ""
+          echo "=================================================="
+          echo "Locating Cypress HTML Report"
+          echo "=================================================="
+
+          CYPRESS_REPORT=$(
+            find downloaded/cypress \
+              -type f \
+              -name "cypress-report.html" \
+              -print -quit 2>/dev/null
+          )
+
+
+          if [ -n "$CYPRESS_REPORT" ]; then
+
+            echo "Found:"
+            echo "$CYPRESS_REPORT"
+
+            cp "$CYPRESS_REPORT" \
+              reports/cypress/cypress-report.html
+
+          else
+
+            echo "Cypress HTML report was not found."
+
+            cat > reports/cypress/cypress-report.html <<'HTML'
+          <!DOCTYPE html>
+
+          <html>
+
+          <head>
+
+            <meta charset="UTF-8">
+
+            <title>
+              Cypress E2E Report
+            </title>
+
+            <style>
+
+              body {
+                font-family: Arial, sans-serif;
+                background: #0d1117;
+                color: #c9d1d9;
+                padding: 40px;
+              }
+
+              .card {
+                background: #161b22;
+                border: 1px solid #30363d;
+                border-radius: 10px;
+                padding: 24px;
+                max-width: 900px;
+                margin: auto;
+              }
+
+              .warning {
+                color: #d29922;
+              }
+
+            </style>
+
+          </head>
+
+          <body>
+
+            <div class="card">
+
+              <h1>
+                Cypress E2E Test Report
+              </h1>
+
+              <h2 class="warning">
+                No Cypress HTML report was available.
+              </h2>
+
+              <p>
+                Cypress stage result:
+                <strong>
+                  ${{ needs.cypress-e2e.result }}
+                </strong>
+              </p>
+
+              <p>
+                Check the GitHub Actions artifacts
+                and logs for detailed diagnostics.
+              </p>
+
+            </div>
+
+          </body>
+
+          </html>
+          HTML
+
+          fi
+
+
+          # ----------------------------------------------------
+          # k6 report
+          # ----------------------------------------------------
+
+          echo ""
+          echo "=================================================="
+          echo "Locating k6 HTML Report"
+          echo "=================================================="
+
+          K6_REPORT=$(
+            find downloaded/k6 \
+              -type f \
+              -name "k6-report.html" \
+              -print -quit 2>/dev/null
+          )
+
+
+          if [ -n "$K6_REPORT" ]; then
+
+            echo "Found:"
+            echo "$K6_REPORT"
+
+            cp "$K6_REPORT" \
+              reports/k6/k6-report.html
+
+          else
+
+            echo "k6 HTML report was not found."
+
+            cat > reports/k6/k6-report.html <<'HTML'
+          <!DOCTYPE html>
+
+          <html>
+
+          <head>
+
+            <meta charset="UTF-8">
+
+            <title>
+              k6 Load Test Report
+            </title>
+
+            <style>
+
+              body {
+                font-family: Arial, sans-serif;
+                background: #0d1117;
+                color: #c9d1d9;
+                padding: 40px;
+              }
+
+              .card {
+                background: #161b22;
+                border: 1px solid #30363d;
+                border-radius: 10px;
+                padding: 24px;
+                max-width: 900px;
+                margin: auto;
+              }
+
+              .warning {
+                color: #d29922;
+              }
+
+            </style>
+
+          </head>
+
+          <body>
+
+            <div class="card">
+
+              <h1>
+                k6 Load Test Report
+              </h1>
+
+              <h2 class="warning">
+                k6 did not execute.
+              </h2>
+
+              <p>
+                k6 stage result:
+                <strong>
+                  ${{ needs.k6-load-test.result }}
+                </strong>
+              </p>
+
+              <p>
+                k6 executes only after Cypress E2E passes.
+              </p>
+
+            </div>
+
+          </body>
+
+          </html>
+          HTML
+
+          fi
+
+
+          echo ""
+          echo "=================================================="
+          echo "Normalized QA Reports"
+          echo "=================================================="
+
+          find reports \
+            -type f \
+            -print
+
+
+      # ----------------------------------------------------------
+      # Generate combined QA summary
+      # ----------------------------------------------------------
+
       - name: Generate QA Summary
+        if: always()
+
         env:
           CYPRESS_RESULT: ${{ needs.cypress-e2e.result }}
           K6_RESULT: ${{ needs.k6-load-test.result }}
@@ -2559,9 +3026,8 @@ jobs:
 
           mkdir -p reports
 
-          if [
-            "$CYPRESS_RESULT" = "success"
-          ]; then
+
+          if [ "$CYPRESS_RESULT" = "success" ]; then
 
             CYPRESS_CLASS="passed"
 
@@ -2571,15 +3037,12 @@ jobs:
 
           fi
 
-          if [
-            "$K6_RESULT" = "success"
-          ]; then
+
+          if [ "$K6_RESULT" = "success" ]; then
 
             K6_CLASS="passed"
 
-          elif [
-            "$K6_RESULT" = "skipped"
-          ]; then
+          elif [ "$K6_RESULT" = "skipped" ]; then
 
             K6_CLASS="neutral"
 
@@ -2589,8 +3052,10 @@ jobs:
 
           fi
 
+
           if [
-            "$CYPRESS_RESULT" = "success" &&
+            "$CYPRESS_RESULT" = "success"
+          ] && [
             "$K6_RESULT" = "success"
           ]; then
 
@@ -2603,6 +3068,7 @@ jobs:
             OVERALL_CLASS="failed"
 
           fi
+
 
           cat > reports/qa-summary.html <<EOF
 
@@ -2673,8 +3139,7 @@ jobs:
 
               th,
               td {
-                border:
-                  1px solid #30363d;
+                border: 1px solid #30363d;
                 padding: 12px;
                 text-align: left;
               }
@@ -2752,6 +3217,7 @@ jobs:
 
               </div>
 
+
               <div class="card">
 
                 <h2>
@@ -2766,6 +3232,7 @@ jobs:
                   </tr>
 
                   <tr>
+
                     <td>
                       Cypress E2E
                     </td>
@@ -2773,9 +3240,11 @@ jobs:
                     <td class="$CYPRESS_CLASS">
                       $CYPRESS_RESULT
                     </td>
+
                   </tr>
 
                   <tr>
+
                     <td>
                       k6 Load Test
                     </td>
@@ -2783,39 +3252,32 @@ jobs:
                     <td class="$K6_CLASS">
                       $K6_RESULT
                     </td>
+
                   </tr>
 
                 </table>
 
               </div>
 
+
               <div class="card">
 
                 <h2>
-                  Reports
+                  Reports Included
                 </h2>
 
                 <ul>
 
                   <li>
-                    Cypress:
-                    <code>
-                      reports/cypress/cypress-report.html
-                    </code>
+                    Cypress E2E HTML Report
                   </li>
 
                   <li>
-                    k6:
-                    <code>
-                      reports/k6/k6-report.html
-                    </code>
+                    k6 Load Test HTML Report
                   </li>
 
                   <li>
-                    QA Summary:
-                    <code>
-                      reports/qa-summary.html
-                    </code>
+                    Combined QA Pipeline Summary
                   </li>
 
                 </ul>
@@ -2830,24 +3292,102 @@ jobs:
 
           EOF
 
-      # --------------------------------------------------------
-      # Upload all reports as one artifact
-      # --------------------------------------------------------
+
+      # ----------------------------------------------------------
+      # Verify email attachments
+      # ----------------------------------------------------------
+
+      - name: Verify Email Attachments
+        if: always()
+
+        run: |
+
+          echo ""
+          echo "=================================================="
+          echo "EMAIL ATTACHMENT VERIFICATION"
+          echo "=================================================="
+
+
+          REQUIRED_FILES=(
+            "reports/qa-summary.html"
+            "reports/cypress/cypress-report.html"
+            "reports/k6/k6-report.html"
+          )
+
+
+          FAILED=0
+
+
+          for FILE in "${REQUIRED_FILES[@]}"; do
+
+            if [ -f "$FILE" ]; then
+
+              SIZE=$(wc -c < "$FILE")
+
+              echo "✓ $FILE"
+              echo "  Size: ${SIZE} bytes"
+
+            else
+
+              echo "✗ MISSING: $FILE"
+
+              FAILED=1
+
+            fi
+
+          done
+
+
+          echo ""
+          echo "Complete report directory:"
+
+          find reports \
+            -type f \
+            -exec ls -lh {} \;
+
+
+          if [ "$FAILED" -ne 0 ]; then
+
+            echo ""
+            echo "ERROR: One or more email attachments are missing."
+
+            exit 1
+
+          fi
+
+
+          echo ""
+          echo "✓ All email attachments are present."
+
+
+      # ----------------------------------------------------------
+      # Upload combined reports
+      # ----------------------------------------------------------
+
       - name: Upload Combined QA Reports
         if: always()
 
         uses: actions/upload-artifact@v4
 
         with:
-          name: qa-reports
-          path: reports/
-          if-no-files-found: warn
 
-      # --------------------------------------------------------
-      # EMAIL
+          name: qa-reports
+
+          path: reports/
+
+          if-no-files-found: error
+
+
+      # ----------------------------------------------------------
+      # Send email
       #
-      # HTML reports are ATTACHED here.
-      # --------------------------------------------------------
+      # html_body:
+      #   HTML rendered INSIDE the email
+      #
+      # attachments:
+      #   Actual HTML report FILES
+      # ----------------------------------------------------------
+
       - name: Send QA Report Email
         if: always()
 
@@ -2865,10 +3405,12 @@ jobs:
 
           subject: >
             QA Pipeline -
+            Cypress:
             ${{ needs.cypress-e2e.result }}
-            /
+            |
+            k6:
             ${{ needs.k6-load-test.result }}
-            -
+            |
             Run #${{ github.run_number }}
 
           to: "kaifkhanmohammed718@gmail.com"
@@ -2877,48 +3419,119 @@ jobs:
 
           html_body: |
 
-            <h2>
-              QA Pipeline Results
-            </h2>
+            <div style="
+              font-family:Arial,sans-serif;
+              max-width:700px;
+              margin:auto;
+            ">
 
-            <p>
-              <strong>
-                Cypress E2E:
-              </strong>
+              <h2>
+                QA Pipeline Results
+              </h2>
 
-              ${{ needs.cypress-e2e.result }}
-            </p>
+              <hr>
 
-            <p>
-              <strong>
-                k6 Load Test:
-              </strong>
+              <p>
 
-              ${{ needs.k6-load-test.result }}
-            </p>
+                <strong>
+                  Cypress E2E:
+                </strong>
 
-            <p>
-              <strong>
-                GitHub Actions Run:
-              </strong>
+                ${{ needs.cypress-e2e.result }}
 
-              #${{ github.run_number }}
-            </p>
+              </p>
 
-            <p>
+              <p>
 
-              <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">
+                <strong>
+                  k6 Load Test:
+                </strong>
 
-                Open GitHub Actions Run
+                ${{ needs.k6-load-test.result }}
 
-              </a>
+              </p>
 
-            </p>
+              <p>
 
-            <p>
-              The detailed QA HTML reports are attached
-              to this email.
-            </p>
+                <strong>
+                  Workflow Run:
+                </strong>
+
+                #${{ github.run_number }}
+
+              </p>
+
+              <p>
+
+                <strong>
+                  Commit:
+                </strong>
+
+                ${{ github.sha }}
+
+              </p>
+
+              <p>
+
+                <strong>
+                  Execution:
+                </strong>
+
+                GitHub Actions
+
+              </p>
+
+              <p>
+
+                <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">
+
+                  Open GitHub Actions Run
+
+                </a>
+
+              </p>
+
+              <hr>
+
+              <h3>
+                QA HTML Reports
+              </h3>
+
+              <p>
+                The following detailed reports are attached:
+              </p>
+
+              <ul>
+
+                <li>
+                  <strong>
+                    qa-summary.html
+                  </strong>
+                  — Overall QA pipeline result
+                </li>
+
+                <li>
+                  <strong>
+                    cypress-report.html
+                  </strong>
+                  — Detailed Cypress E2E results
+                </li>
+
+                <li>
+                  <strong>
+                    k6-report.html
+                  </strong>
+                  — Detailed k6 load-test metrics
+                </li>
+
+              </ul>
+
+              <p>
+                Open the attached HTML files in a browser
+                to view the complete reports.
+              </p>
+
+            </div>
 
           attachments: |
 
