@@ -30,7 +30,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd="pg_isready -U postgres"
+          --health-cmd="pg_isready -U postgres -d resume_db"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
@@ -58,22 +58,18 @@ jobs:
           fi
 
       # --------------------------------------------------------
-      # Verify that REAL Cypress tests exist.
-      # We intentionally do NOT create placeholder tests.
+      # REAL Cypress specs are required.
       # --------------------------------------------------------
       - name: Verify Cypress E2E Specs
         run: |
           echo "Searching for Cypress E2E specs..."
 
-          if ! find cypress/e2e \
-            -type f \
-            \( \
-              -name '*.cy.js' \
-              -o -name '*.cy.jsx' \
-              -o -name '*.cy.ts' \
-              -o -name '*.cy.tsx' \
-            \) \
-            -print -quit 2>/dev/null | grep -q .; then
+          if ! find cypress/e2e -type f \( \
+            -name '*.cy.js' -o \
+            -name '*.cy.jsx' -o \
+            -name '*.cy.ts' -o \
+            -name '*.cy.tsx' \
+          \) -print -quit 2>/dev/null | grep -q .; then
 
             echo ""
             echo "ERROR: No Cypress E2E spec files were found."
@@ -91,16 +87,13 @@ jobs:
           fi
 
           echo ""
-          echo "Cypress E2E specs found:"
-          find cypress/e2e \
-            -type f \
-            \( \
-              -name '*.cy.js' \
-              -o -name '*.cy.jsx' \
-              -o -name '*.cy.ts' \
-              -o -name '*.cy.tsx' \
-            \) \
-            -print
+          echo "Cypress specs found:"
+          find cypress/e2e -type f \( \
+            -name '*.cy.js' -o \
+            -name '*.cy.jsx' -o \
+            -name '*.cy.ts' -o \
+            -name '*.cy.tsx' \
+          \) -print
 
       # --------------------------------------------------------
       # Start application
@@ -120,11 +113,12 @@ jobs:
           npm start > cypress/reports/app.log 2>&1 &
 
           APP_PID=$!
+
           echo "$APP_PID" > cypress/reports/app.pid
 
           echo "Application PID: $APP_PID"
 
-          echo "Waiting for application on port 3000..."
+          echo "Waiting for application..."
 
           for i in {1..30}; do
 
@@ -136,41 +130,47 @@ jobs:
               > /dev/null 2>&1; then
 
               echo "Application is ready on http://127.0.0.1:3000"
+
               exit 0
             fi
 
             if ! kill -0 "$APP_PID" 2>/dev/null; then
+
               echo ""
-              echo "ERROR: Application process exited unexpectedly."
+              echo "ERROR: Application exited unexpectedly."
               echo ""
-              echo "Application logs:"
+
               cat cypress/reports/app.log || true
+
               exit 1
             fi
 
             echo "Waiting for application... attempt $i/30"
+
             sleep 2
           done
 
           echo ""
           echo "ERROR: Application failed to become ready."
           echo ""
-          echo "Application logs:"
+
           cat cypress/reports/app.log || true
 
           exit 1
 
       # --------------------------------------------------------
-      # Cypress
+      # Cypress execution
       # --------------------------------------------------------
       - name: Run Cypress E2E Tests
         id: cypress_tests
         continue-on-error: true
+
         env:
           CYPRESS_baseUrl: http://127.0.0.1:3000
           DB_HOST: 127.0.0.1
           DB_USER: ${{ secrets.DB_USER }}
           DB_PASS: ${{ secrets.DB_PASS }}
+
         run: |
           mkdir -p cypress/reports
 
@@ -190,14 +190,47 @@ jobs:
           exit "$CYPRESS_EXIT"
 
       # --------------------------------------------------------
-      # Generate REAL Cypress report from JUnit results
+      # Diagnostics
       # --------------------------------------------------------
-      - name: Generate Cypress HTML Report
+      - name: Capture Cypress Diagnostics
         if: always()
+        run: |
+          mkdir -p cypress/reports
+
+          {
+            echo "=== Cypress Diagnostics ==="
+            echo "Timestamp: $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+            echo "Cypress result: ${{ steps.cypress_tests.outcome }}"
+            echo ""
+
+            echo "=== Cypress Specs ==="
+            find cypress/e2e -type f 2>/dev/null || true
+
+            echo ""
+
+            echo "=== Application Log ==="
+            cat cypress/reports/app.log 2>/dev/null || true
+
+            echo ""
+
+            echo "=== Cypress Console Log ==="
+            cat cypress/reports/cypress-run.log 2>/dev/null || true
+
+          } > cypress/reports/diagnostics.log
+
+      # --------------------------------------------------------
+      # Detailed REAL Cypress HTML report
+      # --------------------------------------------------------
+      - name: Generate Detailed Cypress HTML Report
+        if: always()
+
         env:
           CYPRESS_STEP_OUTCOME: ${{ steps.cypress_tests.outcome }}
+
         run: |
+
           python3 <<'PYTHON'
+
           import html
           import os
           import subprocess
@@ -205,29 +238,28 @@ jobs:
           from pathlib import Path
 
           REPORT_DIR = Path("cypress/reports")
-          REPORT_DIR.mkdir(parents=True, exist_ok=True)
+
+          REPORT_DIR.mkdir(
+              parents=True,
+              exist_ok=True
+          )
 
           def esc(value):
               return html.escape(
                   str(value if value is not None else "")
               )
 
-          def seconds_text(value):
+          def seconds(value):
+
               try:
                   n = float(value or 0)
-              except (TypeError, ValueError):
+              except Exception:
                   n = 0
 
               if n < 1:
                   return f"{round(n * 1000)}ms"
 
               return f"{n:.2f}s"
-
-          def get_suites(root):
-              if root.tag == "testsuite":
-                  return [root]
-
-              return root.findall(".//testsuite")
 
           try:
 
@@ -242,21 +274,29 @@ jobs:
               passed = 0
               failed = 0
               skipped = 0
-              pending = 0
 
-              duration_seconds = 0.0
+              duration_total = 0.0
 
               for xml_file in xml_files:
 
                   try:
                       root = ET.parse(xml_file).getroot()
+
                   except Exception as error:
+
                       print(
                           f"Could not parse {xml_file}: {error}"
                       )
+
                       continue
 
-                  for suite in get_suites(root):
+                  roots = (
+                      [root]
+                      if root.tag == "testsuite"
+                      else root.findall(".//testsuite")
+                  )
+
+                  for suite in roots:
 
                       suite_name = suite.attrib.get(
                           "name",
@@ -280,7 +320,7 @@ jobs:
 
                       for case in cases:
 
-                          name = case.attrib.get(
+                          test_name = case.attrib.get(
                               "name",
                               "Unnamed test"
                           )
@@ -291,14 +331,14 @@ jobs:
                           )
 
                           try:
-                              case_time = float(
+                              test_time = float(
                                   case.attrib.get(
                                       "time",
                                       "0"
                                   ) or 0
                               )
                           except Exception:
-                              case_time = 0
+                              test_time = 0
 
                           failure = case.find("failure")
                           skipped_node = case.find("skipped")
@@ -306,59 +346,57 @@ jobs:
                           if failure is not None:
 
                               state = "failed"
-                              suite_failed += 1
-
-                              error_message = (
-                                  failure.attrib.get(
-                                      "message",
-                                      "Test failed"
-                                  )
-                              )
-
-                              error_stack = (
-                                  failure.text or ""
-                              )
 
                               failed += 1
+                              suite_failed += 1
+
+                              message = failure.attrib.get(
+                                  "message",
+                                  "Test failed"
+                              )
+
+                              stack = failure.text or ""
 
                           elif skipped_node is not None:
 
                               state = "skipped"
-                              suite_skipped += 1
-                              skipped += 1
 
-                              error_message = ""
-                              error_stack = ""
+                              skipped += 1
+                              suite_skipped += 1
+
+                              message = ""
+                              stack = ""
 
                           else:
 
                               state = "passed"
+
                               passed += 1
 
-                              error_message = ""
-                              error_stack = ""
+                              message = ""
+                              stack = ""
 
                           total += 1
 
                           tests.append({
                               "spec": suite_name,
                               "classname": classname,
-                              "name": name,
-                              "duration": case_time,
+                              "name": test_name,
+                              "duration": test_time,
                               "state": state,
-                              "error_message": error_message,
-                              "error_stack": error_stack,
+                              "message": message,
+                              "stack": stack
                           })
-
-                      duration_seconds += suite_time
 
                       suites.append({
                           "name": suite_name,
                           "tests": len(cases),
-                          "failures": suite_failed,
+                          "failed": suite_failed,
                           "skipped": suite_skipped,
-                          "duration": suite_time,
+                          "duration": suite_time
                       })
+
+                      duration_total += suite_time
 
               step_outcome = os.environ.get(
                   "CYPRESS_STEP_OUTCOME",
@@ -367,95 +405,92 @@ jobs:
 
               if total == 0:
                   status = "FAILED"
-              elif failed > 0 or step_outcome == "failure":
+
+              elif failed > 0:
                   status = "FAILED"
+
+              elif step_outcome == "failure":
+                  status = "FAILED"
+
               else:
                   status = "PASSED"
 
               status_class = (
-                  "success"
-                  if status == "PASSED"
-                  else "danger"
+                  "danger"
+                  if status == "FAILED"
+                  else "success"
               )
 
-              try:
-                  cypress_version = subprocess.check_output(
-                      [
-                          "npx",
-                          "cypress",
-                          "version",
-                          "--component",
-                          "version",
-                      ],
-                      text=True,
-                      stderr=subprocess.DEVNULL,
-                  ).strip()
-              except Exception:
-                  cypress_version = "Unknown"
-
-              try:
-                  chrome_version = subprocess.check_output(
-                      ["google-chrome", "--version"],
-                      text=True,
-                      stderr=subprocess.DEVNULL,
-                  ).strip()
-              except Exception:
-                  chrome_version = "Unknown"
-
-              node_version = subprocess.check_output(
-                  ["node", "--version"],
-                  text=True,
-              ).strip()
-
-              timestamp = subprocess.check_output(
-                  [
-                      "date",
-                      "-u",
-                      "+%Y-%m-%dT%H:%M:%SZ",
-                  ],
-                  text=True,
-              ).strip()
-
-              run_url = ""
-
-              if (
-                  os.environ.get("GITHUB_SERVER_URL")
-                  and os.environ.get("GITHUB_REPOSITORY")
-                  and os.environ.get("GITHUB_RUN_ID")
+              def command(
+                  *args,
+                  default="Unknown"
               ):
-                  run_url = (
-                      f"{os.environ['GITHUB_SERVER_URL']}/"
-                      f"{os.environ['GITHUB_REPOSITORY']}/actions/runs/"
-                      f"{os.environ['GITHUB_RUN_ID']}"
-                  )
 
-              if suites:
+                  try:
 
-                  suite_rows = "".join(
-                      f"""
-                      <tr>
-                        <td>{esc(s['name'])}</td>
-                        <td>{s['tests']}</td>
-                        <td class="{
-                            'danger-text'
-                            if s['failures']
-                            else 'success-text'
-                        }">
-                          {
-                            '✗'
-                            if s['failures']
-                            else '✓'
-                          }
-                        </td>
-                        <td>{s['failures']}</td>
-                        <td>{s['skipped']}</td>
-                        <td>{seconds_text(s['duration'])}</td>
-                      </tr>
-                      """
-                      for s in suites
-                  )
+                      return subprocess.check_output(
+                          args,
+                          text=True,
+                          stderr=subprocess.DEVNULL
+                      ).strip()
 
-              else:
+                  except Exception:
+
+                      return default
+
+              cypress_version = command(
+                  "npx",
+                  "cypress",
+                  "version",
+                  "--component",
+                  "version"
+              )
+
+              chrome_version = command(
+                  "google-chrome",
+                  "--version"
+              )
+
+              node_version = command(
+                  "node",
+                  "--version"
+              )
+
+              timestamp = command(
+                  "date",
+                  "-u",
+                  "+%Y-%m-%dT%H:%M:%SZ"
+              )
+
+              run_url = (
+                  f"{os.environ.get('GITHUB_SERVER_URL','')}/"
+                  f"{os.environ.get('GITHUB_REPOSITORY','')}/"
+                  f"actions/runs/"
+                  f"{os.environ.get('GITHUB_RUN_ID','')}"
+              )
+
+              suite_rows = ""
+
+              for suite in suites:
+
+                  suite_rows += f"""
+                  <tr>
+                    <td>{esc(suite["name"])}</td>
+                    <td>{suite["tests"]}</td>
+                    <td class="{(
+                        "danger-text"
+                        if suite["failed"]
+                        else "success-text"
+                    )}">
+                      {"✗" if suite["failed"] else "✓"}
+                    </td>
+                    <td>{suite["failed"]}</td>
+                    <td>{suite["skipped"]}</td>
+                    <td>{seconds(suite["duration"])}</td>
+                  </tr>
+                  """
+
+              if not suite_rows:
 
                   suite_rows = """
                   <tr>
@@ -465,45 +500,43 @@ jobs:
                   </tr>
                   """
 
-              if tests:
+              test_rows = ""
 
-                  test_rows = "".join(
-                      f"""
-                      <tr>
-                        <td>
-                          {
-                            '✓'
-                            if t['state'] == 'passed'
-                            else '✗'
-                            if t['state'] == 'failed'
-                            else '•'
-                          }
-                        </td>
+              for test in tests:
 
-                        <td>{esc(t['spec'])}</td>
-                        <td>{esc(t['name'])}</td>
-
-                        <td>
-                          {seconds_text(t['duration'])}
-                        </td>
-
-                        <td class="{
-                            'danger-text'
-                            if t['state'] == 'failed'
-                            else
-                            'success-text'
-                            if t['state'] == 'passed'
-                            else
-                            'warning-text'
-                        }">
-                          {esc(t['state'].upper())}
-                        </td>
-                      </tr>
-                      """
-                      for t in tests
+                  icon = (
+                      "✓"
+                      if test["state"] == "passed"
+                      else
+                      "✗"
+                      if test["state"] == "failed"
+                      else
+                      "•"
                   )
 
-              else:
+                  state_class = (
+                      "danger-text"
+                      if test["state"] == "failed"
+                      else
+                      "success-text"
+                      if test["state"] == "passed"
+                      else
+                      "warning-text"
+                  )
+
+                  test_rows += f"""
+                  <tr>
+                    <td>{icon}</td>
+                    <td>{esc(test["spec"])}</td>
+                    <td>{esc(test["name"])}</td>
+                    <td>{seconds(test["duration"])}</td>
+                    <td class="{state_class}">
+                      {esc(test["state"].upper())}
+                    </td>
+                  </tr>
+                  """
+
+              if not test_rows:
 
                   test_rows = """
                   <tr>
@@ -514,49 +547,48 @@ jobs:
                   """
 
               failures = [
-                  t
-                  for t in tests
-                  if t["state"] == "failed"
+                  test
+                  for test in tests
+                  if test["state"] == "failed"
               ]
 
-              if failures:
+              failure_rows = ""
 
-                  failure_rows = "".join(
-                      f"""
-                      <div class="failure-box">
+              for test in failures:
 
-                        <h3>✗ {esc(t['name'])}</h3>
+                  failure_rows += f"""
+                  <div class="failure-box">
 
-                        <p>
-                          <strong>Spec:</strong>
-                          {esc(t['spec'])}
-                        </p>
+                    <h3>
+                      ✗ {esc(test["name"])}
+                    </h3>
 
-                        <p>
-                          <strong>Duration:</strong>
-                          {seconds_text(t['duration'])}
-                        </p>
+                    <p>
+                      <strong>Spec:</strong>
+                      {esc(test["spec"])}
+                    </p>
 
-                        <p>
-                          <strong>Error:</strong>
-                          {esc(
-                              t['error_message']
-                              or 'Test failed'
-                          )}
-                        </p>
+                    <p>
+                      <strong>Duration:</strong>
+                      {seconds(test["duration"])}
+                    </p>
 
-                        {
-                          f"<pre>{esc(t['error_stack'])}</pre>"
-                          if t['error_stack']
-                          else ""
-                        }
+                    <p>
+                      <strong>Error:</strong>
+                      {esc(
+                          test["message"]
+                          or "Test failed"
+                      )}
+                    </p>
 
-                      </div>
-                      """
-                      for t in failures
-                  )
+                    <pre>
+                      {esc(test["stack"])}
+                    </pre>
 
-              else:
+                  </div>
+                  """
+
+              if not failure_rows:
 
                   failure_rows = """
                   <p class="success-text">
@@ -594,29 +626,21 @@ jobs:
 
                   .card {{
                     background: #161b22;
-                    padding: 24px;
-                    border-radius: 10px;
                     border: 1px solid #30363d;
+                    border-radius: 10px;
+                    padding: 24px;
                     margin-bottom: 22px;
-                    box-shadow:
-                      0 4px 12px rgba(0,0,0,.25);
                   }}
 
                   h1 {{
                     color: #58a6ff;
-                    margin-top: 0;
                   }}
 
                   h2 {{
                     color: #58a6ff;
-                    font-size: 18px;
                     border-bottom:
                       1px solid #30363d;
                     padding-bottom: 8px;
-                  }}
-
-                  .meta {{
-                    line-height: 1.8;
                   }}
 
                   .status {{
@@ -689,8 +713,7 @@ jobs:
 
                   th,
                   td {{
-                    border:
-                      1px solid #30363d;
+                    border: 1px solid #30363d;
                     padding: 10px 12px;
                     text-align: left;
                     vertical-align: top;
@@ -718,8 +741,7 @@ jobs:
                     white-space: pre-wrap;
                     overflow-wrap: anywhere;
                     background: #0d1117;
-                    border:
-                      1px solid #30363d;
+                    border: 1px solid #30363d;
                     padding: 12px;
                     border-radius: 6px;
                     color: #ff7b72;
@@ -745,54 +767,45 @@ jobs:
 
                     <span class="status {status_class}">
                       {
-                        '✓'
-                        if status == 'PASSED'
-                        else '✗'
+                        "✓"
+                        if status == "PASSED"
+                        else "✗"
                       }
                       {status}
                     </span>
 
-                    <div class="meta">
+                    <p>
+                      <strong>Cypress:</strong>
+                      {esc(cypress_version)}
+                    </p>
 
-                      <p>
-                        <strong>Cypress:</strong>
-                        {esc(cypress_version)}
-                      </p>
+                    <p>
+                      <strong>Browser:</strong>
+                      {esc(chrome_version)}
+                      (headless)
+                    </p>
 
-                      <p>
-                        <strong>Browser:</strong>
-                        {esc(chrome_version)}
-                      </p>
+                    <p>
+                      <strong>Node:</strong>
+                      {esc(node_version)}
+                    </p>
 
-                      <p>
-                        <strong>Node:</strong>
-                        {esc(node_version)}
-                      </p>
+                    <p>
+                      <strong>Execution:</strong>
+                      GitHub Actions
+                    </p>
 
-                      <p>
-                        <strong>Execution:</strong>
-                        GitHub Actions
-                      </p>
+                    <p>
+                      <strong>Timestamp:</strong>
+                      {esc(timestamp)}
+                    </p>
 
-                      <p>
-                        <strong>Timestamp:</strong>
-                        {esc(timestamp)}
-                      </p>
-
-                      {
-                        f'''
-                        <p>
-                          <strong>Workflow Run:</strong>
-                          <a href="{esc(run_url)}">
-                            Open GitHub Actions run
-                          </a>
-                        </p>
-                        '''
-                        if run_url
-                        else ""
-                      }
-
-                    </div>
+                    <p>
+                      <strong>Workflow Run:</strong>
+                      <a href="{esc(run_url)}">
+                        Open GitHub Actions run
+                      </a>
+                    </p>
 
                   </div>
 
@@ -854,7 +867,7 @@ jobs:
                           Duration
                         </div>
                         <div class="value">
-                          {seconds_text(duration_seconds)}
+                          {seconds(duration_total)}
                         </div>
                       </div>
 
@@ -870,22 +883,16 @@ jobs:
 
                     <table>
 
-                      <thead>
+                      <tr>
+                        <th>Spec</th>
+                        <th>Tests</th>
+                        <th>Status</th>
+                        <th>Failed</th>
+                        <th>Skipped</th>
+                        <th>Duration</th>
+                      </tr>
 
-                        <tr>
-                          <th>Spec</th>
-                          <th>Tests</th>
-                          <th>Status</th>
-                          <th>Failed</th>
-                          <th>Skipped</th>
-                          <th>Duration</th>
-                        </tr>
-
-                      </thead>
-
-                      <tbody>
-                        {suite_rows}
-                      </tbody>
+                      {suite_rows}
 
                     </table>
 
@@ -899,21 +906,15 @@ jobs:
 
                     <table>
 
-                      <thead>
+                      <tr>
+                        <th></th>
+                        <th>Spec</th>
+                        <th>Test</th>
+                        <th>Duration</th>
+                        <th>Status</th>
+                      </tr>
 
-                        <tr>
-                          <th></th>
-                          <th>Spec</th>
-                          <th>Test</th>
-                          <th>Duration</th>
-                          <th>Status</th>
-                        </tr>
-
-                      </thead>
-
-                      <tbody>
-                        {test_rows}
-                      </tbody>
+                      {test_rows}
 
                     </table>
 
@@ -936,9 +937,10 @@ jobs:
                     </h2>
 
                     <p>
-                      Raw JUnit XML, Cypress console output,
-                      screenshots, videos and application logs
-                      are uploaded by the workflow.
+                      JUnit XML, Cypress console output,
+                      screenshots, videos, application logs,
+                      and diagnostics are included in the
+                      workflow artifacts.
                     </p>
 
                   </div>
@@ -959,24 +961,10 @@ jobs:
               )
 
               print(
-                  "Generated "
-                  "cypress/reports/cypress-report.html"
-              )
-
-              print(
-                  f"Cypress results: "
-                  f"{total} tests, "
-                  f"{passed} passed, "
-                  f"{failed} failed, "
-                  f"{skipped} skipped."
+                  "Generated Cypress HTML report."
               )
 
           except Exception as error:
-
-              print(
-                  "Error generating Cypress report:",
-                  error
-              )
 
               fallback = f"""
               <!DOCTYPE html>
@@ -987,6 +975,7 @@ jobs:
                 color:#c9d1d9;
                 padding:30px
               ">
+
                 <h1>
                   Cypress Report Generation Error
                 </h1>
@@ -1006,9 +995,14 @@ jobs:
                   fallback,
                   encoding="utf-8"
               )
+
+              print(
+                  f"Cypress report generation failed: {error}"
+              )
+
           PYTHON
 
-      - name: Upload Cypress Reports
+      - name: Upload Cypress Report and Diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -1019,24 +1013,28 @@ jobs:
             cypress/videos/
           if-no-files-found: warn
 
-      # --------------------------------------------------------
-      # Cypress must pass before k6 starts.
-      # --------------------------------------------------------
       - name: Fail Cypress Stage
-        if: steps.cypress_tests.outcome == 'failure'
+        if: always() && steps.cypress_tests.outcome == 'failure'
         run: |
           echo "Cypress E2E tests failed."
+          echo "k6 will not run."
           exit 1
 
 
   # ============================================================
   # 2. k6 LOAD TEST
   #
-  # This job starts ONLY after Cypress succeeds.
+  # IMPORTANT:
+  # k6 executes ONLY after Cypress passes.
   # ============================================================
   k6-load-test:
     name: k6 Load Test
-    needs: cypress-e2e
+
+    needs:
+      - cypress-e2e
+
+    if: needs.cypress-e2e.result == 'success'
+
     runs-on: ubuntu-latest
 
     services:
@@ -1049,7 +1047,7 @@ jobs:
         ports:
           - 5432:5432
         options: >-
-          --health-cmd="pg_isready -U postgres"
+          --health-cmd="pg_isready -U postgres -d resume_db"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
@@ -1072,56 +1070,15 @@ jobs:
         run: |
           if npm run | grep -q "build"; then
             npm run build
-          else
-            echo "No build script found. Skipping build."
           fi
 
-      - name: Create Results Directory
+      - name: Verify k6 Script
         run: |
-          mkdir -p results
+          if [ ! -f tests/load.js ]; then
+            echo "ERROR: tests/load.js was not found."
+            exit 1
+          fi
 
-      # --------------------------------------------------------
-      # Install k6 directly on the GitHub runner.
-      #
-      # This is intentional:
-      #
-      # npm start
-      #      ↓
-      # localhost:3000
-      #      ↑
-      # k6
-      #
-      # Both are on the same runner/network namespace.
-      # --------------------------------------------------------
-      - name: Install k6
-        run: |
-          sudo gpg -k
-
-          sudo apt-get update
-
-          sudo apt-get install -y \
-            gnupg \
-            ca-certificates \
-            curl
-
-          curl -fsSL https://dl.k6.io/key.gpg \
-            | sudo gpg \
-              --dearmor \
-              -o /usr/share/keyrings/k6-archive-keyring.gpg
-
-          echo \
-            "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" \
-            | sudo tee /etc/apt/sources.list.d/k6.list
-
-          sudo apt-get update
-
-          sudo apt-get install -y k6
-
-          k6 version
-
-      # --------------------------------------------------------
-      # Start application
-      # --------------------------------------------------------
       - name: Start Application
         env:
           PORT: 3000
@@ -1130,15 +1087,14 @@ jobs:
           DB_USER: ${{ secrets.DB_USER }}
           DB_PASS: ${{ secrets.DB_PASS }}
         run: |
-          npm start > app.log 2>&1 &
+
+          mkdir -p results
+
+          npm start > results/app.log 2>&1 &
 
           APP_PID=$!
 
           echo "$APP_PID" > results/app.pid
-
-          echo "Application PID: $APP_PID"
-
-          echo "Waiting for application on port 3000..."
 
           for i in {1..30}; do
 
@@ -1150,67 +1106,61 @@ jobs:
               > /dev/null 2>&1; then
 
               echo "Application is ready."
+
               exit 0
+
             fi
 
             if ! kill -0 "$APP_PID" 2>/dev/null; then
 
-              echo ""
-              echo "ERROR: Application exited unexpectedly."
-              echo ""
+              echo "Application exited."
 
-              cat app.log || true
+              cat results/app.log || true
 
               exit 1
-            fi
 
-            echo "Waiting... attempt $i/30"
+            fi
 
             sleep 2
 
           done
 
-          echo ""
-          echo "ERROR: Application failed to start."
-          echo ""
-
-          cat app.log || true
+          cat results/app.log || true
 
           exit 1
 
       # --------------------------------------------------------
-      # Run k6
+      # Actual k6 execution
       # --------------------------------------------------------
       - name: Run k6 Load Test
         id: k6_tests
         continue-on-error: true
-        run: |
-          echo "Starting k6 load test..."
 
-          k6 run \
-            --out json=results/output.json \
-            --summary-export=results/summary.json \
-            --summary-trend-stats="avg,min,med,max,p(90),p(95),p(99)" \
-            tests/load.js
+        uses: grafana/k6-action@v0.3.0
 
-          K6_EXIT=$?
+        with:
+          filename: tests/load.js
 
-          echo "k6 exit code: $K6_EXIT"
-
-          exit "$K6_EXIT"
+          flags: >-
+            --out json=results/output.json
+            --summary-export=results/summary.json
 
       # --------------------------------------------------------
-      # Detailed real k6 report
+      # Generate REAL k6 report from summary.json/output.json
       # --------------------------------------------------------
       - name: Generate Detailed k6 HTML Report
         if: always()
+
         env:
           K6_STEP_OUTCOME: ${{ steps.k6_tests.outcome }}
-        run: |
-          node <<'NODE'
-          const fs = require('fs');
 
-          const RESULTS = 'results';
+        run: |
+
+          mkdir -p results
+
+          node <<'NODE'
+
+          const fs = require('fs');
 
           function esc(value) {
             return String(value ?? '')
@@ -1221,7 +1171,7 @@ jobs:
               .replace(/'/g, '&#39;');
           }
 
-          function number(value) {
+          function num(value) {
             const n = Number(value);
 
             return Number.isFinite(n)
@@ -1235,13 +1185,20 @@ jobs:
             };
           }
 
-          function metricValue(summary, name, key) {
-            return metric(summary, name)
-              .values?.[key];
+          function metricValue(
+            summary,
+            name,
+            key
+          ) {
+            return metric(
+              summary,
+              name
+            ).values?.[key];
           }
 
-          function duration(ms) {
-            const n = number(ms);
+          function duration(value) {
+
+            const n = num(value);
 
             if (n === null) {
               return 'N/A';
@@ -1251,11 +1208,27 @@ jobs:
               return `${n.toFixed(2)} ms`;
             }
 
-            return `${(n / 1000).toFixed(2)} s`;
+            return `${(
+              n / 1000
+            ).toFixed(2)} s`;
+          }
+
+          function percentage(value) {
+
+            const n = num(value);
+
+            if (n === null) {
+              return 'N/A';
+            }
+
+            return `${(
+              n * 100
+            ).toFixed(2)}%`;
           }
 
           function bytes(value) {
-            const n = number(value);
+
+            const n = num(value);
 
             if (n === null) {
               return 'N/A';
@@ -1266,7 +1239,9 @@ jobs:
             }
 
             if (n < 1024 * 1024) {
-              return `${(n / 1024).toFixed(2)} KiB`;
+              return `${(
+                n / 1024
+              ).toFixed(2)} KiB`;
             }
 
             if (n < 1024 * 1024 * 1024) {
@@ -1282,1446 +1257,1355 @@ jobs:
             ).toFixed(2)} GiB`;
           }
 
-          function percentage(value) {
-            const n = number(value);
+          let summary = null;
 
-            if (n === null) {
-              return 'N/A';
-            }
+          if (
+            fs.existsSync(
+              'results/summary.json'
+            )
+          ) {
 
-            return `${(n * 100).toFixed(2)}%`;
-          }
-
-          function reqRate(value) {
-            const n = number(value);
-
-            if (n === null) {
-              return 'N/A';
-            }
-
-            return `${n.toFixed(2)} req/s`;
-          }
-
-          function iterRate(value) {
-            const n = number(value);
-
-            if (n === null) {
-              return 'N/A';
-            }
-
-            return `${n.toFixed(2)} iter/s`;
-          }
-
-          try {
-
-            let summary = null;
-
-            if (
-              fs.existsSync(
-                `${RESULTS}/summary.json`
-              )
-            ) {
+            try {
 
               summary = JSON.parse(
                 fs.readFileSync(
-                  `${RESULTS}/summary.json`,
+                  'results/summary.json',
                   'utf8'
                 )
+              );
+
+            } catch (error) {
+
+              console.error(
+                'Could not parse summary.json:',
+                error.message
               );
 
             }
 
-            const httpDuration =
-              metric(
-                summary,
-                'http_req_duration'
-              );
+          }
 
-            const httpFailed =
-              metric(
-                summary,
-                'http_req_failed'
-              );
+          const statusCounts = {};
+          const endpointCounts = {};
+          const errorCounts = {};
 
-            const httpReqs =
-              metric(
-                summary,
-                'http_reqs'
-              );
+          let firstTime = null;
+          let lastTime = null;
 
-            const iterations =
-              metric(
-                summary,
-                'iterations'
-              );
+          let rawHttpPoints = 0;
 
-            const iterationDuration =
-              metric(
-                summary,
-                'iteration_duration'
-              );
+          if (
+            fs.existsSync(
+              'results/output.json'
+            )
+          ) {
 
-            const vus =
-              metric(
-                summary,
-                'vus'
-              );
+            const lines =
+              fs.readFileSync(
+                'results/output.json',
+                'utf8'
+              ).split(/\r?\n/);
 
-            const vusMax =
-              metric(
-                summary,
-                'vus_max'
-              );
+            for (const line of lines) {
 
-            const received =
-              metric(
-                summary,
-                'data_received'
-              );
+              if (!line.trim()) {
+                continue;
+              }
 
-            const sent =
-              metric(
-                summary,
-                'data_sent'
-              );
+              let event;
 
-            const checks =
-              metric(
-                summary,
-                'checks'
-              );
+              try {
 
-            const statusCounts = {};
-            const endpointCounts = {};
-            const errorCounts = {};
+                event = JSON.parse(line);
 
-            let firstTimestamp = null;
-            let lastTimestamp = null;
+              } catch (_) {
 
-            let rawHttpPoints = 0;
+                continue;
 
-            if (
-              fs.existsSync(
-                `${RESULTS}/output.json`
-              )
-            ) {
+              }
 
-              const lines =
-                fs.readFileSync(
-                  `${RESULTS}/output.json`,
-                  'utf8'
-                )
-                .split(/\r?\n/);
+              const timestamp =
+                event.data?.time;
 
-              for (const line of lines) {
-
-                if (!line.trim()) {
-                  continue;
-                }
-
-                let event;
-
-                try {
-                  event = JSON.parse(line);
-                } catch {
-                  continue;
-                }
+              if (timestamp) {
 
                 const time =
-                  event.data?.time;
-
-                if (time) {
-
-                  const timestamp =
-                    new Date(time).getTime();
-
-                  if (
-                    Number.isFinite(timestamp)
-                  ) {
-
-                    firstTimestamp =
-                      firstTimestamp === null
-                        ? timestamp
-                        : Math.min(
-                            firstTimestamp,
-                            timestamp
-                          );
-
-                    lastTimestamp =
-                      lastTimestamp === null
-                        ? timestamp
-                        : Math.max(
-                            lastTimestamp,
-                            timestamp
-                          );
-                  }
-                }
+                  new Date(timestamp).getTime();
 
                 if (
-                  event.metric !==
-                    'http_reqs' ||
-                  event.type !== 'Point'
-                ) {
-                  continue;
-                }
-
-                rawHttpPoints++;
-
-                const tags =
-                  event.data?.tags || {};
-
-                const status =
-                  String(
-                    tags.status ||
-                    '0'
-                  );
-
-                const method =
-                  String(
-                    tags.method ||
-                    'unknown'
-                  );
-
-                const endpoint =
-                  String(
-                    tags.name ||
-                    tags.url ||
-                    'unknown'
-                  );
-
-                const endpointKey =
-                  `${method} ${endpoint}`;
-
-                statusCounts[status] =
-                  (
-                    statusCounts[status] ||
-                    0
-                  ) + 1;
-
-                if (
-                  !endpointCounts[
-                    endpointKey
-                  ]
+                  Number.isFinite(time)
                 ) {
 
-                  endpointCounts[
-                    endpointKey
-                  ] = {
-                    method,
-                    endpoint,
-                    requests: 0,
-                    failures: 0,
-                    statuses: {}
-                  };
+                  firstTime =
+                    firstTime === null
+                      ? time
+                      : Math.min(
+                          firstTime,
+                          time
+                        );
 
-                }
-
-                const item =
-                  endpointCounts[
-                    endpointKey
-                  ];
-
-                item.requests++;
-
-                item.statuses[status] =
-                  (
-                    item.statuses[status] ||
-                    0
-                  ) + 1;
-
-                if (
-                  status.startsWith('4') ||
-                  status.startsWith('5') ||
-                  status === '0'
-                ) {
-
-                  item.failures++;
-
-                }
-
-                if (tags.error) {
-
-                  const error =
-                    String(tags.error);
-
-                  errorCounts[error] =
-                    (
-                      errorCounts[error] ||
-                      0
-                    ) + 1;
-
-                }
-
-                if (tags.error_code) {
-
-                  const errorCode =
-                    `error_code=${tags.error_code}`;
-
-                  errorCounts[errorCode] =
-                    (
-                      errorCounts[errorCode] ||
-                      0
-                    ) + 1;
+                  lastTime =
+                    lastTime === null
+                      ? time
+                      : Math.max(
+                          lastTime,
+                          time
+                        );
 
                 }
 
               }
 
+              if (
+                event.metric !==
+                  'http_reqs' ||
+                event.type !==
+                  'Point'
+              ) {
+
+                continue;
+
+              }
+
+              rawHttpPoints++;
+
+              const tags =
+                event.data?.tags || {};
+
+              const status =
+                String(
+                  tags.status ||
+                  'unknown'
+                );
+
+              const method =
+                String(
+                  tags.method ||
+                  'unknown'
+                );
+
+              const endpoint =
+                String(
+                  tags.name ||
+                  tags.url ||
+                  'unknown'
+                );
+
+              const key =
+                `${method} ${endpoint}`;
+
+              statusCounts[status] =
+                (
+                  statusCounts[status] ||
+                  0
+                ) + 1;
+
+              if (
+                !endpointCounts[key]
+              ) {
+
+                endpointCounts[key] = {
+                  method,
+                  endpoint,
+                  requests: 0,
+                  failures: 0,
+                  statuses: {}
+                };
+
+              }
+
+              endpointCounts[key]
+                .requests++;
+
+              endpointCounts[key]
+                .statuses[status] =
+                (
+                  endpointCounts[key]
+                    .statuses[status] ||
+                  0
+                ) + 1;
+
+              if (
+                /^[45]/.test(status)
+              ) {
+
+                endpointCounts[key]
+                  .failures++;
+
+              }
+
+              if (tags.error) {
+
+                const error =
+                  String(tags.error);
+
+                errorCounts[error] =
+                  (
+                    errorCounts[error] ||
+                    0
+                  ) + 1;
+
+              }
+
+              if (tags.error_code) {
+
+                const code =
+                  `error_code=${tags.error_code}`;
+
+                errorCounts[code] =
+                  (
+                    errorCounts[code] ||
+                    0
+                  ) + 1;
+
+              }
+
             }
 
-            const observedDuration =
-              firstTimestamp !== null &&
-              lastTimestamp !== null
-                ? Math.max(
-                    0,
-                    lastTimestamp -
-                      firstTimestamp
-                  )
-                : null;
+          }
 
-            const statusRows =
-              Object.entries(statusCounts)
-                .sort(
-                  (a, b) =>
-                    Number(a[0]) -
-                    Number(b[0])
+          const observedDuration =
+            firstTime !== null &&
+            lastTime !== null
+              ? lastTime - firstTime
+              : null;
+
+          const httpDuration =
+            metric(
+              summary,
+              'http_req_duration'
+            );
+
+          const checks =
+            metric(
+              summary,
+              'checks'
+            );
+
+          const iterations =
+            metric(
+              summary,
+              'iterations'
+            );
+
+          const iterationDuration =
+            metric(
+              summary,
+              'iteration_duration'
+            );
+
+          const vus =
+            metric(
+              summary,
+              'vus'
+            );
+
+          const vusMax =
+            metric(
+              summary,
+              'vus_max'
+            );
+
+          const received =
+            metric(
+              summary,
+              'data_received'
+            );
+
+          const sent =
+            metric(
+              summary,
+              'data_sent'
+            );
+
+          const thresholdRows =
+            summary?.metrics
+              ? Object.entries(
+                  summary.metrics
                 )
-                .map(
-                  ([status, count]) => `
-                    <tr>
-                      <td>${esc(status)}</td>
-                      <td>${count}</td>
-                      <td>
-                        ${
-                          rawHttpPoints
-                            ? (
-                                count /
-                                rawHttpPoints *
-                                100
-                              ).toFixed(2)
-                            : '0.00'
-                        }%
-                      </td>
-                    </tr>
-                  `
-                )
-                .join('');
-
-            const endpointRows =
-              Object.values(endpointCounts)
-                .sort(
-                  (a, b) =>
-                    b.requests -
-                    a.requests
-                )
-                .map(
-                  item => `
-                    <tr>
-
-                      <td>
-                        ${esc(item.method)}
-                      </td>
-
-                      <td>
-                        ${esc(item.endpoint)}
-                      </td>
-
-                      <td>
-                        ${item.requests}
-                      </td>
-
-                      <td class="${
-                        item.failures
-                          ? 'danger-text'
-                          : 'success-text'
-                      }">
-                        ${item.failures}
-                      </td>
-
-                      <td>
-                        ${
-                          Object.entries(
-                            item.statuses
-                          )
-                          .map(
-                            ([status, count]) =>
-                              `${esc(status)}: ${count}`
-                          )
-                          .join('<br>')
-                        }
-                      </td>
-
-                    </tr>
-                  `
-                )
-                .join('');
-
-            const errorRows =
-              Object.entries(errorCounts)
-                .sort(
-                  (a, b) =>
-                    b[1] -
-                    a[1]
-                )
-                .map(
-                  ([error, count]) => `
-                    <tr>
-                      <td>
-                        ${esc(error)}
-                      </td>
-                      <td>
-                        ${count}
-                      </td>
-                    </tr>
-                  `
-                )
-                .join('');
-
-            const thresholdRows =
-              summary?.metrics
-                ? Object.entries(
-                    summary.metrics
-                  )
                   .flatMap(
                     ([name, data]) =>
                       Object.entries(
-                        data.thresholds || {}
-                      )
-                      .map(
+                        data.thresholds ||
+                        {}
+                      ).map(
                         ([threshold, ok]) => `
-                          <tr>
-
-                            <td>
-                              ${esc(name)}
-                            </td>
-
-                            <td>
-                              ${esc(threshold)}
-                            </td>
-
-                            <td class="${
+                        <tr>
+                          <td>${esc(name)}</td>
+                          <td>${esc(threshold)}</td>
+                          <td class="${
+                            ok
+                              ? 'success-text'
+                              : 'danger-text'
+                          }">
+                            ${
                               ok
-                                ? 'success-text'
-                                : 'danger-text'
-                            }">
-                              ${
-                                ok
-                                  ? '✓ PASSED'
-                                  : '✗ FAILED'
-                              }
-                            </td>
-
-                          </tr>
+                                ? '✓ PASSED'
+                                : '✗ FAILED'
+                            }
+                          </td>
+                        </tr>
                         `
                       )
                   )
                   .join('')
-                : '';
+              : '';
 
-            const thresholdsFailed =
-              Object.values(
-                summary?.metrics || {}
-              ).some(
-                metricData =>
-                  metricData.thresholds &&
-                  Object.values(
-                    metricData.thresholds
-                  ).some(
-                    result =>
-                      result === false
-                  )
-              );
-
-            const httpFailureRate =
-              number(
-                httpFailed.values?.rate
-              );
-
-            const actualHttpFailures =
-              number(
-                httpFailed.values?.fails
-              );
-
-            const hasConnectionFailures =
-              Object.keys(errorCounts)
-                .length > 0;
-
-            const k6Failed =
-              process.env.K6_STEP_OUTCOME ===
-                'failure' ||
-              thresholdsFailed ||
-              (
-                actualHttpFailures !== null &&
-                actualHttpFailures > 0
-              ) ||
-              (
-                httpFailureRate !== null &&
-                httpFailureRate > 0
-              ) ||
-              hasConnectionFailures;
-
-            const k6Status =
-              k6Failed
-                ? 'FAILED'
-                : 'PASSED';
-
-            const statusClass =
-              k6Failed
-                ? 'danger'
-                : 'success';
-
-            const report = `
-            <!DOCTYPE html>
-
-            <html>
-
-            <head>
-
-              <meta charset="UTF-8">
-
-              <title>
-                k6 Load Test Report
-              </title>
-
-              <style>
-
-                body {
-                  font-family:
-                    Arial,
-                    sans-serif;
-                  margin: 0;
-                  background:
-                    #0d1117;
-                  color:
-                    #c9d1d9;
-                }
-
-                .container {
-                  max-width:
-                    1500px;
-                  margin:
-                    0 auto;
-                  padding:
-                    32px;
-                }
-
-                .card {
-                  background:
-                    #161b22;
-                  padding:
-                    24px;
-                  border-radius:
-                    10px;
-                  border:
-                    1px solid #30363d;
-                  margin-bottom:
-                    22px;
-                  box-shadow:
-                    0 4px 12px
-                    rgba(0,0,0,.25);
-                }
-
-                h1 {
-                  color:
-                    #f0883e;
-                  margin-top:
-                    0;
-                }
-
-                h2 {
-                  color:
-                    #58a6ff;
-                  font-size:
-                    18px;
-                  border-bottom:
-                    1px solid
-                    #30363d;
-                  padding-bottom:
-                    8px;
-                }
-
-                .status {
-                  display:
-                    inline-block;
-                  padding:
-                    8px 14px;
-                  border-radius:
-                    6px;
-                  font-weight:
-                    bold;
-                }
-
-                .success {
-                  background:
-                    #12351f;
-                  color:
-                    #3fb950;
-                }
-
-                .danger {
-                  background:
-                    #3b1717;
-                  color:
-                    #ff7b72;
-                }
-
-                .success-text {
-                  color:
-                    #3fb950;
-                  font-weight:
-                    bold;
-                }
-
-                .danger-text {
-                  color:
-                    #ff7b72;
-                  font-weight:
-                    bold;
-                }
-
-                .warning-text {
-                  color:
-                    #d29922;
-                  font-weight:
-                    bold;
-                }
-
-                .meta {
-                  line-height:
-                    1.8;
-                }
-
-                .grid {
-                  display:
-                    grid;
-                  grid-template-columns:
-                    repeat(
-                      auto-fit,
-                      minmax(
-                        175px,
-                        1fr
-                      )
-                    );
-                  gap:
-                    12px;
-                }
-
-                .stat {
-                  background:
-                    #0d1117;
-                  border:
-                    1px solid
-                    #30363d;
-                  padding:
-                    18px;
-                  border-radius:
-                    8px;
-                }
-
-                .label {
-                  color:
-                    #8b949e;
-                  font-size:
-                    12px;
-                  text-transform:
-                    uppercase;
-                }
-
-                .value {
-                  font-size:
-                    24px;
-                  margin-top:
-                    6px;
-                  font-weight:
-                    bold;
-                }
-
-                table {
-                  width:
-                    100%;
-                  border-collapse:
-                    collapse;
-                  margin-top:
-                    12px;
-                  font-size:
-                    14px;
-                }
-
-                th,
-                td {
-                  border:
-                    1px solid
-                    #30363d;
-                  padding:
-                    10px 12px;
-                  text-align:
-                    left;
-                  vertical-align:
-                    top;
-                }
-
-                th {
-                  background:
-                    #21262d;
-                  color:
-                    #f0f6fc;
-                }
-
-                tr:nth-child(even) {
-                  background:
-                    #1b2028;
-                }
-
-                code {
-                  background:
-                    #0d1117;
-                  padding:
-                    2px 5px;
-                  border-radius:
-                    4px;
-                }
-
-              </style>
-
-            </head>
-
-            <body>
-
-              <div class="container">
-
-                <div class="card">
-
-                  <h1>
-                    k6 Load Test Execution Report
-                  </h1>
-
-                  <span class="status ${statusClass}">
+          const statusRows =
+            Object.entries(
+              statusCounts
+            )
+              .sort(
+                (a, b) =>
+                  Number(a[0]) -
+                  Number(b[0])
+              )
+              .map(
+                ([status, count]) => `
+                <tr>
+                  <td>${esc(status)}</td>
+                  <td>${count}</td>
+                  <td>
                     ${
-                      k6Failed
-                        ? '✗ FAILED'
-                        : '✓ PASSED'
+                      rawHttpPoints
+                        ? (
+                            count /
+                            rawHttpPoints *
+                            100
+                          ).toFixed(2)
+                        : '0.00'
+                    }%
+                  </td>
+                </tr>
+                `
+              )
+              .join('');
+
+          const endpointRows =
+            Object.values(
+              endpointCounts
+            )
+              .sort(
+                (a, b) =>
+                  b.requests -
+                  a.requests
+              )
+              .map(
+                item => `
+                <tr>
+                  <td>${esc(item.method)}</td>
+                  <td>${esc(item.endpoint)}</td>
+                  <td>${item.requests}</td>
+                  <td class="${
+                    item.failures
+                      ? 'danger-text'
+                      : 'success-text'
+                  }">
+                    ${item.failures}
+                  </td>
+                  <td>
+                    ${
+                      Object.entries(
+                        item.statuses
+                      )
+                        .map(
+                          ([s, c]) =>
+                            `${esc(s)}: ${c}`
+                        )
+                        .join('<br>')
                     }
-                  </span>
+                  </td>
+                </tr>
+                `
+              )
+              .join('');
 
-                  <div class="meta">
+          const errorRows =
+            Object.entries(
+              errorCounts
+            )
+              .sort(
+                (a, b) =>
+                  b[1] -
+                  a[1]
+              )
+              .map(
+                ([error, count]) => `
+                <tr>
+                  <td>${esc(error)}</td>
+                  <td>${count}</td>
+                </tr>
+                `
+              )
+              .join('');
 
-                    <p>
-                      <strong>Script:</strong>
-                      tests/load.js
-                    </p>
+          const thresholdFailed =
+            Object.values(
+              summary?.metrics || {}
+            ).some(
+              metricData =>
+                Object.values(
+                  metricData.thresholds ||
+                  {}
+                ).some(
+                  result =>
+                    result === false
+                )
+            );
 
-                    <p>
-                      <strong>Execution:</strong>
-                      GitHub Actions
-                    </p>
+          const k6Failed =
+            process.env.K6_STEP_OUTCOME ===
+              'failure' ||
+            thresholdFailed ||
+            !summary;
 
-                    <p>
-                      <strong>Target:</strong>
-                      http://127.0.0.1:3000
-                    </p>
+          const statusClass =
+            k6Failed
+              ? 'danger'
+              : 'success';
 
-                    <p>
-                      <strong>Timestamp:</strong>
-                      ${esc(
-                        new Date()
-                          .toISOString()
-                      )}
-                    </p>
+          const report = `
+          <!DOCTYPE html>
 
-                    <p>
-                      <strong>Observed test window:</strong>
-                      ${duration(
-                        observedDuration
-                      )}
-                    </p>
+          <html>
 
-                    <p>
-                      <strong>Raw HTTP points:</strong>
-                      ${rawHttpPoints}
-                    </p>
+          <head>
 
+            <meta charset="UTF-8">
+
+            <title>
+              k6 Load Test Report
+            </title>
+
+            <style>
+
+              body {
+                font-family: Arial, sans-serif;
+                margin: 0;
+                background: #0d1117;
+                color: #c9d1d9;
+              }
+
+              .container {
+                max-width: 1450px;
+                margin: auto;
+                padding: 32px;
+              }
+
+              .card {
+                background: #161b22;
+                border: 1px solid #30363d;
+                border-radius: 10px;
+                padding: 24px;
+                margin-bottom: 22px;
+              }
+
+              h1 {
+                color: #f0883e;
+              }
+
+              h2 {
+                color: #58a6ff;
+                border-bottom:
+                  1px solid #30363d;
+                padding-bottom: 8px;
+              }
+
+              .status {
+                display: inline-block;
+                padding: 8px 14px;
+                border-radius: 6px;
+                font-weight: bold;
+              }
+
+              .success {
+                background: #12351f;
+                color: #3fb950;
+              }
+
+              .danger {
+                background: #3b1717;
+                color: #ff7b72;
+              }
+
+              .success-text {
+                color: #3fb950;
+                font-weight: bold;
+              }
+
+              .danger-text {
+                color: #ff7b72;
+                font-weight: bold;
+              }
+
+              .muted {
+                color: #8b949e;
+              }
+
+              .grid {
+                display: grid;
+                grid-template-columns:
+                  repeat(
+                    auto-fit,
+                    minmax(170px, 1fr)
+                  );
+                gap: 12px;
+              }
+
+              .stat {
+                background: #0d1117;
+                border: 1px solid #30363d;
+                padding: 18px;
+                border-radius: 8px;
+              }
+
+              .label {
+                color: #8b949e;
+                font-size: 12px;
+                text-transform: uppercase;
+              }
+
+              .value {
+                font-size: 24px;
+                margin-top: 6px;
+                font-weight: bold;
+              }
+
+              table {
+                width: 100%;
+                border-collapse: collapse;
+                margin-top: 12px;
+                font-size: 14px;
+              }
+
+              th,
+              td {
+                border:
+                  1px solid #30363d;
+                padding: 10px 12px;
+                text-align: left;
+                vertical-align: top;
+              }
+
+              th {
+                background: #21262d;
+                color: #f0f6fc;
+              }
+
+              tr:nth-child(even) {
+                background: #1b2028;
+              }
+
+              code {
+                background: #0d1117;
+                padding: 2px 5px;
+                border-radius: 4px;
+              }
+
+            </style>
+
+          </head>
+
+          <body>
+
+            <div class="container">
+
+              <div class="card">
+
+                <h1>
+                  k6 Load Test Execution Report
+                </h1>
+
+                <span class="status ${statusClass}">
+                  ${
+                    k6Failed
+                      ? '✗ FAILED'
+                      : '✓ PASSED'
+                  }
+                </span>
+
+                <p>
+                  <strong>Script:</strong>
+                  tests/load.js
+                </p>
+
+                <p>
+                  <strong>Target:</strong>
+                  http://127.0.0.1:3000
+                </p>
+
+                <p>
+                  <strong>Execution:</strong>
+                  GitHub Actions
+                </p>
+
+                <p>
+                  <strong>Timestamp:</strong>
+                  ${new Date().toISOString()}
+                </p>
+
+                <p>
+                  <strong>
+                    Observed test window:
+                  </strong>
+                  ${duration(observedDuration)}
+                </p>
+
+                <p>
+                  <strong>
+                    Raw HTTP points:
+                  </strong>
+                  ${rawHttpPoints}
+                </p>
+
+              </div>
+
+              ${
+                summary
+                  ? `
+
+              <div class="card">
+
+                <h2>
+                  HTTP Performance
+                </h2>
+
+                <div class="grid">
+
+                  <div class="stat">
+                    <div class="label">
+                      HTTP Requests
+                    </div>
+                    <div class="value">
+                      ${
+                        metricValue(
+                          summary,
+                          'http_reqs',
+                          'count'
+                        ) ?? 'N/A'
+                      }
+                    </div>
                   </div>
 
-                </div>
-
-                ${
-                  summary
-                    ? `
-                <div class="card">
-
-                  <h2>
-                    HTTP Performance
-                  </h2>
-
-                  <div class="grid">
-
-                    <div class="stat">
-                      <div class="label">
-                        HTTP Requests
-                      </div>
-                      <div class="value">
-                        ${
-                          metricValue(
-                            summary,
-                            'http_reqs',
-                            'count'
-                          ) ?? 'N/A'
-                        }
-                      </div>
+                  <div class="stat">
+                    <div class="label">
+                      Request Rate
                     </div>
+                    <div class="value">
+                      ${
+                        metricValue(
+                          summary,
+                          'http_reqs',
+                          'rate'
+                        ) != null
+                          ? Number(
+                              metricValue(
+                                summary,
+                                'http_reqs',
+                                'rate'
+                              )
+                            ).toFixed(2)
+                            + ' req/s'
+                          : 'N/A'
+                      }
+                    </div>
+                  </div>
 
-                    <div class="stat">
-                      <div class="label">
-                        Request Rate
-                      </div>
-                      <div class="value">
-                        ${reqRate(
+                  <div class="stat">
+                    <div class="label">
+                      Failed Requests
+                    </div>
+                    <div class="value danger-text">
+                      ${
+                        metricValue(
+                          summary,
+                          'http_req_failed',
+                          'fails'
+                        ) ?? 'N/A'
+                      }
+                    </div>
+                  </div>
+
+                  <div class="stat">
+                    <div class="label">
+                      Failure Rate
+                    </div>
+                    <div class="value danger-text">
+                      ${
+                        percentage(
                           metricValue(
                             summary,
-                            'http_reqs',
+                            'http_req_failed',
                             'rate'
                           )
-                        )}
-                      </div>
+                        )
+                      }
                     </div>
-
-                    <div class="stat">
-                      <div class="label">
-                        Failed Requests
-                      </div>
-                      <div class="value danger-text">
-                        ${
-                          actualHttpFailures ??
-                          'N/A'
-                        }
-                      </div>
-                    </div>
-
-                    <div class="stat">
-                      <div class="label">
-                        Failure Rate
-                      </div>
-                      <div class="value danger-text">
-                        ${percentage(
-                          httpFailureRate
-                        )}
-                      </div>
-                    </div>
-
-                    <div class="stat">
-                      <div class="label">
-                        Average
-                      </div>
-                      <div class="value">
-                        ${duration(
-                          httpDuration
-                            .values?.avg
-                        )}
-                      </div>
-                    </div>
-
-                    <div class="stat">
-                      <div class="label">
-                        Median
-                      </div>
-                      <div class="value">
-                        ${duration(
-                          httpDuration
-                            .values?.med
-                        )}
-                      </div>
-                    </div>
-
-                    <div class="stat">
-                      <div class="label">
-                        P90
-                      </div>
-                      <div class="value">
-                        ${duration(
-                          httpDuration
-                            .values?.['p(90)']
-                        )}
-                      </div>
-                    </div>
-
-                    <div class="stat">
-                      <div class="label">
-                        P95
-                      </div>
-                      <div class="value">
-                        ${duration(
-                          httpDuration
-                            .values?.['p(95)']
-                        )}
-                      </div>
-                    </div>
-
-                    <div class="stat">
-                      <div class="label">
-                        P99
-                      </div>
-                      <div class="value">
-                        ${duration(
-                          httpDuration
-                            .values?.['p(99)']
-                        )}
-                      </div>
-                    </div>
-
-                    <div class="stat">
-                      <div class="label">
-                        Maximum
-                      </div>
-                      <div class="value">
-                        ${duration(
-                          httpDuration
-                            .values?.max
-                        )}
-                      </div>
-                    </div>
-
                   </div>
 
-                </div>
-
-                <div class="card">
-
-                  <h2>
-                    Execution Metrics
-                  </h2>
-
-                  <table>
-
-                    <tr>
-                      <th>Metric</th>
-                      <th>Actual Result</th>
-                    </tr>
-
-                    <tr>
-                      <td>
-                        iteration_duration
-                      </td>
-
-                      <td>
-                        avg=${
-                          duration(
-                            iterationDuration
-                              .values?.avg
-                          )
-                        },
-                        min=${
-                          duration(
-                            iterationDuration
-                              .values?.min
-                          )
-                        },
-                        med=${
-                          duration(
-                            iterationDuration
-                              .values?.med
-                          )
-                        },
-                        max=${
-                          duration(
-                            iterationDuration
-                              .values?.max
-                          )
-                        },
-                        p90=${
-                          duration(
-                            iterationDuration
-                              .values?.['p(90)']
-                          )
-                        },
-                        p95=${
-                          duration(
-                            iterationDuration
-                              .values?.['p(95)']
-                          )
-                        }
-                      </td>
-
-                    </tr>
-
-                    <tr>
-
-                      <td>
-                        iterations
-                      </td>
-
-                      <td>
-                        ${
-                          metricValue(
-                            summary,
-                            'iterations',
-                            'count'
-                          ) ?? 'N/A'
-                        }
-
-                        (
-
-                        ${
-                          iterRate(
-                            metricValue(
-                              summary,
-                              'iterations',
-                              'rate'
-                            )
-                          )
-                        }
-
+                  <div class="stat">
+                    <div class="label">
+                      Average
+                    </div>
+                    <div class="value">
+                      ${
+                        duration(
+                          httpDuration
+                            .values?.avg
                         )
-                      </td>
-
-                    </tr>
-
-                    <tr>
-
-                      <td>
-                        vus
-                      </td>
-
-                      <td>
-                        min=${
-                          vus.values?.min ??
-                          'N/A'
-                        },
-
-                        max=${
-                          vus.values?.max ??
-                          'N/A'
-                        }
-                      </td>
-
-                    </tr>
-
-                    <tr>
-
-                      <td>
-                        vus_max
-                      </td>
-
-                      <td>
-                        min=${
-                          vusMax.values?.min ??
-                          'N/A'
-                        },
-
-                        max=${
-                          vusMax.values?.max ??
-                          'N/A'
-                        }
-                      </td>
-
-                    </tr>
-
-                  </table>
-
-                </div>
-
-                <div class="card">
-
-                  <h2>
-                    Network Metrics
-                  </h2>
-
-                  <table>
-
-                    <tr>
-                      <th>Metric</th>
-                      <th>Actual Result</th>
-                    </tr>
-
-                    <tr>
-                      <td>
-                        data_received
-                      </td>
-
-                      <td>
-                        ${bytes(
-                          received.values?.count
-                        )}
-
-                        (
-
-                        ${bytes(
-                          received.values?.rate
-                        )}
-
-                        /s)
-                      </td>
-
-                    </tr>
-
-                    <tr>
-                      <td>
-                        data_sent
-                      </td>
-
-                      <td>
-                        ${bytes(
-                          sent.values?.count
-                        )}
-
-                        (
-
-                        ${bytes(
-                          sent.values?.rate
-                        )}
-
-                        /s)
-                      </td>
-
-                    </tr>
-
-                  </table>
-
-                </div>
-
-                <div class="card">
-
-                  <h2>
-                    HTTP Status Distribution
-                  </h2>
-
-                  <table>
-
-                    <tr>
-                      <th>Status</th>
-                      <th>Requests</th>
-                      <th>Percentage</th>
-                    </tr>
-
-                    ${
-                      statusRows ||
-                      `
-                      <tr>
-                        <td colspan="3">
-                          No HTTP samples
-                          were available.
-                        </td>
-                      </tr>
-                      `
-                    }
-
-                  </table>
-
-                </div>
-
-                <div class="card">
-
-                  <h2>
-                    Endpoint Breakdown
-                  </h2>
-
-                  <table>
-
-                    <tr>
-                      <th>Method</th>
-                      <th>Endpoint / Name</th>
-                      <th>Requests</th>
-                      <th>Failures</th>
-                      <th>Status Codes</th>
-                    </tr>
-
-                    ${
-                      endpointRows ||
-                      `
-                      <tr>
-                        <td colspan="5">
-                          No endpoint samples
-                          were available.
-                        </td>
-                      </tr>
-                      `
-                    }
-
-                  </table>
-
-                </div>
-
-                <div class="card">
-
-                  <h2>
-                    Checks
-                  </h2>
-
-                  <table>
-
-                    <tr>
-                      <th>Metric</th>
-                      <th>Pass Rate</th>
-                      <th>Passes</th>
-                      <th>Fails</th>
-                    </tr>
-
-                    <tr>
-
-                      <td>
-                        checks
-                      </td>
-
-                      <td>
-                        ${percentage(
-                          checks.values?.rate
-                        )}
-                      </td>
-
-                      <td>
-                        ${
-                          checks.values?.passes ??
-                          'N/A'
-                        }
-                      </td>
-
-                      <td class="danger-text">
-                        ${
-                          checks.values?.fails ??
-                          'N/A'
-                        }
-                      </td>
-
-                    </tr>
-
-                  </table>
-
-                </div>
-
-                <div class="card">
-
-                  <h2>
-                    Thresholds
-                  </h2>
-
-                  <table>
-
-                    <tr>
-                      <th>Metric</th>
-                      <th>Threshold</th>
-                      <th>Result</th>
-                    </tr>
-
-                    ${
-                      thresholdRows ||
-                      `
-                      <tr>
-                        <td colspan="3">
-                          No thresholds were
-                          defined in tests/load.js.
-                        </td>
-                      </tr>
-                      `
-                    }
-
-                  </table>
-
-                </div>
-
-                <div class="card">
-
-                  <h2>
-                    Errors Observed
-                  </h2>
-
-                  <table>
-
-                    <tr>
-                      <th>Error</th>
-                      <th>Count</th>
-                    </tr>
-
-                    ${
-                      errorRows ||
-                      `
-                      <tr>
-                        <td colspan="2"
-                            class="success-text">
-                          No HTTP errors were
-                          found in the k6
-                          JSON event stream.
-                        </td>
-                      </tr>
-                      `
-                    }
-
-                  </table>
-
-                </div>
-                `
-                    : `
-                <div class="card">
-
-                  <h2>
-                    k6 Execution Data
-                  </h2>
-
-                  <p class="danger-text">
-                    summary.json was not generated.
-                  </p>
-
-                  <p>
-                    k6 may have failed before
-                    producing its end-of-test summary.
-                  </p>
-
-                  <p>
-                    Check output.json,
-                    the k6 console log,
-                    and app.log.
-                  </p>
-
-                </div>
-                `
-                }
-
-                <div class="card">
-
-                  <h2>
-                    Raw Artifacts
-                  </h2>
-
-                  <p>
-                    <code>summary.json</code>
-                    contains the actual k6
-                    end-of-test metrics.
-                  </p>
-
-                  <p>
-                    <code>output.json</code>
-                    contains the detailed
-                    k6 JSON event stream.
-                  </p>
-
-                  <p>
-                    <code>app.log</code>
-                    contains application
-                    startup/runtime logs.
-                  </p>
+                      }
+                    </div>
+                  </div>
+
+                  <div class="stat">
+                    <div class="label">
+                      Median
+                    </div>
+                    <div class="value">
+                      ${
+                        duration(
+                          httpDuration
+                            .values?.med
+                        )
+                      }
+                    </div>
+                  </div>
+
+                  <div class="stat">
+                    <div class="label">
+                      P90
+                    </div>
+                    <div class="value">
+                      ${
+                        duration(
+                          httpDuration
+                            .values?.['p(90)']
+                        )
+                      }
+                    </div>
+                  </div>
+
+                  <div class="stat">
+                    <div class="label">
+                      P95
+                    </div>
+                    <div class="value">
+                      ${
+                        duration(
+                          httpDuration
+                            .values?.['p(95)']
+                        )
+                      }
+                    </div>
+                  </div>
+
+                  <div class="stat">
+                    <div class="label">
+                      P99
+                    </div>
+                    <div class="value">
+                      ${
+                        duration(
+                          httpDuration
+                            .values?.['p(99)']
+                        )
+                      }
+                    </div>
+                  </div>
+
+                  <div class="stat">
+                    <div class="label">
+                      Maximum
+                    </div>
+                    <div class="value">
+                      ${
+                        duration(
+                          httpDuration
+                            .values?.max
+                        )
+                      }
+                    </div>
+                  </div>
 
                 </div>
 
               </div>
 
-            </body>
+              <div class="card">
 
-            </html>
-            `;
+                <h2>
+                  Execution Metrics
+                </h2>
 
-            fs.writeFileSync(
-              `${RESULTS}/k6-report.html`,
-              report
-            );
+                <table>
 
-            console.log(
-              'Generated results/k6-report.html'
-            );
+                  <tr>
+                    <th>Metric</th>
+                    <th>Actual Result</th>
+                  </tr>
 
-          } catch (error) {
+                  <tr>
+                    <td>
+                      iteration_duration
+                    </td>
 
-            console.error(
-              'Error generating k6 report:',
-              error
-            );
+                    <td>
+                      avg=${
+                        duration(
+                          iterationDuration
+                            .values?.avg
+                        )
+                      },
+                      min=${
+                        duration(
+                          iterationDuration
+                            .values?.min
+                        )
+                      },
+                      med=${
+                        duration(
+                          iterationDuration
+                            .values?.med
+                        )
+                      },
+                      max=${
+                        duration(
+                          iterationDuration
+                            .values?.max
+                        )
+                      },
+                      p90=${
+                        duration(
+                          iterationDuration
+                            .values?.['p(90)']
+                        )
+                      },
+                      p95=${
+                        duration(
+                          iterationDuration
+                            .values?.['p(95)']
+                        )
+                      }
+                    </td>
+                  </tr>
 
-            const fallback = `
-            <!DOCTYPE html>
+                  <tr>
+                    <td>
+                      iterations
+                    </td>
 
-            <html>
+                    <td>
+                      ${
+                        metricValue(
+                          summary,
+                          'iterations',
+                          'count'
+                        ) ?? 'N/A'
+                      }
 
-            <body style="
-              font-family:Arial;
-              background:#0d1117;
-              color:#c9d1d9;
-              padding:30px
-            ">
+                      (
 
-              <h1>
-                k6 Report Generation Error
-              </h1>
+                      ${
+                        metricValue(
+                          summary,
+                          'iterations',
+                          'rate'
+                        ) != null
+                          ? Number(
+                              metricValue(
+                                summary,
+                                'iterations',
+                                'rate'
+                              )
+                            ).toFixed(2)
+                            + ' iter/s'
+                          : 'N/A'
+                      }
 
-              <pre>
-                ${esc(
-                  error.stack ||
-                  error
-                )}
-              </pre>
+                      )
+                    </td>
+                  </tr>
 
-            </body>
+                  <tr>
+                    <td>
+                      vus
+                    </td>
 
-            </html>
-            `;
+                    <td>
+                      min=${
+                        vus.values?.min ??
+                        'N/A'
+                      },
 
-            fs.writeFileSync(
-              `${RESULTS}/k6-report.html`,
-              fallback
-            );
+                      max=${
+                        vus.values?.max ??
+                        'N/A'
+                      }
+                    </td>
+                  </tr>
 
-          }
+                  <tr>
+                    <td>
+                      vus_max
+                    </td>
+
+                    <td>
+                      min=${
+                        vusMax.values?.min ??
+                        'N/A'
+                      },
+
+                      max=${
+                        vusMax.values?.max ??
+                        'N/A'
+                      }
+                    </td>
+                  </tr>
+
+                </table>
+
+              </div>
+
+              <div class="card">
+
+                <h2>
+                  Network Metrics
+                </h2>
+
+                <table>
+
+                  <tr>
+                    <th>Metric</th>
+                    <th>Actual Result</th>
+                  </tr>
+
+                  <tr>
+                    <td>
+                      data_received
+                    </td>
+
+                    <td>
+                      ${
+                        bytes(
+                          received
+                            .values?.count
+                        )
+                      }
+
+                      (
+
+                      ${
+                        bytes(
+                          received
+                            .values?.rate
+                        )
+                      }
+
+                      /s)
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td>
+                      data_sent
+                    </td>
+
+                    <td>
+                      ${
+                        bytes(
+                          sent
+                            .values?.count
+                        )
+                      }
+
+                      (
+
+                      ${
+                        bytes(
+                          sent
+                            .values?.rate
+                        )
+                      }
+
+                      /s)
+                    </td>
+                  </tr>
+
+                </table>
+
+              </div>
+
+              <div class="card">
+
+                <h2>
+                  HTTP Status Distribution
+                </h2>
+
+                <table>
+
+                  <tr>
+                    <th>Status</th>
+                    <th>Requests</th>
+                    <th>Percentage</th>
+                  </tr>
+
+                  ${
+                    statusRows ||
+                    `
+                    <tr>
+                      <td colspan="3"
+                          class="muted">
+                        No HTTP samples
+                        were available.
+                      </td>
+                    </tr>
+                    `
+                  }
+
+                </table>
+
+              </div>
+
+              <div class="card">
+
+                <h2>
+                  Endpoint Breakdown
+                </h2>
+
+                <table>
+
+                  <tr>
+                    <th>Method</th>
+                    <th>Endpoint / Name</th>
+                    <th>Requests</th>
+                    <th>Failures</th>
+                    <th>Status Codes</th>
+                  </tr>
+
+                  ${
+                    endpointRows ||
+                    `
+                    <tr>
+                      <td colspan="5"
+                          class="muted">
+                        No endpoint samples
+                        were available.
+                      </td>
+                    </tr>
+                    `
+                  }
+
+                </table>
+
+              </div>
+
+              <div class="card">
+
+                <h2>
+                  Checks
+                </h2>
+
+                <table>
+
+                  <tr>
+                    <th>Metric</th>
+                    <th>Pass Rate</th>
+                    <th>Passes</th>
+                    <th>Fails</th>
+                  </tr>
+
+                  <tr>
+                    <td>checks</td>
+
+                    <td>
+                      ${
+                        percentage(
+                          checks.values?.rate
+                        )
+                      }
+                    </td>
+
+                    <td>
+                      ${
+                        checks.values?.passes ??
+                        'N/A'
+                      }
+                    </td>
+
+                    <td class="danger-text">
+                      ${
+                        checks.values?.fails ??
+                        'N/A'
+                      }
+                    </td>
+                  </tr>
+
+                </table>
+
+              </div>
+
+              <div class="card">
+
+                <h2>
+                  Thresholds
+                </h2>
+
+                <table>
+
+                  <tr>
+                    <th>Metric</th>
+                    <th>Threshold</th>
+                    <th>Result</th>
+                  </tr>
+
+                  ${
+                    thresholdRows ||
+                    `
+                    <tr>
+                      <td colspan="3"
+                          class="muted">
+                        No thresholds were
+                        defined in tests/load.js.
+                      </td>
+                    </tr>
+                    `
+                  }
+
+                </table>
+
+              </div>
+
+              <div class="card">
+
+                <h2>
+                  Errors Observed
+                </h2>
+
+                <table>
+
+                  <tr>
+                    <th>Error</th>
+                    <th>Count</th>
+                  </tr>
+
+                  ${
+                    errorRows ||
+                    `
+                    <tr>
+                      <td colspan="2"
+                          class="success-text">
+                        No tagged HTTP errors
+                        were found.
+                      </td>
+                    </tr>
+                    `
+                  }
+
+                </table>
+
+              </div>
+
+              `
+                  : `
+
+              <div class="card">
+
+                <h2>
+                  k6 Execution Data
+                </h2>
+
+                <p class="danger-text">
+                  summary.json was not generated
+                  or could not be parsed.
+                </p>
+
+                <p>
+                  Check the k6 console log,
+                  output.json and app.log.
+                </p>
+
+              </div>
+
+              `
+              }
+
+              <div class="card">
+
+                <h2>
+                  Raw Artifacts
+                </h2>
+
+                <p>
+                  <code>
+                    summary.json
+                  </code>
+                  —
+                  actual k6 end-of-test metrics.
+                </p>
+
+                <p>
+                  <code>
+                    output.json
+                  </code>
+                  —
+                  detailed k6 JSON event stream.
+                </p>
+
+                <p>
+                  <code>
+                    app.log
+                  </code>
+                  —
+                  application startup/runtime logs.
+                </p>
+
+              </div>
+
+            </div>
+
+          </body>
+
+          </html>
+          `;
+
+          fs.writeFileSync(
+            'results/k6-report.html',
+            report
+          );
+
+          console.log(
+            'Generated results/k6-report.html successfully.'
+          );
+
           NODE
 
-      - name: Upload k6 Reports
+      - name: Upload k6 Report and Diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: k6-load-test-report
           path: |
             results/
-            app.log
           if-no-files-found: warn
 
-      # --------------------------------------------------------
-      # k6 must actually pass.
-      # --------------------------------------------------------
       - name: Fail k6 Stage
-        if: steps.k6_tests.outcome == 'failure'
+        if: always() && steps.k6_tests.outcome == 'failure'
         run: |
           echo "k6 load test failed."
-          echo ""
-          echo "Review:"
-          echo "  results/k6-report.html"
-          echo "  results/summary.json"
-          echo "  results/output.json"
-          echo "  app.log"
           exit 1
 
 
   # ============================================================
   # 3. QA REPORTS
   #
-  # Always executes after Cypress + k6 have completed.
+  # ALWAYS runs.
+  #
+  # This means:
+  #
+  # Cypress FAIL
+  #      ↓
+  # k6 SKIPPED
+  #      ↓
+  # QA Reports RUN
+  #      ↓
+  # Email sent
+  #
   # ============================================================
   qa-reports:
+
     name: QA Reports
+
     needs:
       - cypress-e2e
       - k6-load-test
+
     if: always()
+
     runs-on: ubuntu-latest
 
     steps:
 
       - name: Download Cypress Report
+        if: always()
+
         uses: actions/download-artifact@v4
+
         with:
           name: cypress-e2e-report
           path: reports/cypress
+
         continue-on-error: true
 
       - name: Download k6 Report
+        if: always()
+
         uses: actions/download-artifact@v4
+
         with:
           name: k6-load-test-report
           path: reports/k6
+
         continue-on-error: true
 
+      # --------------------------------------------------------
+      # Combined QA summary
+      # --------------------------------------------------------
       - name: Generate QA Summary
         env:
           CYPRESS_RESULT: ${{ needs.cypress-e2e.result }}
           K6_RESULT: ${{ needs.k6-load-test.result }}
+
         run: |
+
           mkdir -p reports
 
+          if [
+            "$CYPRESS_RESULT" = "success"
+          ]; then
+
+            CYPRESS_CLASS="passed"
+
+          else
+
+            CYPRESS_CLASS="failed"
+
+          fi
+
+          if [
+            "$K6_RESULT" = "success"
+          ]; then
+
+            K6_CLASS="passed"
+
+          elif [
+            "$K6_RESULT" = "skipped"
+          ]; then
+
+            K6_CLASS="neutral"
+
+          else
+
+            K6_CLASS="failed"
+
+          fi
+
+          if [
+            "$CYPRESS_RESULT" = "success" &&
+            "$K6_RESULT" = "success"
+          ]; then
+
+            OVERALL="PASSED"
+            OVERALL_CLASS="passed"
+
+          else
+
+            OVERALL="FAILED"
+            OVERALL_CLASS="failed"
+
+          fi
+
           cat > reports/qa-summary.html <<EOF
+
           <!DOCTYPE html>
 
           <html>
@@ -2737,97 +2621,70 @@ jobs:
             <style>
 
               body {
-                font-family:
-                  Arial,
-                  sans-serif;
+                font-family: Arial, sans-serif;
                 margin: 0;
-                background:
-                  #0d1117;
-                color:
-                  #c9d1d9;
+                background: #0d1117;
+                color: #c9d1d9;
               }
 
               .container {
-                max-width:
-                  1000px;
-                margin:
-                  0 auto;
-                padding:
-                  40px;
+                max-width: 1000px;
+                margin: auto;
+                padding: 40px;
               }
 
               .card {
-                background:
-                  #161b22;
-                border:
-                  1px solid
-                  #30363d;
-                border-radius:
-                  10px;
-                padding:
-                  24px;
-                margin-bottom:
-                  20px;
+                background: #161b22;
+                border: 1px solid #30363d;
+                border-radius: 10px;
+                padding: 24px;
+                margin-bottom: 20px;
               }
 
               h1 {
-                color:
-                  #58a6ff;
+                color: #58a6ff;
               }
 
               h2 {
-                color:
-                  #f0883e;
+                color: #f0883e;
               }
 
               .status {
-                font-size:
-                  20px;
-                font-weight:
-                  bold;
+                font-size: 22px;
+                font-weight: bold;
               }
 
               .passed {
-                color:
-                  #3fb950;
+                color: #3fb950;
               }
 
               .failed {
-                color:
-                  #ff7b72;
+                color: #ff7b72;
               }
 
               .neutral {
-                color:
-                  #d29922;
+                color: #d29922;
               }
 
               table {
-                width:
-                  100%;
-                border-collapse:
-                  collapse;
+                width: 100%;
+                border-collapse: collapse;
               }
 
               th,
               td {
                 border:
-                  1px solid
-                  #30363d;
-                padding:
-                  12px;
-                text-align:
-                  left;
+                  1px solid #30363d;
+                padding: 12px;
+                text-align: left;
               }
 
               th {
-                background:
-                  #21262d;
+                background: #21262d;
               }
 
               a {
-                color:
-                  #58a6ff;
+                color: #58a6ff;
               }
 
             </style>
@@ -2844,24 +2701,53 @@ jobs:
                   QA Pipeline Execution Report
                 </h1>
 
+                <p class="status $OVERALL_CLASS">
+                  $OVERALL
+                </p>
+
                 <p>
-                  <strong>Execution:</strong>
+                  <strong>
+                    Execution:
+                  </strong>
                   GitHub Actions
                 </p>
 
                 <p>
-                  <strong>Timestamp:</strong>
-                  $(date -u '+%Y-%m-%dT%H:%M:%SZ')
-                </p>
-
-                <p>
-                  <strong>Workflow:</strong>
+                  <strong>
+                    Workflow:
+                  </strong>
                   $GITHUB_WORKFLOW
                 </p>
 
                 <p>
-                  <strong>Run:</strong>
+                  <strong>
+                    Run:
+                  </strong>
                   #$GITHUB_RUN_NUMBER
+                </p>
+
+                <p>
+                  <strong>
+                    Commit:
+                  </strong>
+                  $GITHUB_SHA
+                </p>
+
+                <p>
+                  <strong>
+                    Timestamp:
+                  </strong>
+                  $(date -u '+%Y-%m-%dT%H:%M:%SZ')
+                </p>
+
+                <p>
+
+                  <a href="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID">
+
+                    Open GitHub Actions Run
+
+                  </a>
+
                 </p>
 
               </div>
@@ -2880,45 +2766,23 @@ jobs:
                   </tr>
 
                   <tr>
-
                     <td>
                       Cypress E2E
                     </td>
 
-                    <td class="$(
-                      if [ "$CYPRESS_RESULT" = "success" ];
-                      then echo passed;
-                      elif [ "$CYPRESS_RESULT" = "failure" ];
-                      then echo failed;
-                      else echo neutral;
-                      fi
-                    )">
-
+                    <td class="$CYPRESS_CLASS">
                       $CYPRESS_RESULT
-
                     </td>
-
                   </tr>
 
                   <tr>
-
                     <td>
                       k6 Load Test
                     </td>
 
-                    <td class="$(
-                      if [ "$K6_RESULT" = "success" ];
-                      then echo passed;
-                      elif [ "$K6_RESULT" = "failure" ];
-                      then echo failed;
-                      else echo neutral;
-                      fi
-                    )">
-
+                    <td class="$K6_CLASS">
                       $K6_RESULT
-
                     </td>
-
                   </tr>
 
                 </table>
@@ -2934,16 +2798,23 @@ jobs:
                 <ul>
 
                   <li>
-                    Cypress E2E:
+                    Cypress:
                     <code>
-                      reports/cypress/
+                      reports/cypress/cypress-report.html
                     </code>
                   </li>
 
                   <li>
-                    k6 Load Test:
+                    k6:
                     <code>
-                      reports/k6/
+                      reports/k6/k6-report.html
+                    </code>
+                  </li>
+
+                  <li>
+                    QA Summary:
+                    <code>
+                      reports/qa-summary.html
                     </code>
                   </li>
 
@@ -2956,54 +2827,101 @@ jobs:
           </body>
 
           </html>
+
           EOF
 
+      # --------------------------------------------------------
+      # Upload all reports as one artifact
+      # --------------------------------------------------------
       - name: Upload Combined QA Reports
         if: always()
+
         uses: actions/upload-artifact@v4
+
         with:
           name: qa-reports
           path: reports/
           if-no-files-found: warn
 
       # --------------------------------------------------------
-      # Optional email delivery.
-      # Uses the same email secrets already present in the
-      # project, but does NOT affect Cypress/k6 execution.
+      # EMAIL
+      #
+      # HTML reports are ATTACHED here.
       # --------------------------------------------------------
       - name: Send QA Report Email
         if: always()
+
         uses: dawidd6/action-send-mail@611879133a9569642c41be66f4a323286e9b8a3b
+
         with:
+
           server_address: smtp.gmail.com
+
           server_port: 465
+
           username: ${{ secrets.EMAIL_USER }}
+
           password: ${{ secrets.EMAIL_PASS }}
 
-          subject: "QA Pipeline Results - Run #${{ github.run_number }}"
+          subject: >
+            QA Pipeline -
+            ${{ needs.cypress-e2e.result }}
+            /
+            ${{ needs.k6-load-test.result }}
+            -
+            Run #${{ github.run_number }}
 
           to: "kaifkhanmohammed718@gmail.com"
+
           from: ${{ secrets.EMAIL_USER }}
 
           html_body: |
-            <h2>QA Pipeline Results</h2>
+
+            <h2>
+              QA Pipeline Results
+            </h2>
 
             <p>
-              <strong>Cypress E2E:</strong>
+              <strong>
+                Cypress E2E:
+              </strong>
+
               ${{ needs.cypress-e2e.result }}
             </p>
 
             <p>
-              <strong>k6 Load Test:</strong>
+              <strong>
+                k6 Load Test:
+              </strong>
+
               ${{ needs.k6-load-test.result }}
             </p>
 
             <p>
-              The detailed Cypress and k6 reports are
-              available in the GitHub Actions artifacts.
+              <strong>
+                GitHub Actions Run:
+              </strong>
+
+              #${{ github.run_number }}
+            </p>
+
+            <p>
+
+              <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">
+
+                Open GitHub Actions Run
+
+              </a>
+
+            </p>
+
+            <p>
+              The detailed QA HTML reports are attached
+              to this email.
             </p>
 
           attachments: |
+
             reports/qa-summary.html
             reports/cypress/cypress-report.html
             reports/k6/k6-report.html
