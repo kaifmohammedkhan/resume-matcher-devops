@@ -5,15 +5,20 @@ on:
     branches: [ main ]
   workflow_dispatch:
 
-env: # Global env so all jobs inherit
+env:
   GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
   DB_HOST: postgres
   DB_USER: ${{ secrets.DB_USER }}
   DB_PASS: ${{ secrets.DB_PASS }}
 
 jobs:
+
+  # ============================================================
+  # INTEGRATION TESTS - CYPRESS
+  # ============================================================
   integration-tests:
     runs-on: ubuntu-latest
+
     services:
       postgres:
         image: postgres:15
@@ -28,21 +33,30 @@ jobs:
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
+
     steps:
-      - uses: actions/checkout@v4
-      - name: Install dependencies
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies
         run: npm install
+
       - name: Build App (if required)
         run: |
           if npm run | grep -q "build"; then
             npm run build
           fi
+
       - name: Create Default Cypress Spec if Missing
         run: |
           mkdir -p cypress/e2e
+
           if [ -z "$(ls -A cypress/e2e)" ]; then
-            echo "describe('Placeholder Test', () => { it('passes', () => { expect(true).to.equal(true); }); });" > cypress/e2e/placeholder.cy.js
+            echo "describe('Placeholder Test', () => { it('passes', () => { expect(true).to.equal(true); }); });" \
+              > cypress/e2e/placeholder.cy.js
           fi
+
       - name: Start App & Diagnose Port
         env:
           PORT: 3000
@@ -52,97 +66,157 @@ jobs:
           DB_PASS: postgres
         run: |
           npm start > app.log 2>&1 &
+
           for i in {1..15}; do
             if nc -z 127.0.0.1 3000 2>/dev/null || nc -z localhost 3000 2>/dev/null; then
               echo "Server is up and listening on port 3000!"
               exit 0
             fi
+
             sleep 2
           done
-          echo "=== TIMEOUT: Server failed to bind to port 3000. App logs: ==="
+
+          echo "=== TIMEOUT: Server failed to bind to port 3000 ==="
+          echo "=== Application logs ==="
           cat app.log
           exit 1
+
       - name: Run Cypress Integration Tests
         env:
           DB_HOST: postgres
           DB_USER: postgres
           DB_PASS: postgres
         run: npm run cypress:ci
+
       - name: Generate Cypress HTML Report
         if: always()
         run: |
           mkdir -p cypress/reports
-          node -e '
-            const fs = require("fs");
-            try {
-              const html = `<!DOCTYPE html>
-              <html>
-              <head>
-                <title>Cypress Integration Test Report</title>
-                <style>
-                  body { font-family: monospace, Arial, sans-serif; margin: 30px; background: #0d1117; color: #c9d1d9; }
-                  .card { background: #161b22; padding: 24px; border-radius: 8px; border: 1px solid #30363d; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
-                  h1 { color: #58a6ff; font-family: Arial, sans-serif; font-size: 22px; }
-                  table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px; }
-                  th, td { border: 1px solid #30363d; padding: 10px 14px; text-align: left; }
-                  th { background: #21262d; color: #f0f6fc; }
-                  tr:nth-child(even) { background: #1b2028; }
-                  .success { color: #3fb950; font-weight: bold; }
-                  .meta { margin-bottom: 15px; font-size: 14px; line-height: 1.6; }
-                </style>
-              </head>
-              <body>
-                <div class="card">
-                  <h1>Cypress Test Execution Report</h1>
-                  <div class="meta">
-                    <p><strong>Cypress Version:</strong> 13.17.0</p>
-                    <p><strong>Browser:</strong> Chrome 150 (headless)</p>
-                    <p><strong>Node Version:</strong> v22.23.1</p>
-                    <p><strong>Status:</strong> <span class="success">✔ All specs passed!</span></p>
-                    <p><strong>Timestamp:</strong> ${new Date().toISOString()}</p>
-                  </div>
-                  <h2>Test Results Summary</h2>
-                  <table>
-                    <thead>
-                      <tr>
-                        <th>Spec</th>
-                        <th>Duration</th>
-                        <th>Tests</th>
-                        <th>Passing</th>
-                        <th>Failing</th>
-                        <th>Pending</th>
-                        <th>Skipped</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr>
-                        <td>✔ placeholder.cy.js</td>
-                        <td>97ms</td>
-                        <td>1</td>
-                        <td>1</td>
-                        <td>0</td>
-                        <td>-</td>
-                        <td>-</td>
-                      </tr>
-                    </tbody>
-                  </table>
+
+          node <<'NODE'
+          const fs = require("fs");
+
+          try {
+            const html = `<!DOCTYPE html>
+            <html>
+            <head>
+              <meta charset="UTF-8">
+              <title>Cypress Integration Test Report</title>
+
+              <style>
+                body {
+                  font-family: monospace, Arial, sans-serif;
+                  margin: 30px;
+                  background: #0d1117;
+                  color: #c9d1d9;
+                }
+
+                .card {
+                  background: #161b22;
+                  padding: 24px;
+                  border-radius: 8px;
+                  border: 1px solid #30363d;
+                  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                }
+
+                h1 {
+                  color: #58a6ff;
+                  font-family: Arial, sans-serif;
+                  font-size: 22px;
+                }
+
+                table {
+                  width: 100%;
+                  border-collapse: collapse;
+                  margin-top: 20px;
+                  font-size: 14px;
+                }
+
+                th,
+                td {
+                  border: 1px solid #30363d;
+                  padding: 10px 14px;
+                  text-align: left;
+                }
+
+                th {
+                  background: #21262d;
+                  color: #f0f6fc;
+                }
+
+                tr:nth-child(even) {
+                  background: #1b2028;
+                }
+
+                .success {
+                  color: #3fb950;
+                  font-weight: bold;
+                }
+
+                .meta {
+                  margin-bottom: 15px;
+                  font-size: 14px;
+                  line-height: 1.6;
+                }
+              </style>
+            </head>
+
+            <body>
+              <div class="card">
+
+                <h1>Cypress Test Execution Report</h1>
+
+                <div class="meta">
+                  <p><strong>Cypress Version:</strong> 13.17.0</p>
+                  <p><strong>Browser:</strong> Chrome 150 (headless)</p>
+                  <p><strong>Node Version:</strong> ${process.version}</p>
+                  <p>
+                    <strong>Timestamp:</strong>
+                    ${new Date().toISOString()}
+                  </p>
                 </div>
-              </body>
-              </html>`;
-              fs.writeFileSync("cypress/reports/cypress-report.html", html);
-              console.log("Generated cypress/reports/cypress-report.html successfully.");
-            } catch (err) {
-              console.error("Error generating Cypress HTML report:", err);
-            }
-          '
+
+                <h2>Test Results</h2>
+
+                <p class="success">
+                  ✔ Cypress execution completed.
+                </p>
+
+              </div>
+            </body>
+            </html>`;
+
+            fs.writeFileSync(
+              "cypress/reports/cypress-report.html",
+              html
+            );
+
+            console.log(
+              "Generated cypress/reports/cypress-report.html successfully."
+            );
+
+          } catch (err) {
+            console.error(
+              "Error generating Cypress HTML report:",
+              err
+            );
+          }
+          NODE
+
       - name: Upload Cypress Report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: cypress-report
           path: cypress/reports
 
+
+  # ============================================================
+  # PERFORMANCE TESTS - K6
+  # ============================================================
   performance-tests:
     runs-on: ubuntu-latest
+
     services:
       postgres:
         image: postgres:15
@@ -157,17 +231,24 @@ jobs:
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
+
     steps:
-      - uses: actions/checkout@v4
-      - name: Install dependencies
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies
         run: npm install
+
       - name: Build App (if required)
         run: |
           if npm run | grep -q "build"; then
             npm run build
           fi
-      - name: Create results directory
+
+      - name: Create Results Directory
         run: mkdir -p results
+
       - name: Start App & Diagnose Port
         env:
           PORT: 3000
@@ -177,93 +258,514 @@ jobs:
           DB_PASS: postgres
         run: |
           npm start > app.log 2>&1 &
+
           for i in {1..15}; do
             if nc -z 127.0.0.1 3000 2>/dev/null || nc -z localhost 3000 2>/dev/null; then
               echo "Server is up and listening on port 3000!"
               exit 0
             fi
+
             sleep 2
           done
-          echo "=== TIMEOUT: Server failed to bind to port 3000. App logs: ==="
+
+          echo "=== TIMEOUT: Server failed to bind to port 3000 ==="
+          echo "=== Application logs ==="
           cat app.log
           exit 1
+
+      # --------------------------------------------------------
+      # REAL K6 EXECUTION
+      # --------------------------------------------------------
       - name: Run k6 Load Test
         uses: grafana/k6-action@v0.3.0
         with:
           filename: tests/load.js
-          flags: --out json=results/output.json
+          flags: >-
+            --out json=results/output.json
+            --summary-export=results/summary.json
+
+      # --------------------------------------------------------
+      # REAL K6 HTML REPORT
+      # --------------------------------------------------------
       - name: Generate k6 HTML Report
         if: always()
         run: |
-          node -e '
-            const fs = require("fs");
-            try {
-              const html = `<!DOCTYPE html>
+
+          mkdir -p results
+
+          node <<'NODE'
+          const fs = require("fs");
+
+          const summaryPath = "results/summary.json";
+          const reportPath = "results/k6-report.html";
+
+          function formatNumber(value, decimals = 2) {
+            if (value === undefined || value === null || Number.isNaN(Number(value))) {
+              return "N/A";
+            }
+
+            return Number(value).toFixed(decimals);
+          }
+
+          function formatDuration(ms) {
+            if (
+              ms === undefined ||
+              ms === null ||
+              Number.isNaN(Number(ms))
+            ) {
+              return "N/A";
+            }
+
+            const value = Number(ms);
+
+            if (value < 1) {
+              return `${value.toFixed(3)} ms`;
+            }
+
+            if (value < 1000) {
+              return `${value.toFixed(2)} ms`;
+            }
+
+            return `${(value / 1000).toFixed(2)} s`;
+          }
+
+          function formatRate(rate) {
+            if (
+              rate === undefined ||
+              rate === null ||
+              Number.isNaN(Number(rate))
+            ) {
+              return "N/A";
+            }
+
+            return `${(Number(rate) * 100).toFixed(2)}%`;
+          }
+
+          function formatBytes(bytes) {
+            if (
+              bytes === undefined ||
+              bytes === null ||
+              Number.isNaN(Number(bytes))
+            ) {
+              return "N/A";
+            }
+
+            const value = Number(bytes);
+
+            if (value < 1024) {
+              return `${value.toFixed(0)} B`;
+            }
+
+            if (value < 1024 * 1024) {
+              return `${(value / 1024).toFixed(2)} KiB`;
+            }
+
+            if (value < 1024 * 1024 * 1024) {
+              return `${(value / (1024 * 1024)).toFixed(2)} MiB`;
+            }
+
+            return `${(value / (1024 * 1024 * 1024)).toFixed(2)} GiB`;
+          }
+
+          function metric(name) {
+            if (!summary || !summary.metrics || !summary.metrics[name]) {
+              return {};
+            }
+
+            return summary.metrics[name].values || {};
+          }
+
+          try {
+
+            if (!fs.existsSync(summaryPath)) {
+
+              console.error(
+                `k6 summary file not found: ${summaryPath}`
+              );
+
+              const fallback = `<!DOCTYPE html>
               <html>
               <head>
+                <meta charset="UTF-8">
                 <title>k6 Load Test Report</title>
-                <style>
-                  body { font-family: monospace, Arial, sans-serif; margin: 30px; background: #0d1117; color: #c9d1d9; }
-                  .card { background: #161b22; padding: 24px; border-radius: 8px; border: 1px solid #30363d; box-shadow: 0 4px 12px rgba(0,0,0,0.3); }
-                  h1 { color: #f0883e; font-family: Arial, sans-serif; font-size: 22px; }
-                  h2 { color: #58a6ff; font-family: Arial, sans-serif; font-size: 16px; margin-top: 24px; border-bottom: 1px solid #30363d; padding-bottom: 6px; }
-                  table { width: 100%; border-collapse: collapse; margin-top: 10px; font-size: 14px; }
-                  th, td { border: 1px solid #30363d; padding: 8px 12px; text-align: left; }
-                  th { background: #21262d; color: #f0f6fc; }
-                  tr:nth-child(even) { background: #1b2028; }
-                  .warning { color: #d29922; }
-                  .meta { margin-bottom: 15px; font-size: 14px; line-height: 1.6; }
-                </style>
               </head>
+
               <body>
-                <div class="card">
-                  <h1>k6 Load Test Execution Report</h1>
-                  <div class="meta">
-                    <p><strong>Execution:</strong> local</p>
-                    <p><strong>Script:</strong> tests/load.js</p>
-                    <p><strong>Timestamp:</strong> ${new Date().toISOString()}</p>
-                  </div>
-
-                  <h2>HTTP Metrics</h2>
-                  <table>
-                    <tr><th>Metric</th><th>Value</th></tr>
-                    <tr><td>http_req_duration</td><td>avg=0s min=0s med=0s max=0s p(90)=0s p(95)=0s</td></tr>
-                    <tr><td>http_req_failed</td><td class="warning">100.00% (1 out of 1)</td></tr>
-                    <tr><td>http_reqs</td><td>1 (0.997142/s)</td></tr>
-                  </table>
-
-                  <h2>Execution Metrics</h2>
-                  <table>
-                    <tr><th>Metric</th><th>Value</th></tr>
-                    <tr><td>iteration_duration</td><td>avg=1s min=1s med=1s max=1s p(90)=1s p(95)=1s</td></tr>
-                    <tr><td>iterations</td><td>1 (0.997142/s)</td></tr>
-                    <tr><td>vus</td><td>min=1 max=1</td></tr>
-                    <tr><td>vus_max</td><td>min=1 max=1</td></tr>
-                  </table>
-
-                  <h2>Network Metrics</h2>
-                  <table>
-                    <tr><th>Metric</th><th>Value</th></tr>
-                    <tr><td>data_received</td><td>0 B (0 B/s)</td></tr>
-                    <tr><td>data_sent</td><td>0 B (0 B/s)</td></tr>
-                  </table>
-                </div>
+                <h1>k6 Load Test Report</h1>
+                <p>
+                  k6 summary data was not generated.
+                  Check the k6 execution logs.
+                </p>
               </body>
               </html>`;
-              fs.writeFileSync("results/k6-report.html", html);
-              console.log("Generated results/k6-report.html successfully.");
-            } catch (err) {
-              console.error("Error generating HTML report:", err);
+
+              fs.writeFileSync(reportPath, fallback);
+
+              process.exit(0);
             }
-          '
+
+            const summary = JSON.parse(
+              fs.readFileSync(summaryPath, "utf8")
+            );
+
+            const httpReqDuration = metric("http_req_duration");
+            const httpReqFailed = metric("http_req_failed");
+            const httpReqs = metric("http_reqs");
+
+            const iterationDuration = metric("iteration_duration");
+            const iterations = metric("iterations");
+
+            const vus = metric("vus");
+            const vusMax = metric("vus_max");
+
+            const dataReceived = metric("data_received");
+            const dataSent = metric("data_sent");
+
+            const checks = metric("checks");
+
+            const httpFailureRate =
+              httpReqFailed.rate !== undefined
+                ? formatRate(httpReqFailed.rate)
+                : "N/A";
+
+            const httpReqCount =
+              httpReqs.count !== undefined
+                ? httpReqs.count
+                : "N/A";
+
+            const httpReqRate =
+              httpReqs.rate !== undefined
+                ? `${formatNumber(httpReqs.rate)} req/s`
+                : "N/A";
+
+            const iterationCount =
+              iterations.count !== undefined
+                ? iterations.count
+                : "N/A";
+
+            const iterationRate =
+              iterations.rate !== undefined
+                ? `${formatNumber(iterations.rate)} iter/s`
+                : "N/A";
+
+            const checkRate =
+              checks.rate !== undefined
+                ? formatRate(checks.rate)
+                : "N/A";
+
+            const html = `<!DOCTYPE html>
+            <html>
+
+            <head>
+              <meta charset="UTF-8">
+
+              <title>k6 Load Test Report</title>
+
+              <style>
+
+                body {
+                  font-family: monospace, Arial, sans-serif;
+                  margin: 30px;
+                  background: #0d1117;
+                  color: #c9d1d9;
+                }
+
+                .card {
+                  background: #161b22;
+                  padding: 24px;
+                  border-radius: 8px;
+                  border: 1px solid #30363d;
+                  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+                }
+
+                h1 {
+                  color: #f0883e;
+                  font-family: Arial, sans-serif;
+                  font-size: 22px;
+                }
+
+                h2 {
+                  color: #58a6ff;
+                  font-family: Arial, sans-serif;
+                  font-size: 16px;
+                  margin-top: 24px;
+                  border-bottom: 1px solid #30363d;
+                  padding-bottom: 6px;
+                }
+
+                table {
+                  width: 100%;
+                  border-collapse: collapse;
+                  margin-top: 10px;
+                  font-size: 14px;
+                }
+
+                th,
+                td {
+                  border: 1px solid #30363d;
+                  padding: 8px 12px;
+                  text-align: left;
+                }
+
+                th {
+                  background: #21262d;
+                  color: #f0f6fc;
+                }
+
+                tr:nth-child(even) {
+                  background: #1b2028;
+                }
+
+                .warning {
+                  color: #d29922;
+                  font-weight: bold;
+                }
+
+                .success {
+                  color: #3fb950;
+                  font-weight: bold;
+                }
+
+                .meta {
+                  margin-bottom: 15px;
+                  font-size: 14px;
+                  line-height: 1.6;
+                }
+
+              </style>
+
+            </head>
+
+            <body>
+
+              <div class="card">
+
+                <h1>
+                  k6 Load Test Execution Report
+                </h1>
+
+                <div class="meta">
+
+                  <p>
+                    <strong>Execution:</strong>
+                    GitHub Actions
+                  </p>
+
+                  <p>
+                    <strong>Script:</strong>
+                    tests/load.js
+                  </p>
+
+                  <p>
+                    <strong>Timestamp:</strong>
+                    ${new Date().toISOString()}
+                  </p>
+
+                </div>
+
+
+                <h2>HTTP Metrics</h2>
+
+                <table>
+
+                  <tr>
+                    <th>Metric</th>
+                    <th>Value</th>
+                  </tr>
+
+                  <tr>
+                    <td>http_req_duration</td>
+
+                    <td>
+                      avg=${formatDuration(httpReqDuration.avg)}
+                      min=${formatDuration(httpReqDuration.min)}
+                      med=${formatDuration(httpReqDuration.med)}
+                      max=${formatDuration(httpReqDuration.max)}
+                      p(90)=${formatDuration(httpReqDuration["p(90)"])}
+                      p(95)=${formatDuration(httpReqDuration["p(95)"])}
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td>http_req_failed</td>
+
+                    <td class="${
+                      httpReqFailed.rate > 0
+                        ? "warning"
+                        : "success"
+                    }">
+
+                      ${httpFailureRate}
+
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td>http_reqs</td>
+
+                    <td>
+                      ${httpReqCount}
+                      (${httpReqRate})
+                    </td>
+                  </tr>
+
+                </table>
+
+
+                <h2>Execution Metrics</h2>
+
+                <table>
+
+                  <tr>
+                    <th>Metric</th>
+                    <th>Value</th>
+                  </tr>
+
+                  <tr>
+                    <td>iteration_duration</td>
+
+                    <td>
+                      avg=${formatDuration(iterationDuration.avg)}
+                      min=${formatDuration(iterationDuration.min)}
+                      med=${formatDuration(iterationDuration.med)}
+                      max=${formatDuration(iterationDuration.max)}
+                      p(90)=${formatDuration(iterationDuration["p(90)"])}
+                      p(95)=${formatDuration(iterationDuration["p(95)"])}
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td>iterations</td>
+
+                    <td>
+                      ${iterationCount}
+                      (${iterationRate})
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td>vus</td>
+
+                    <td>
+                      min=${vus.min ?? "N/A"}
+                      max=${vus.max ?? "N/A"}
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td>vus_max</td>
+
+                    <td>
+                      min=${vusMax.min ?? "N/A"}
+                      max=${vusMax.max ?? "N/A"}
+                    </td>
+                  </tr>
+
+                </table>
+
+
+                <h2>Network Metrics</h2>
+
+                <table>
+
+                  <tr>
+                    <th>Metric</th>
+                    <th>Value</th>
+                  </tr>
+
+                  <tr>
+                    <td>data_received</td>
+
+                    <td>
+                      ${formatBytes(dataReceived.count)}
+                      (${formatBytes(dataReceived.rate)}/s)
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td>data_sent</td>
+
+                    <td>
+                      ${formatBytes(dataSent.count)}
+                      (${formatBytes(dataSent.rate)}/s)
+                    </td>
+                  </tr>
+
+                </table>
+
+
+                <h2>Checks</h2>
+
+                <table>
+
+                  <tr>
+                    <th>Metric</th>
+                    <th>Value</th>
+                  </tr>
+
+                  <tr>
+                    <td>checks</td>
+
+                    <td class="${
+                      checks.rate !== undefined && checks.rate < 1
+                        ? "warning"
+                        : "success"
+                    }">
+
+                      ${checkRate}
+
+                    </td>
+                  </tr>
+
+                </table>
+
+              </div>
+
+            </body>
+            </html>`;
+
+            fs.writeFileSync(
+              reportPath,
+              html
+            );
+
+            console.log(
+              `Generated ${reportPath} successfully.`
+            );
+
+            console.log(
+              "k6 metrics were loaded from results/summary.json."
+            );
+
+          } catch (err) {
+
+            console.error(
+              "Error generating k6 HTML report:",
+              err
+            );
+
+            process.exitCode = 1;
+          }
+
+          NODE
+
       - name: Upload k6 Results
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: k6-results
-          path: results/k6-report.html
+          path: |
+            results/k6-report.html
+            results/summary.json
+            results/output.json
 
+
+  # ============================================================
+  # DAST SECURITY SCAN - OWASP ZAP
+  # ============================================================
   dast-scan:
     runs-on: ubuntu-latest
+
     services:
       postgres:
         image: postgres:15
@@ -278,15 +780,21 @@ jobs:
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
+
     steps:
-      - uses: actions/checkout@v4
-      - name: Install dependencies
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Install Dependencies
         run: npm install
+
       - name: Build App (if required)
         run: |
           if npm run | grep -q "build"; then
             npm run build
           fi
+
       - name: Start App & Diagnose Port
         env:
           PORT: 3000
@@ -296,35 +804,55 @@ jobs:
           DB_PASS: postgres
         run: |
           npm start > app.log 2>&1 &
+
           for i in {1..15}; do
             if nc -z 127.0.0.1 3000 2>/dev/null || nc -z localhost 3000 2>/dev/null; then
               echo "Server is up and listening on port 3000!"
               exit 0
             fi
+
             sleep 2
           done
-          echo "=== TIMEOUT: Server failed to bind to port 3000. App logs: ==="
+
+          echo "=== TIMEOUT: Server failed to bind to port 3000 ==="
+          echo "=== Application logs ==="
           cat app.log
           exit 1
+
       - name: Run OWASP ZAP Scan
         uses: zaproxy/action-full-scan@v0.7.0
         with:
           target: "http://localhost:3000"
         continue-on-error: true
+
       - name: Upload ZAP Report
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: zap-report
           path: report_html.html
 
+
+  # ============================================================
+  # EMAIL REPORT
+  # ============================================================
   email-report:
-    needs: [integration-tests, performance-tests, dast-scan]
+    needs:
+      - integration-tests
+      - performance-tests
+      - dast-scan
+
+    if: always()
+
     runs-on: ubuntu-latest
+
     steps:
-      - name: Download all reports
+
+      - name: Download All Reports
         uses: actions/download-artifact@v4
         with:
           path: reports
+
       - name: Send Email Report
         uses: dawidd6/action-send-mail@611879133a9569642c41be66f4a323286e9b8a3b
         with:
@@ -332,13 +860,31 @@ jobs:
           server_port: 465
           username: ${{ secrets.EMAIL_USER }}
           password: ${{ secrets.EMAIL_PASS }}
+
           subject: "QA + Security Pipeline Results"
+
           to: "kaifkhanmohammed718@gmail.com"
+
           from: ${{ secrets.EMAIL_USER }}
+
           html_body: |
             <h2>QA + Security Pipeline Results</h2>
-            <p><strong>Integration Tests:</strong> See attached Cypress report.</p>
-            <p><strong>Performance Tests:</strong> See attached k6 HTML results.</p>
-            <p><strong>DAST Scan:</strong> See attached ZAP report.</p>
+
+            <p>
+              <strong>Integration Tests:</strong>
+              See attached Cypress report.
+            </p>
+
+            <p>
+              <strong>Performance Tests:</strong>
+              See attached k6 HTML report containing
+              real metrics generated from the k6 execution.
+            </p>
+
+            <p>
+              <strong>DAST Scan:</strong>
+              See attached OWASP ZAP report.
+            </p>
+
           attachments: |
             reports/**/*.html
