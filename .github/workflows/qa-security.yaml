@@ -25,12 +25,15 @@ jobs:
     services:
       postgres:
         image: postgres:15
+
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: resume_db
+
         ports:
           - 5432:5432
+
         options: >-
           --health-cmd="pg_isready -U postgres -d resume_db"
           --health-interval=10s
@@ -1025,11 +1028,23 @@ jobs:
           exit 1
 
 
-
   # ============================================================
   # 2. k6 LOAD TEST
   #
   # k6 runs ONLY after Cypress passes.
+  #
+  # IMPORTANT:
+  # k6 is installed directly on the GitHub runner.
+  #
+  # This allows:
+  #
+  #   k6 -> 127.0.0.1:3000 -> Node.js application
+  #
+  # instead of:
+  #
+  #   k6 container -> localhost:3000
+  #
+  # which caused the connection-refused failure.
   # ============================================================
 
   k6-load-test:
@@ -1119,6 +1134,51 @@ jobs:
 
           fi
 
+          echo ""
+          echo "k6 script found:"
+          echo "tests/load.js"
+          echo ""
+
+          cat tests/load.js
+
+
+      # ----------------------------------------------------------
+      # Install k6 DIRECTLY on GitHub runner
+      #
+      # DO NOT use grafana/k6-action here.
+      #
+      # grafana/k6-action executes k6 in a container,
+      # where localhost is not the GitHub runner.
+      # ----------------------------------------------------------
+
+      - name: Setup k6
+        uses: grafana/setup-k6-action@v1
+
+
+      # ----------------------------------------------------------
+      # Verify k6 installation
+      # ----------------------------------------------------------
+
+      - name: Verify k6 Installation
+        run: |
+
+          echo "k6 version:"
+          k6 version
+
+          echo ""
+          echo "Runner:"
+          hostname
+
+          echo ""
+          echo "Testing localhost connectivity before k6..."
+
+          curl \
+            --silent \
+            --show-error \
+            --fail \
+            http://127.0.0.1:3000/ \
+            > /dev/null 2>&1 || true
+
 
       # ----------------------------------------------------------
       # Start application
@@ -1147,6 +1207,8 @@ jobs:
 
           echo "Application PID: $APP_PID"
 
+          echo "Waiting for application..."
+
           for i in {1..30}; do
 
             if curl \
@@ -1156,7 +1218,14 @@ jobs:
               http://127.0.0.1:3000/ \
               > /dev/null 2>&1; then
 
-              echo "Application is ready."
+              echo ""
+              echo "=========================================="
+              echo "Application is READY"
+              echo "=========================================="
+              echo ""
+              echo "URL: http://127.0.0.1:3000"
+              echo "PID: $APP_PID"
+              echo ""
 
               exit 0
 
@@ -1164,7 +1233,9 @@ jobs:
 
             if ! kill -0 "$APP_PID" 2>/dev/null; then
 
-              echo "Application exited."
+              echo ""
+              echo "ERROR: Application exited unexpectedly."
+              echo ""
 
               cat results/app.log || true
 
@@ -1178,7 +1249,9 @@ jobs:
 
           done
 
-          echo "Application failed to become ready."
+          echo ""
+          echo "ERROR: Application failed to become ready."
+          echo ""
 
           cat results/app.log || true
 
@@ -1186,7 +1259,47 @@ jobs:
 
 
       # ----------------------------------------------------------
+      # Confirm application immediately before k6
+      # ----------------------------------------------------------
+
+      - name: Verify Application Before k6
+        run: |
+
+          echo "Checking application..."
+
+          HTTP_STATUS=$(
+            curl \
+              --silent \
+              --output /dev/null \
+              --write-out "%{http_code}" \
+              http://127.0.0.1:3000/ \
+              || true
+          )
+
+          echo "HTTP status: $HTTP_STATUS"
+
+          if [ "$HTTP_STATUS" = "000" ]; then
+
+            echo ""
+            echo "ERROR: Application is not reachable."
+            echo ""
+
+            cat results/app.log || true
+
+            exit 1
+
+          fi
+
+          echo ""
+          echo "Application is reachable."
+          echo "k6 will target: http://127.0.0.1:3000"
+
+
+      # ----------------------------------------------------------
       # Actual k6 execution
+      #
+      # k6 runs directly on the runner.
+      # Therefore localhost works correctly.
       # ----------------------------------------------------------
 
       - name: Run k6 Load Test
@@ -1195,14 +1308,94 @@ jobs:
 
         continue-on-error: true
 
-        uses: grafana/k6-action@v0.3.0
+        run: |
 
-        with:
-          filename: tests/load.js
+          echo ""
+          echo "=========================================="
+          echo "Starting k6 Load Test"
+          echo "=========================================="
+          echo ""
 
-          flags: >-
-            --out json=results/output.json
-            --summary-export=results/summary.json
+          echo "Target:"
+          echo "http://127.0.0.1:3000"
+          echo ""
+
+          set +e
+
+          k6 run \
+            --out json=results/output.json \
+            --summary-export=results/summary.json \
+            tests/load.js \
+            2>&1 | tee results/k6-console.log
+
+          K6_EXIT=${PIPESTATUS[0]}
+
+          set -e
+
+          echo ""
+          echo "=========================================="
+          echo "k6 exit code: $K6_EXIT"
+          echo "=========================================="
+          echo ""
+
+          echo "$K6_EXIT" > results/k6-exit-code.txt
+
+          exit "$K6_EXIT"
+
+
+      # ----------------------------------------------------------
+      # Capture k6 diagnostics
+      # ----------------------------------------------------------
+
+      - name: Capture k6 Diagnostics
+        if: always()
+
+        run: |
+
+          mkdir -p results
+
+          {
+            echo "=========================================="
+            echo "k6 Diagnostics"
+            echo "=========================================="
+
+            echo ""
+            echo "Timestamp:"
+            date -u '+%Y-%m-%dT%H:%M:%SZ'
+
+            echo ""
+            echo "k6 step outcome:"
+            echo "${{ steps.k6_tests.outcome }}"
+
+            echo ""
+            echo "k6 exit code:"
+            cat results/k6-exit-code.txt 2>/dev/null || true
+
+            echo ""
+            echo "=========================================="
+            echo "Application Log"
+            echo "=========================================="
+
+            cat results/app.log 2>/dev/null || true
+
+            echo ""
+            echo "=========================================="
+            echo "k6 Console Log"
+            echo "=========================================="
+
+            cat results/k6-console.log 2>/dev/null || true
+
+            echo ""
+            echo "=========================================="
+            echo "Summary File"
+            echo "=========================================="
+
+            cat results/summary.json 2>/dev/null || true
+
+          } > results/diagnostics.log
+
+          echo ""
+          echo "Diagnostics captured."
 
 
       # ----------------------------------------------------------
@@ -1323,10 +1516,7 @@ jobs:
 
 
           // ======================================================
-          // IMPORTANT:
-          // summary is declared BEFORE metric() is used.
-          // This fixes the previous:
-          // ReferenceError: summary is not defined
+          // Load summary.json
           // ======================================================
 
           let summary = null;
@@ -1367,6 +1557,10 @@ jobs:
 
           let rawHttpPoints = 0;
 
+
+          // ======================================================
+          // Parse output.json
+          // ======================================================
 
           if (
             fs.existsSync(
@@ -1590,6 +1784,10 @@ jobs:
             );
 
 
+          // ======================================================
+          // Thresholds
+          // ======================================================
+
           const thresholdRows =
             summary?.metrics
               ? Object.entries(
@@ -1623,6 +1821,10 @@ jobs:
               : '';
 
 
+          // ======================================================
+          // Status distribution
+          // ======================================================
+
           const statusRows =
             Object.entries(
               statusCounts
@@ -1653,6 +1855,10 @@ jobs:
             )
             .join('');
 
+
+          // ======================================================
+          // Endpoint breakdown
+          // ======================================================
 
           const endpointRows =
             Object.values(
@@ -1706,6 +1912,10 @@ jobs:
             .join('');
 
 
+          // ======================================================
+          // Errors
+          // ======================================================
+
           const errorRows =
             Object.entries(
               errorCounts
@@ -1725,6 +1935,10 @@ jobs:
             )
             .join('');
 
+
+          // ======================================================
+          // Determine final k6 status
+          // ======================================================
 
           const thresholdFailed =
             Object.values(
@@ -1963,6 +2177,7 @@ jobs:
                 <div class="grid">
 
                   <div class="stat">
+
                     <div class="label">
                       HTTP Requests
                     </div>
@@ -1976,6 +2191,7 @@ jobs:
                         ) ?? 'N/A'
                       }
                     </div>
+
                   </div>
 
 
@@ -2644,9 +2860,21 @@ jobs:
                 </p>
 
                 <p>
+                  <code>k6-console.log</code>
+                  —
+                  complete k6 execution log.
+                </p>
+
+                <p>
                   <code>app.log</code>
                   —
                   application startup/runtime logs.
+                </p>
+
+                <p>
+                  <code>diagnostics.log</code>
+                  —
+                  consolidated diagnostics.
                 </p>
 
               </div>
@@ -2700,8 +2928,15 @@ jobs:
 
           echo "k6 load test failed."
 
-          exit 1
+          echo ""
+          echo "Check:"
+          echo "  results/k6-console.log"
+          echo "  results/summary.json"
+          echo "  results/output.json"
+          echo "  results/app.log"
+          echo ""
 
+          exit 1
 
 
   # ============================================================
@@ -2710,21 +2945,21 @@ jobs:
   # ALWAYS RUNS
   #
   # Cypress PASS
-  #       ↓
+  #     ↓
   # k6 RUNS
-  #       ↓
+  #     ↓
   # QA REPORTS
-  #       ↓
+  #     ↓
   # EMAIL
   #
   # OR
   #
   # Cypress FAIL
-  #       ↓
+  #     ↓
   # k6 SKIPPED
-  #       ↓
+  #     ↓
   # QA REPORTS
-  #       ↓
+  #     ↓
   # EMAIL
   #
   # ============================================================
@@ -3053,11 +3288,8 @@ jobs:
           fi
 
 
-          if [
-            "$CYPRESS_RESULT" = "success"
-          ] && [
-            "$K6_RESULT" = "success"
-          ]; then
+          if [ "$CYPRESS_RESULT" = "success" ] && \
+             [ "$K6_RESULT" = "success" ]; then
 
             OVERALL="PASSED"
             OVERALL_CLASS="passed"
@@ -3380,12 +3612,6 @@ jobs:
 
       # ----------------------------------------------------------
       # Send email
-      #
-      # html_body:
-      #   HTML rendered INSIDE the email
-      #
-      # attachments:
-      #   Actual HTML report FILES
       # ----------------------------------------------------------
 
       - name: Send QA Report Email
