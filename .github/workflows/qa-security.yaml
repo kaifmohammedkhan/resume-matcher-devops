@@ -1,3 +1,4 @@
+```yaml
 name: QA Pipeline
 
 on:
@@ -2350,10 +2351,6 @@ jobs:
 
         with:
 
-          server_address: ${{ vars.MAIL_SERVER }}
-
-          server_port: ${{ vars.MAIL_PORT }}
-
           secure: true
 
           username: ${{ secrets.EMAIL_USER }}
@@ -2466,3 +2463,4 @@ jobs:
             exit 1
 
           fi
+```
