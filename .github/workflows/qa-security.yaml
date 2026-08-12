@@ -774,6 +774,10 @@ jobs:
 
     steps:
 
+      # ----------------------------------------------------------
+      # Download Cypress report
+      # ----------------------------------------------------------
+
       - name: Download Cypress Report
         if: always()
         uses: actions/download-artifact@v4
@@ -781,6 +785,10 @@ jobs:
           name: cypress-e2e-report
           path: reports/cypress
         continue-on-error: true
+
+      # ----------------------------------------------------------
+      # Download k6 smoke report
+      # ----------------------------------------------------------
 
       - name: Download k6 Smoke Report
         if: always()
@@ -790,13 +798,21 @@ jobs:
           path: reports/k6-smoke
         continue-on-error: true
 
-      - name: Download k6 Load Report
+      # ----------------------------------------------------------
+      # Download k6 load report
+      # ----------------------------------------------------------
+
+      - name: Download k6 load report
         if: always()
         uses: actions/download-artifact@v4
         with:
           name: k6-load-test-report
           path: reports/k6-load
         continue-on-error: true
+
+      # ----------------------------------------------------------
+      # Inspect downloaded artifacts
+      # ----------------------------------------------------------
 
       - name: Inspect Downloaded QA Artifacts
         if: always()
@@ -809,6 +825,10 @@ jobs:
             -type f \
             -print \
             2>/dev/null || true
+
+      # ----------------------------------------------------------
+      # Generate HTML reports
+      # ----------------------------------------------------------
 
       - name: Generate UI-Worthy HTML Stage Reports
         if: always()
@@ -851,12 +871,18 @@ jobs:
 
           function findFiles(root, predicate) {
             const found = [];
-            if (!fs.existsSync(root)) return found;
+
+            if (!fs.existsSync(root)) {
+              return found;
+            }
 
             function walk(current) {
               let entries = [];
+
               try {
-                entries = fs.readdirSync(current, { withFileTypes: true });
+                entries = fs.readdirSync(current, {
+                  withFileTypes: true
+                });
               } catch {
                 return;
               }
@@ -873,16 +899,24 @@ jobs:
             }
 
             walk(root);
+
             return found;
           }
 
           function firstFile(root, names) {
             const wanted = new Set(names);
-            return findFiles(root, (_, name) => wanted.has(name))[0] || null;
+
+            return findFiles(
+              root,
+              (_, name) => wanted.has(name)
+            )[0] || null;
           }
 
           function readText(file, fallback = "") {
-            if (!file || !fs.existsSync(file)) return fallback;
+            if (!file || !fs.existsSync(file)) {
+              return fallback;
+            }
+
             try {
               return fs.readFileSync(file, "utf8");
             } catch {
@@ -891,40 +925,61 @@ jobs:
           }
 
           function number(value) {
-            return Number.isFinite(Number(value)) ? Number(value) : null;
+            return Number.isFinite(Number(value))
+              ? Number(value)
+              : null;
           }
 
           function formatNumber(value) {
             const n = number(value);
-            return n === null ? "N/A" : n.toLocaleString("en-US");
+
+            return n === null
+              ? "N/A"
+              : n.toLocaleString("en-US");
           }
 
           function formatMs(value) {
             const n = number(value);
-            return n === null ? "N/A" : `${n.toFixed(2)} ms`;
+
+            return n === null
+              ? "N/A"
+              : `${n.toFixed(2)} ms`;
           }
 
           function formatPercent(value) {
             const n = number(value);
-            return n === null ? "N/A" : `${(n * 100).toFixed(2)}%`;
+
+            return n === null
+              ? "N/A"
+              : `${(n * 100).toFixed(2)}%`;
           }
 
           function executionLabel(result) {
-            const value = String(result || "unknown").toLowerCase();
-            if (value === "success") return "EXECUTION PASSED";
-            if (value === "failure") return "EXECUTION FAILED";
-            if (value === "skipped") return "SKIPPED";
-            return value.toUpperCase();
-          }
+            const value = String(
+              result || "unknown"
+            ).toLowerCase();
 
-          function assertionLabel(failedChecks) {
-            const n = number(failedChecks);
-            return n !== null && n > 0 ? "CHECKS FAILED" : "CHECKS PASSED";
+            if (value === "success") {
+              return "EXECUTION PASSED";
+            }
+
+            if (value === "failure") {
+              return "EXECUTION FAILED";
+            }
+
+            if (value === "skipped") {
+              return "SKIPPED";
+            }
+
+            return value.toUpperCase();
           }
 
           function assertionClass(failedChecks) {
             const n = number(failedChecks);
-            return n !== null && n > 0 ? "failure" : "success";
+
+            return n !== null && n > 0
+              ? "failure"
+              : "success";
           }
 
           const styles = `
@@ -940,15 +995,26 @@ jobs:
               --bad: #f87171;
               --warn: #fbbf24;
             }
-            * { box-sizing: border-box; }
+
+            * {
+              box-sizing: border-box;
+            }
+
             body {
               margin: 0;
               padding: 28px;
               background: var(--bg);
               color: var(--text);
-              font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+              font-family:
+                -apple-system,
+                BlinkMacSystemFont,
+                "Segoe UI",
+                Roboto,
+                Arial,
+                sans-serif;
               line-height: 1.5;
             }
+
             .container {
               max-width: 1120px;
               margin: 0 auto;
@@ -958,6 +1024,7 @@ jobs:
               padding: 28px;
               box-shadow: 0 20px 60px rgba(0,0,0,.35);
             }
+
             .header {
               display: flex;
               justify-content: space-between;
@@ -966,10 +1033,29 @@ jobs:
               border-bottom: 1px solid var(--border);
               padding-bottom: 20px;
             }
-            h1 { margin: 0; font-size: 25px; }
-            h2 { margin: 28px 0 12px; font-size: 16px; }
-            .subtitle { color: var(--muted); margin-top: 5px; }
-            .badges { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+
+            h1 {
+              margin: 0;
+              font-size: 25px;
+            }
+
+            h2 {
+              margin: 28px 0 12px;
+              font-size: 16px;
+            }
+
+            .subtitle {
+              color: var(--muted);
+              margin-top: 5px;
+            }
+
+            .badges {
+              display: flex;
+              flex-wrap: wrap;
+              gap: 8px;
+              justify-content: flex-end;
+            }
+
             .badge {
               display: inline-flex;
               align-items: center;
@@ -981,23 +1067,49 @@ jobs:
               letter-spacing: .05em;
               white-space: nowrap;
             }
-            .success { color: var(--good); background: rgba(52,211,153,.10); border-color: rgba(52,211,153,.35); }
-            .failure { color: var(--bad); background: rgba(248,113,113,.10); border-color: rgba(248,113,113,.35); }
-            .neutral { color: var(--muted); background: rgba(148,163,184,.08); }
-            .meta, .cards, .stage-grid {
+
+            .success {
+              color: var(--good);
+              background: rgba(52,211,153,.10);
+              border-color: rgba(52,211,153,.35);
+            }
+
+            .failure {
+              color: var(--bad);
+              background: rgba(248,113,113,.10);
+              border-color: rgba(248,113,113,.35);
+            }
+
+            .neutral {
+              color: var(--muted);
+              background: rgba(148,163,184,.08);
+            }
+
+            .meta,
+            .cards,
+            .stage-grid {
               display: grid;
               gap: 12px;
             }
+
             .meta {
-              grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+              grid-template-columns:
+                repeat(auto-fit, minmax(190px, 1fr));
               margin-top: 20px;
             }
-            .meta-card, .metric, .stage {
+
+            .meta-card,
+            .metric,
+            .stage {
               background: var(--panel2);
               border: 1px solid var(--border);
               border-radius: 12px;
             }
-            .meta-card { padding: 13px; }
+
+            .meta-card {
+              padding: 13px;
+            }
+
             .label {
               display: block;
               color: var(--muted);
@@ -1006,19 +1118,44 @@ jobs:
               letter-spacing: .08em;
               margin-bottom: 4px;
             }
-            .value { font-weight: 700; word-break: break-word; }
+
+            .value {
+              font-weight: 700;
+              word-break: break-word;
+            }
+
             .cards {
-              grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+              grid-template-columns:
+                repeat(auto-fit, minmax(155px, 1fr));
               margin-top: 18px;
             }
-            .metric { padding: 16px; }
-            .metric .value { color: var(--accent); font-size: 22px; }
-            .metric.good .value { color: var(--good); }
-            .metric.bad .value { color: var(--bad); }
-            .stage-grid {
-              grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+
+            .metric {
+              padding: 16px;
             }
-            .stage { padding: 18px; }
+
+            .metric .value {
+              color: var(--accent);
+              font-size: 22px;
+            }
+
+            .metric.good .value {
+              color: var(--good);
+            }
+
+            .metric.bad .value {
+              color: var(--bad);
+            }
+
+            .stage-grid {
+              grid-template-columns:
+                repeat(auto-fit, minmax(300px, 1fr));
+            }
+
+            .stage {
+              padding: 18px;
+            }
+
             .stage-head {
               display: flex;
               align-items: center;
@@ -1026,22 +1163,37 @@ jobs:
               gap: 10px;
               margin-bottom: 14px;
             }
-            .stage-title { font-weight: 800; }
-            .stage .cards { margin-top: 0; }
-            .stage .metric { padding: 12px; }
-            .stage .metric .value { font-size: 18px; }
+
+            .stage-title {
+              font-weight: 800;
+            }
+
+            .stage .cards {
+              margin-top: 0;
+            }
+
+            .stage .metric {
+              padding: 12px;
+            }
+
+            .stage .metric .value {
+              font-size: 18px;
+            }
+
             details {
               margin-top: 18px;
               border: 1px solid var(--border);
               border-radius: 10px;
               overflow: hidden;
             }
+
             summary {
               cursor: pointer;
               padding: 12px 14px;
               color: var(--muted);
               font-weight: 700;
             }
+
             pre {
               margin: 0;
               padding: 16px;
@@ -1053,6 +1205,7 @@ jobs:
               white-space: pre-wrap;
               word-break: break-word;
             }
+
             .footer {
               margin-top: 24px;
               padding-top: 16px;
@@ -1063,39 +1216,102 @@ jobs:
           `;
 
           function metric(label, value, className = "") {
-            return `<div class="metric ${className}"><span class="label">${escapeHtml(label)}</span><div class="value">${escapeHtml(value)}</div></div>`;
+            return `
+              <div class="metric ${className}">
+                <span class="label">
+                  ${escapeHtml(label)}
+                </span>
+                <div class="value">
+                  ${escapeHtml(value)}
+                </div>
+              </div>
+            `;
           }
 
           function meta(label, value) {
-            return `<div class="meta-card"><span class="label">${escapeHtml(label)}</span><div class="value">${escapeHtml(value)}</div></div>`;
+            return `
+              <div class="meta-card">
+                <span class="label">
+                  ${escapeHtml(label)}
+                </span>
+                <div class="value">
+                  ${escapeHtml(value)}
+                </div>
+              </div>
+            `;
           }
 
           function page(title, badges, content, footer) {
-            return `<!doctype html>
-            <html>
-            <head>
-              <meta charset="utf-8">
-              <meta name="viewport" content="width=device-width,initial-scale=1">
-              <title>${escapeHtml(title)}</title>
-              <style>${styles}</style>
-            </head>
-            <body>
-              <main class="container">
-                <div class="header">
-                  <div>
-                    <h1>${escapeHtml(title)}</h1>
-                    <div class="subtitle">${escapeHtml(repo)} · ${escapeHtml(branch)} · #${escapeHtml(runNumber)}</div>
+            return `
+              <!doctype html>
+
+              <html>
+
+              <head>
+                <meta charset="utf-8">
+
+                <meta
+                  name="viewport"
+                  content="width=device-width,initial-scale=1"
+                >
+
+                <title>
+                  ${escapeHtml(title)}
+                </title>
+
+                <style>
+                  ${styles}
+                </style>
+              </head>
+
+              <body>
+
+                <main class="container">
+
+                  <div class="header">
+
+                    <div>
+
+                      <h1>
+                        ${escapeHtml(title)}
+                      </h1>
+
+                      <div class="subtitle">
+                        ${escapeHtml(repo)}
+                        ·
+                        ${escapeHtml(branch)}
+                        ·
+                        #${escapeHtml(runNumber)}
+                      </div>
+
+                    </div>
+
+                    <div class="badges">
+                      ${badges}
+                    </div>
+
                   </div>
-                  <div class="badges">${badges}</div>
-                </div>
-                ${content}
-                <div class="footer">${footer}</div>
-              </main>
-            </body>
-            </html>`;
+
+                  ${content}
+
+                  <div class="footer">
+                    ${footer}
+                  </div>
+
+                </main>
+
+              </body>
+
+              </html>
+            `;
           }
 
+          // --------------------------------------------------------
+          // CYPRESS REPORT
+          // --------------------------------------------------------
+
           const cypressRoot = "reports/cypress";
+
           const cypressXmlFiles = findFiles(
             cypressRoot,
             (_, name) => name.endsWith(".xml")
@@ -1109,22 +1325,777 @@ jobs:
           let cypSuites = 0;
 
           function attr(tag, name) {
-            const match = tag.match(new RegExp(`\\b${name}=["']([^"']*)["']`, "i"));
-            return match ? match[1] : null;
+            const match = tag.match(
+              new RegExp(
+                `\\b${name}=["']([^"']*)["']`,
+                "i"
+              )
+            );
+
+            return match
+              ? match[1]
+              : null;
           }
 
           for (const xmlFile of cypressXmlFiles) {
+
             const xml = readText(xmlFile);
 
-            const suiteTags = xml.match(/<testsuite\b[^>]*>/gi) || [];
+            const suiteTags =
+              xml.match(/<testsuite\b[^>]*>/gi) || [];
 
             for (const tag of suiteTags) {
+
               cypSuites += 1;
-              cypTests = (cypTests ?? 0) + Number(attr(tag, "tests") || 0);
-              cypFailures = (cypFailures ?? 0) + Number(attr(tag, "failures") || 0);
-              cypErrors = (cypErrors ?? 0) + Number(attr(tag, "errors") || 0);
-              cypSkipped = (cypSkipped ?? 0) + Number(attr(tag, "skipped") || 0);
-              cypTime = (cypTime ?? 0) + Number(attr(tag, "time") || 0);
+
+              cypTests =
+                (cypTests ?? 0) +
+                Number(attr(tag, "tests") || 0);
+
+              cypFailures =
+                (cypFailures ?? 0) +
+                Number(attr(tag, "failures") || 0);
+
+              cypErrors =
+                (cypErrors ?? 0) +
+                Number(attr(tag, "errors") || 0);
+
+              cypSkipped =
+                (cypSkipped ?? 0) +
+                Number(attr(tag, "skipped") || 0);
+
+              cypTime =
+                (cypTime ?? 0) +
+                Number(attr(tag, "time") || 0);
             }
           }
+
+          if (cypTests === 0 && cypressXmlFiles.length > 0) {
+
+            for (const xmlFile of cypressXmlFiles) {
+
+              const xml = readText(xmlFile);
+
+              cypTests =
+                (cypTests ?? 0) +
+                (xml.match(/<testcase\b/gi) || []).length;
+
+              cypFailures =
+                (cypFailures ?? 0) +
+                (xml.match(/<failure\b/gi) || []).length;
+
+              cypErrors =
+                (cypErrors ?? 0) +
+                (xml.match(/<error\b/gi) || []).length;
+
+              cypSkipped =
+                (cypSkipped ?? 0) +
+                (xml.match(/<skipped\b/gi) || []).length;
+            }
+          }
+
+          const cypExitFile = firstFile(
+            cypressRoot,
+            ["cypress-exit-code.txt"]
+          );
+
+          const cypLogFile = firstFile(
+            cypressRoot,
+            ["cypress-run.log"]
+          );
+
+          const cypExit =
+            readText(cypExitFile, "N/A").trim();
+
+          const cypLog =
+            readText(
+              cypLogFile,
+              "No Cypress console log was captured."
+            );
+
+          const cypResult =
+            env.CYPRESS_RESULT || "unknown";
+
+          const cypressContent = `
+
+            <div class="meta">
+
+              ${meta(
+                "Exit Code",
+                cypExit
+              )}
+
+              ${meta(
+                "JUnit Files",
+                String(cypressXmlFiles.length)
+              )}
+
+              ${meta(
+                "Suites",
+                String(cypSuites)
+              )}
+
+              ${meta(
+                "Triggered By",
+                actor
+              )}
+
+            </div>
+
+            <div class="cards">
+
+              ${metric(
+                "Total Tests",
+                formatNumber(cypTests)
+              )}
+
+              ${metric(
+                "Failures",
+                formatNumber(cypFailures),
+                cypFailures > 0 ? "bad" : "good"
+              )}
+
+              ${metric(
+                "Errors",
+                formatNumber(cypErrors),
+                cypErrors > 0 ? "bad" : "good"
+              )}
+
+              ${metric(
+                "Skipped",
+                formatNumber(cypSkipped)
+              )}
+
+              ${metric(
+                "Duration",
+                cypTime == null
+                  ? "N/A"
+                  : `${cypTime.toFixed(2)} s`
+              )}
+
+            </div>
+
+            <details>
+
+              <summary>
+                Execution Console Output
+              </summary>
+
+              <pre>
+                ${escapeHtml(cypLog)}
+              </pre>
+
+            </details>
+
+          `;
+
+          fs.writeFileSync(
+            "reports/html/cypress-e2e-report.html",
+
+            page(
+              "Cypress E2E Test Execution",
+
+              `
+                <span class="badge ${
+                  cypResult === "success"
+                    ? "success"
+                    : "failure"
+                }">
+                  ${escapeHtml(
+                    executionLabel(cypResult)
+                  )}
+                </span>
+              `,
+
+              cypressContent,
+
+              "Cypress metrics are read from the JUnit XML files generated by this exact pipeline run. No test counts or durations are hardcoded."
+            )
+          );
+
+          // --------------------------------------------------------
+          // k6 REPORT
+          // --------------------------------------------------------
+
+          function readK6Summary(root, filename) {
+
+            const file =
+              firstFile(root, [filename]);
+
+            if (!file) {
+
+              return {
+                file: null,
+                raw: `No ${filename} was captured.`,
+                data: null
+              };
+            }
+
+            const raw = readText(file);
+
+            try {
+
+              return {
+                file,
+                raw,
+                data: JSON.parse(raw)
+              };
+
+            } catch (error) {
+
+              return {
+                file,
+                raw,
+                data: null,
+                error: error.message
+              };
+            }
+          }
+
+          function k6Metrics(summary) {
+
+            const metrics =
+              summary?.data?.metrics || {};
+
+            const reqs =
+              metrics.http_reqs || {};
+
+            const duration =
+              metrics.http_req_duration || {};
+
+            const failed =
+              metrics.http_req_failed || {};
+
+            const iterations =
+              metrics.iterations || {};
+
+            const vus =
+              metrics.vus || {};
+
+            const vusMax =
+              metrics.vus_max || {};
+
+            const checks =
+              metrics.checks || {};
+
+            return {
+
+              requests:
+                reqs.count,
+
+              requestRate:
+                reqs.rate,
+
+              avg:
+                duration.avg,
+
+              p95:
+                duration["p(95)"],
+
+              max:
+                duration.max,
+
+              min:
+                duration.min,
+
+              failedRate:
+                failed.value,
+
+              failedRequests:
+                failed.passes,
+
+              passedRequests:
+                failed.fails,
+
+              iterations:
+                iterations.count,
+
+              iterationRate:
+                iterations.rate,
+
+              vus:
+                vus.value,
+
+              vusMax:
+                vusMax.value ?? vusMax.max,
+
+              checksPassed:
+                checks.passes,
+
+              checksFailed:
+                checks.fails,
+
+              checksRate:
+                checks.value
+            };
+          }
+
+          function k6Status(
+            metrics,
+            executionResult
+          ) {
+
+            if (
+              metrics.checksFailed !== undefined &&
+              Number(metrics.checksFailed) > 0
+            ) {
+
+              return {
+                text: "CHECKS FAILED",
+                className: "failure"
+              };
+            }
+
+            if (executionResult === "success") {
+
+              return {
+                text: "CHECKS PASSED",
+                className: "success"
+              };
+            }
+
+            return {
+              text: "EXECUTION FAILED",
+              className: "failure"
+            };
+          }
+
+          function k6Page(
+            title,
+            root,
+            summaryFile,
+            executionResult,
+            profile
+          ) {
+
+            const summary =
+              readK6Summary(
+                root,
+                summaryFile
+              );
+
+            const m =
+              k6Metrics(summary);
+
+            const status =
+              k6Status(
+                m,
+                executionResult
+              );
+
+            const exitFile =
+              firstFile(
+                root,
+
+                summaryFile === "summary.json"
+                  ? ["k6-exit-code.txt"]
+                  : ["smoke-exit-code.txt"]
+              );
+
+            const consoleFile =
+              firstFile(
+                root,
+
+                summaryFile === "summary.json"
+                  ? ["k6-console.log"]
+                  : ["smoke-console.log"]
+              );
+
+            const exitCode =
+              readText(
+                exitFile,
+                "N/A"
+              ).trim();
+
+            const consoleLog =
+              readText(
+                consoleFile,
+                "No k6 console log was captured."
+              );
+
+            const content = `
+
+              <div class="meta">
+
+                ${meta(
+                  "Exit Code",
+                  exitCode
+                )}
+
+                ${meta(
+                  "Requests / sec",
+                  m.requestRate == null
+                    ? "N/A"
+                    : m.requestRate.toFixed(2)
+                )}
+
+                ${meta(
+                  "Max VUs",
+                  formatNumber(m.vusMax)
+                )}
+
+                ${meta(
+                  "Load Profile",
+                  profile
+                )}
+
+              </div>
+
+              <div class="cards">
+
+                ${metric(
+                  "Total Requests",
+                  formatNumber(m.requests)
+                )}
+
+                ${metric(
+                  "Avg Latency",
+                  formatMs(m.avg)
+                )}
+
+                ${metric(
+                  "P95 Latency",
+                  formatMs(m.p95)
+                )}
+
+                ${metric(
+                  "Max Latency",
+                  formatMs(m.max)
+                )}
+
+                ${metric(
+                  "HTTP Failed Rate",
+                  formatPercent(m.failedRate),
+                  Number(m.failedRate) > 0
+                    ? "bad"
+                    : "good"
+                )}
+
+                ${metric(
+                  "Iterations",
+                  formatNumber(m.iterations)
+                )}
+
+                ${metric(
+                  "Checks Passed",
+                  formatNumber(m.checksPassed),
+                  "good"
+                )}
+
+                ${metric(
+                  "Checks Failed",
+                  formatNumber(m.checksFailed),
+                  Number(m.checksFailed) > 0
+                    ? "bad"
+                    : "good"
+                )}
+
+              </div>
+
+              <div class="meta">
+
+                ${meta(
+                  "Check Pass Rate",
+                  formatPercent(m.checksRate)
+                )}
+
+                ${meta(
+                  "Request Rate",
+                  m.requestRate == null
+                    ? "N/A"
+                    : `${m.requestRate.toFixed(2)} req/s`
+                )}
+
+                ${meta(
+                  "VU Count",
+                  formatNumber(m.vus)
+                )}
+
+                ${meta(
+                  "Summary Source",
+                  summary.file || "N/A"
+                )}
+
+              </div>
+
+              <details>
+
+                <summary>
+                  Raw k6 Summary JSON
+                </summary>
+
+                <pre>
+                  ${escapeHtml(summary.raw)}
+                </pre>
+
+              </details>
+
+              <details>
+
+                <summary>
+                  k6 Console Output
+                </summary>
+
+                <pre>
+                  ${escapeHtml(consoleLog)}
+                </pre>
+
+              </details>
+
+            `;
+
+            return page(
+
+              title,
+
+              `
+                <span class="badge ${status.className}">
+                  ${status.text}
+                </span>
+
+                <span class="badge neutral">
+                  ${escapeHtml(
+                    executionLabel(
+                      executionResult
+                    )
+                  )}
+                </span>
+              `,
+
+              content,
+
+              "k6 values are read directly from the summary-export JSON generated by this exact run. The execution badge reflects the process exit result; the check badge reflects actual k6 check results."
+            );
+          }
+
+          fs.writeFileSync(
+            "reports/html/k6-smoke-report.html",
+
+            k6Page(
+              "k6 Smoke Test Execution",
+              "reports/k6-smoke",
+              "smoke-summary.json",
+              env.K6_SMOKE_RESULT || "unknown",
+              "Smoke profile from tests/load.js"
+            )
+          );
+
+          fs.writeFileSync(
+            "reports/html/k6-load-report.html",
+
+            k6Page(
+              "k6 Load Test Execution",
+              "reports/k6-load",
+              "summary.json",
+              env.K6_LOAD_RESULT || "unknown",
+              "10 VUs / 30 seconds"
+            )
+          );
+
+          console.log(
+            "=========================================="
+          );
+
+          console.log(
+            "QA REPORT DATA EXTRACTION"
+          );
+
+          console.log(
+            "=========================================="
+          );
+
+          console.log(
+            `Cypress XML files found: ${cypressXmlFiles.length}`
+          );
+
+          console.log(
+            `Cypress tests: ${cypTests}`
+          );
+
+          console.log(
+            `Cypress failures: ${cypFailures}`
+          );
+
+          console.log(
+            `Cypress errors: ${cypErrors}`
+          );
+
+          for (
+            const [
+              name,
+              root,
+              file
+            ]
+            of [
+              [
+                "Smoke",
+                "reports/k6-smoke",
+                "smoke-summary.json"
+              ],
+              [
+                "Load",
+                "reports/k6-load",
+                "summary.json"
+              ]
+            ]
+          ) {
+
+            const s =
+              readK6Summary(
+                root,
+                file
+              );
+
+            const m =
+              k6Metrics(s);
+
+            console.log(
+              `${name} summary: ${
+                s.file || "NOT FOUND"
+              }`
+            );
+
+            console.log(
+              `${name} requests: ${m.requests}`
+            );
+
+            console.log(
+              `${name} avg: ${m.avg}`
+            );
+
+            console.log(
+              `${name} p95: ${m.p95}`
+            );
+
+            console.log(
+              `${name} failed rate: ${m.failedRate}`
+            );
+
+            console.log(
+              `${name} checks failed: ${m.checksFailed}`
+            );
+          }
+
           NODE
+
+      # ==========================================================
+      # SEND EMAIL NOTIFICATION WITH REPORTS
+      # ==========================================================
+
+      - name: Send QA Report Email
+        if: always()
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+
+          username: ${{ secrets.EMAIL_USER }}
+          password: ${{ secrets.EMAIL_PASS }}
+
+          from: ${{ secrets.EMAIL_USER }}
+
+          subject: >-
+            QA Pipeline Report
+            [${{ github.ref_name }}]
+            - Run #${{ github.run_number }}
+            (${{ job.status }})
+
+          to: ${{ secrets.QA_EMAIL_TO }}
+          cc: ${{ secrets.QA_EMAIL_CC }}
+
+          body: |
+            Hi,
+
+            The QA Pipeline for repository
+            ${{ github.repository }}
+            has finished execution.
+
+            Branch:
+            ${{ github.ref_name }}
+
+            Commit:
+            ${{ github.sha }}
+
+            Pipeline Run:
+            #${{ github.run_number }}
+
+            Cypress E2E:
+            ${{ needs.cypress-e2e.result }}
+
+            k6 Smoke Test:
+            ${{ needs.k6-smoke-test.result }}
+
+            k6 Load Test:
+            ${{ needs.k6-load-test.result }}
+
+            Overall QA Job:
+            ${{ job.status }}
+
+            The attached HTML reports contain the actual
+            metrics extracted from the Cypress JUnit and
+            k6 summary artifacts generated by this pipeline run.
+
+            Regards,
+            QA Automation Pipeline
+
+          attachments: |
+            reports/html/cypress-e2e-report.html
+            reports/html/k6-smoke-report.html
+            reports/html/k6-load-report.html
+
+      # ----------------------------------------------------------
+      # Upload combined reports
+      # ----------------------------------------------------------
+
+      - name: Upload Combined QA Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-reports
+          path: reports/
+          if-no-files-found: warn
+          retention-days: 14
+
+      # ----------------------------------------------------------
+      # Final QA decision
+      # ----------------------------------------------------------
+
+      - name: QA Pipeline Result
+        if: always()
+        run: |
+          echo "=========================================="
+          echo "FINAL QA PIPELINE RESULT"
+          echo "=========================================="
+          echo ""
+
+          echo "Cypress E2E:"
+          echo "${{ needs.cypress-e2e.result }}"
+          echo ""
+
+          echo "k6 Smoke:"
+          echo "${{ needs.k6-smoke-test.result }}"
+          echo ""
+
+          echo "k6 Load:"
+          echo "${{ needs.k6-load-test.result }}"
+          echo ""
+
+          if [ \
+            "${{ needs.cypress-e2e.result }}" = "success" ] && \
+            [ "${{ needs.k6-smoke-test.result }}" = "success" ] && \
+            [ "${{ needs.k6-load-test.result }}" = "success" ]; then
+
+            echo "=========================================="
+            echo "QA PIPELINE PASSED"
+            echo "=========================================="
+
+            exit 0
+
+          fi
+
+          echo "=========================================="
+          echo "QA PIPELINE FAILED"
+          echo "=========================================="
+
+          exit 1
