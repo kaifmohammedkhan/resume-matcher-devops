@@ -2092,4 +2092,3 @@ steps:
         reports/html/cypress-e2e-report.html
         reports/html/k6-smoke-report.html
         reports/html/k6-load-report.html
-```
