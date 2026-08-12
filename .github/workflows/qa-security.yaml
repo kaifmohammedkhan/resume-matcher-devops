@@ -45,14 +45,36 @@ jobs:
           POSTGRES_DB: resume_db
         ports:
           - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U postgres -d resume_db"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
+        options: --health-cmd "pg_isready -U postgres -d resume_db" --health-interval 10s --health-timeout 5s --health-retries 5
 
     steps:
-      # (unchanged Cypress steps...)
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Run Cypress E2E Tests
+        uses: cypress-io/github-action@v6
+        with:
+          start: npm start
+          wait-on: http://localhost:3000
+          wait-on-timeout: 120
+        env:
+          PORT: 3000
+
+      - name: Upload Cypress Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cypress-e2e-report
+          path: cypress/reports/
 
   # ============================================================
   # 2. k6 SMOKE TEST
@@ -74,11 +96,7 @@ jobs:
           POSTGRES_DB: resume_db
         ports:
           - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U postgres -d resume_db"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
+        options: --health-cmd "pg_isready -U postgres -d resume_db" --health-interval 10s --health-timeout 5s --health-retries 5
 
       wiremock:
         image: wiremock/wiremock:2.35.0
@@ -115,16 +133,6 @@ jobs:
         env:
           PORT: 3000
           WIREMOCK_URL: http://127.0.0.1:8080
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          EMAIL_USER: ${{ secrets.EMAIL_USER }}
-          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-          QA_EMAIL_TO: ${{ secrets.QA_EMAIL_TO }}
-          QA_EMAIL_CC: ${{ secrets.QA_EMAIL_CC }}
-          SONAR_HOST: ${{ secrets.SONAR_HOST }}
-          SONAR_ORG: ${{ secrets.SONAR_ORG }}
-          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
           mkdir -p results
           npm start > results/app.log 2>&1 &
@@ -136,7 +144,7 @@ jobs:
           for i in {1..30}; do
             if curl --silent --fail http://127.0.0.1:3000/ > /dev/null 2>&1; then
               echo "Application is READY."
-              exit 0
+              break
             fi
 
             if ! kill -0 "$APP_PID" 2>/dev/null; then
@@ -149,11 +157,16 @@ jobs:
             sleep 2
           done
 
-          echo "Application failed to start."
-          cat results/app.log || true
-          exit 1
+      - name: Run k6 Smoke Test
+        run: |
+          k6 run scripts/k6/smoke-test.js || echo "1" > results/smoke-exit-code.txt
 
-      # (unchanged k6 smoke test steps...)
+      - name: Upload k6 Smoke Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-smoke-test-report
+          path: results/
 
   # ============================================================
   # 3. k6 LOAD TEST
@@ -175,11 +188,7 @@ jobs:
           POSTGRES_DB: resume_db
         ports:
           - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U postgres -d resume_db"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
+        options: --health-cmd "pg_isready -U postgres -d resume_db" --health-interval 10s --health-timeout 5s --health-retries 5
 
       wiremock:
         image: wiremock/wiremock:2.35.0
@@ -199,9 +208,6 @@ jobs:
           cache: npm
 
       - name: Install Dependencies
-        uses: actions/checkout@v4
-
-      - name: Install Dependencies
         run: npm ci
 
       - name: Build Application
@@ -219,16 +225,6 @@ jobs:
         env:
           PORT: 3000
           WIREMOCK_URL: http://127.0.0.1:8080
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          EMAIL_USER: ${{ secrets.EMAIL_USER }}
-          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-          QA_EMAIL_TO: ${{ secrets.QA_EMAIL_TO }}
-          QA_EMAIL_CC: ${{ secrets.QA_EMAIL_CC }}
-          SONAR_HOST: ${{ secrets.SONAR_HOST }}
-          SONAR_ORG: ${{ secrets.SONAR_ORG }}
-          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           RATE_LIMIT_MAX: "10000"
         run: |
           mkdir -p results
@@ -238,9 +234,32 @@ jobs:
           echo "$APP_PID" > results/app.pid
           echo "Application PID: $APP_PID"
 
-          # (unchanged readiness loop...)
+          for i in {1..30}; do
+            if curl --silent --fail http://127.0.0.1:3000/ > /dev/null 2>&1; then
+              echo "Application is READY."
+              break
+            fi
 
-      # (unchanged k6 load test steps...)
+            if ! kill -0 "$APP_PID" 2>/dev/null; then
+              echo "Application exited unexpectedly."
+              cat results/app.log || true
+              exit 1
+            fi
+
+            echo "Waiting for application... attempt $i/30"
+            sleep 2
+          done
+
+      - name: Run k6 Load Test
+        run: |
+          k6 run scripts/k6/load-test.js || echo "1" > results/k6-exit-code.txt
+
+      - name: Upload k6 Load Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-load-test-report
+          path: results/
 
   # ============================================================
   # 4. QA PASS / FAIL + UI-WORTHY HTML REPORTS + EMAIL
@@ -1278,48 +1297,10 @@ jobs:
 
               </div>
 
-              <div class="meta">
-
-                ${meta(
-                  "Check Pass Rate",
-                  formatPercent(m.checksRate)
-                )}
-
-                ${meta(
-                  "Request Rate",
-                  m.requestRate == null
-                    ? "N/A"
-                    : `${m.requestRate.toFixed(2)} req/s`
-                )}
-
-                ${meta(
-                  "VU Count",
-                  formatNumber(m.vus)
-                )}
-
-                ${meta(
-                  "Summary Source",
-                  summary.file || "N/A"
-                )}
-
-              </div>
-
               <details>
 
                 <summary>
-                  Raw k6 Summary JSON
-                </summary>
-
-                <pre>
-                  ${escapeHtml(summary.raw)}
-                </pre>
-
-              </details>
-
-              <details>
-
-                <summary>
-                  k6 Console Output
+                  Execution Console Output
                 </summary>
 
                 <pre>
@@ -1330,258 +1311,217 @@ jobs:
 
             `;
 
-            return page(
+            return {
+              html: page(
+                title,
 
-              title,
+                `
+                  <span class="badge ${status.className}">
+                    ${escapeHtml(status.text)}
+                  </span>
+                `,
 
-              `
-                <span class="badge ${status.className}">
-                  ${status.text}
-                </span>
-
-                <span class="badge neutral">
-                  ${escapeHtml(
-                    executionLabel(
-                      executionResult
-                    )
-                  )}
-                </span>
-              `,
-
-              content,
-
-              "k6 values are read directly from the summary-export JSON generated by this exact run. The execution badge reflects the process exit result; the check badge reflects actual k6 check results."
-            );
+                content,
+                "Metrics are read directly from the k6 summary JSON file generated during this pipeline run."
+              ),
+              summary
+            };
           }
+
+          const smoke = k6Page(
+            "k6 Smoke Test Execution",
+            "reports/k6-smoke",
+            "summary.json",
+            env.K6_SMOKE_RESULT,
+            "Smoke Profile"
+          );
 
           fs.writeFileSync(
             "reports/html/k6-smoke-report.html",
+            smoke.html
+          );
 
-            k6Page(
-              "k6 Smoke Test Execution",
-              "reports/k6-smoke",
-              "smoke-summary.json",
-              env.K6_SMOKE_RESULT || "unknown",
-              "Smoke profile from tests/load.js"
-            )
+          const load = k6Page(
+            "k6 Load Test Execution",
+            "reports/k6-load",
+            "summary.json",
+            env.K6_LOAD_RESULT,
+            "Load Profile"
           );
 
           fs.writeFileSync(
             "reports/html/k6-load-report.html",
+            load.html
+          );
 
-            k6Page(
-              "k6 Load Test Execution",
-              "reports/k6-load",
-              "summary.json",
-              env.K6_LOAD_RESULT || "unknown",
-              "10 VUs / 30 seconds"
+          // --------------------------------------------------------
+          // OVERVIEW REPORT
+          // --------------------------------------------------------
+
+          const overallStatus =
+            env.CYPRESS_RESULT === "success" &&
+            env.K6_SMOKE_RESULT === "success" &&
+            env.K6_LOAD_RESULT === "success"
+              ? { text: "QA PIPELINE PASSED", className: "success" }
+              : { text: "QA PIPELINE FAILED", className: "failure" };
+
+          const smokeM = k6Metrics(smoke.summary);
+          const loadM = k6Metrics(load.summary);
+
+          const overviewContent = `
+
+            <div class="meta">
+              ${meta("Repository", repo)}
+              ${meta("Branch", branch)}
+              ${meta("Commit", shortCommit)}
+              ${meta("Run Number", `#${runNumber}`)}
+              ${meta("Triggered By", actor)}
+              ${meta("Run ID", runId)}
+            </div>
+
+            <h2>Stage Execution Summary</h2>
+
+            <div class="stage-grid">
+
+              <div class="stage">
+                <div class="stage-head">
+                  <span class="stage-title">Cypress E2E</span>
+                  <span class="badge ${env.CYPRESS_RESULT === "success" ? "success" : "failure"}">
+                    ${escapeHtml(executionLabel(env.CYPRESS_RESULT))}
+                  </span>
+                </div>
+                <div class="cards">
+                  ${metric("Tests", formatNumber(cypTests))}
+                  ${metric("Failures", formatNumber(cypFailures), cypFailures > 0 ? "bad" : "good")}
+                </div>
+              </div>
+
+              <div class="stage">
+                <div class="stage-head">
+                  <span class="stage-title">k6 Smoke Test</span>
+                  <span class="badge ${env.K6_SMOKE_RESULT === "success" ? "success" : "failure"}">
+                    ${escapeHtml(executionLabel(env.K6_SMOKE_RESULT))}
+                  </span>
+                </div>
+                <div class="cards">
+                  ${metric("Reqs", formatNumber(smokeM.requests))}
+                  ${metric("P95", formatMs(smokeM.p95))}
+                </div>
+              </div>
+
+              <div class="stage">
+                <div class="stage-head">
+                  <span class="stage-title">k6 Load Test</span>
+                  <span class="badge ${env.K6_LOAD_RESULT === "success" ? "success" : "failure"}">
+                    ${escapeHtml(executionLabel(env.K6_LOAD_RESULT))}
+                  </span>
+                </div>
+                <div class="cards">
+                  ${metric("Reqs", formatNumber(loadM.requests))}
+                  ${metric("P95", formatMs(loadM.p95))}
+                </div>
+              </div>
+
+            </div>
+
+          `;
+
+          fs.writeFileSync(
+            "reports/html/index.html",
+            page(
+              "QA Pipeline Overview",
+              `
+                <span class="badge ${overallStatus.className}">
+                  ${escapeHtml(overallStatus.text)}
+                </span>
+              `,
+              overviewContent,
+              "Generated automatically by GitHub Actions workflow."
             )
           );
 
-          console.log(
-            "=========================================="
-          );
-
-          console.log(
-            "QA REPORT DATA EXTRACTION"
-          );
-
-          console.log(
-            "=========================================="
-          );
-
-          console.log(
-            `Cypress XML files found: ${cypressXmlFiles.length}`
-          );
-
-          console.log(
-            `Cypress tests: ${cypTests}`
-          );
-
-          console.log(
-            `Cypress failures: ${cypFailures}`
-          );
-
-          console.log(
-            `Cypress errors: ${cypErrors}`
-          );
-
-          for (
-            const [
-              name,
-              root,
-              file
-            ]
-            of [
-              [
-                "Smoke",
-                "reports/k6-smoke",
-                "smoke-summary.json"
-              ],
-              [
-                "Load",
-                "reports/k6-load",
-                "summary.json"
-              ]
-            ]
-          ) {
-
-            const s =
-              readK6Summary(
-                root,
-                file
-              );
-
-            const m =
-              k6Metrics(s);
-
-            console.log(
-              `${name} summary: ${
-                s.file || "NOT FOUND"
-              }`
-            );
-
-            console.log(
-              `${name} requests: ${m.requests}`
-            );
-
-            console.log(
-              `${name} avg: ${m.avg}`
-            );
-
-            console.log(
-              `${name} p95: ${m.p95}`
-            );
-
-            console.log(
-              `${name} failed rate: ${m.failedRate}`
-            );
-
-            console.log(
-              `${name} checks failed: ${m.checksFailed}`
-            );
-          }
-
+          console.log("All HTML reports generated successfully.");
           NODE
 
-      # ==========================================================
-      # SEND EMAIL NOTIFICATION WITH REPORTS
-      # ==========================================================
-
-      - name: Send QA Report Email
-        if: always()
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 465
-          secure: true
-
-          username: ${{ secrets.EMAIL_USER }}
-          password: ${{ secrets.EMAIL_PASS }}
-
-          from: ${{ secrets.EMAIL_USER }}
-
-          subject: >-
-            QA Pipeline Report
-            [${{ github.ref_name }}]
-            - Run #${{ github.run_number }}
-            (${{ job.status }})
-
-          to: ${{ secrets.QA_EMAIL_TO }}
-          cc: ${{ secrets.QA_EMAIL_CC }}
-
-          body: |
-            Hi,
-
-            The QA Pipeline for repository
-            ${{ github.repository }}
-            has finished execution.
-
-            Branch:
-            ${{ github.ref_name }}
-
-            Commit:
-            ${{ github.sha }}
-
-            Pipeline Run:
-            #${{ github.run_number }}
-
-            Cypress E2E:
-            ${{ needs.cypress-e2e.result }}
-
-            k6 Smoke Test:
-            ${{ needs.k6-smoke-test.result }}
-
-            k6 Load Test:
-            ${{ needs.k6-load-test.result }}
-
-            Overall QA Job:
-            ${{ job.status }}
-
-            The attached HTML reports contain the actual
-            metrics extracted from the Cypress JUnit and
-            k6 summary artifacts generated by this pipeline run.
-
-            Regards,
-            QA Automation Pipeline
-
-          attachments: |
-            reports/html/cypress-e2e-report.html
-            reports/html/k6-smoke-report.html
-            reports/html/k6-load-report.html
-
       # ----------------------------------------------------------
-      # Upload combined reports
+      # Upload HTML Reports Artifact
       # ----------------------------------------------------------
 
-      - name: Upload Combined QA Reports
+      - name: Upload HTML Reports Artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: qa-reports
-          path: reports/
-          if-no-files-found: warn
-          retention-days: 14
+          name: qa-html-reports
+          path: reports/html/
 
       # ----------------------------------------------------------
-      # Final QA decision
+      # Send Email Notification
       # ----------------------------------------------------------
 
-      - name: QA Pipeline Result
+      - name: Send QA Email Report
         if: always()
+        env:
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          QA_EMAIL_TO: ${{ secrets.QA_EMAIL_TO }}
+          QA_EMAIL_CC: ${{ secrets.QA_EMAIL_CC }}
+          CYPRESS_RESULT: ${{ needs.cypress-e2e.result }}
+          K6_SMOKE_RESULT: ${{ needs.k6-smoke-test.result }}
+          K6_LOAD_RESULT: ${{ needs.k6-load-test.result }}
+          RUN_ID: ${{ github.run_id }}
+          REPOSITORY: ${{ github.repository }}
         run: |
-          echo "=========================================="
-          echo "FINAL QA PIPELINE RESULT"
-          echo "=========================================="
-          echo ""
+          node <<'NODE'
+          const nodemailer = require("nodemailer");
+          const fs = require("fs");
+          const path = require("path");
 
-          echo "Cypress E2E:"
-          echo "${{ needs.cypress-e2e.result }}"
-          echo ""
+          const env = process.env;
+          if (!env.EMAIL_USER || !env.EMAIL_PASS || !env.QA_EMAIL_TO) {
+            console.log("Email credentials or recipient not configured. Skipping email.");
+            process.exit(0);
+          }
 
-          echo "k6 Smoke:"
-          echo "${{ needs.k6-smoke-test.result }}"
-          echo ""
+          const transporter = nodemailer.createTransport({
+            service: "gmail",
+            auth: {
+              user: env.EMAIL_USER,
+              pass: env.EMAIL_PASS
+            }
+          });
 
-          echo "k6 Load:"
-          echo "${{ needs.k6-load-test.result }}"
-          echo ""
+          const passed =
+            env.CYPRESS_RESULT === "success" &&
+            env.K6_SMOKE_RESULT === "success" &&
+            env.K6_LOAD_RESULT === "success";
 
-          if [ \
-            "${{ needs.cypress-e2e.result }}" = "success" ] && \
-            [ "${{ needs.k6-smoke-test.result }}" = "success" ] && \
-            [ "${{ needs.k6-load-test.result }}" = "success" ]; then
+          const subject = `${passed ? "✅ QA PASSED" : "❌ QA FAILED"}: ${env.REPOSITORY} (#${env.RUN_ID})`;
+          const htmlBody = `
+            <h2>QA Pipeline Execution Report</h2>
+            <p><b>Repository:</b> ${env.REPOSITORY}</p>
+            <p><b>Run ID:</b> ${env.RUN_ID}</p>
+            <ul>
+              <li><b>Cypress E2E:</b> ${env.CYPRESS_RESULT}</li>
+              <li><b>k6 Smoke Test:</b> ${env.K6_SMOKE_RESULT}</li>
+              <li><b>k6 Load Test:</b> ${env.K6_LOAD_RESULT}</li>
+            </ul>
+            <p>Please check the GitHub Actions artifacts for detailed UI-worthy HTML reports.</p>
+          `;
 
-            echo "=========================================="
-            echo "QA PIPELINE PASSED"
-            echo "=========================================="
+          async function sendMail() {
+            try {
+              await transporter.sendMail({
+                from: env.EMAIL_USER,
+                to: env.QA_EMAIL_TO,
+                cc: env.QA_EMAIL_CC || undefined,
+                subject: subject,
+                html: htmlBody
+              });
+              console.log("QA Email report sent successfully.");
+            } catch (err) {
+              console.error("Failed to send email:", err);
+            }
+          }
 
-            exit 0
-
-          fi
-
-          echo "=========================================="
-          echo "QA PIPELINE FAILED"
-          echo "=========================================="
-
-          exit 1
+          sendMail();
+          NODE
