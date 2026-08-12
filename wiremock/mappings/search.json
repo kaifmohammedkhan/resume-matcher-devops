@@ -1,0 +1,13 @@
+{
+  "request": {
+    "method": "GET",
+    "urlPath": "/search"
+  },
+  "response": {
+    "status": 200,
+    "body": "{\"results\": [\"stubbed result\"]}",
+    "headers": {
+      "Content-Type": "application/json"
+    }
+  }
+}
