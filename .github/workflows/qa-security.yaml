@@ -835,7 +835,15 @@ jobs:
           const commit = env.COMMIT || "N/A";
           const runNumber = env.RUN_NUMBER || "N/A";
 
-          // Shared CSS Styles for gorgeous UI-worthy reports
+          function escapeHtml(str) {
+              if (typeof str !== "string") str = JSON.stringify(str, null, 2);
+              return str.replaceAll("&", "&amp;")
+                        .replaceAll("<", "&lt;")
+                        .replaceAll(">", "&gt;")
+                        .replaceAll("\"", "&quot;")
+                        .replaceAll("\x27", "&#39;");
+          }
+
           const sharedStyles = `
               :root {
                   --bg-main: #0f172a;
@@ -956,7 +964,6 @@ jobs:
           const cypLog = fs.existsSync("reports/cypress/cypress-run.log") 
               ? fs.readFileSync("reports/cypress/cypress-run.log", "utf8") : "No Cypress log file captured.";
 
-          // Try parsing JUnit XML if available for clean stats
           let cypTests = "N/A", cypFailures = "N/A", cypErrors = "N/A", cypTime = "N/A";
           const junitDir = "reports/cypress";
           if (fs.existsSync(junitDir)) {
@@ -998,7 +1005,7 @@ jobs:
                       <div class="metric-card"><div class="lbl">Duration</div><div class="val">\${cypTime}</div></div>
                   </div>
                   <h3>Execution Console Output:</h3>
-                  <pre><code>\${cypLog.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</code></pre>
+                  <pre><code>\${escapeHtml(cypLog)}</code></pre>
               </div>
           </body>
           </html>`;
@@ -1056,7 +1063,7 @@ jobs:
                       <div class="metric-card"><div class="lbl">Failed Rate</div><div class="val">\${smokeFailedRate}</div></div>
                   </div>
                   <h3>Raw Summary Metrics JSON:</h3>
-                  <pre><code>\${smokeJsonStr.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</code></pre>
+                  <pre><code>\${escapeHtml(smokeJsonStr)}</code></pre>
               </div>
           </body>
           </html>`;
@@ -1114,7 +1121,7 @@ jobs:
                       <div class="metric-card"><div class="lbl">Failed Rate</div><div class="val">\${loadFailedRate}</div></div>
                   </div>
                   <h3>Raw Summary Metrics JSON:</h3>
-                  <pre><code>\${loadJsonStr.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</code></pre>
+                  <pre><code>\${escapeHtml(loadJsonStr)}</code></pre>
               </div>
           </body>
           </html>`;
