@@ -1002,6 +1002,7 @@ jobs:
           secure: true
           username: ${{ secrets.EMAIL_USER }}
           password: ${{ secrets.EMAIL_PASS }}
+          from: ${{ secrets.EMAIL_USER }}
           subject: "QA Pipeline Report [${{ github.ref_name }}] - Run #${{ github.run_number }} (${{ job.status }})"
           to: ${{ secrets.QA_EMAIL_TO }}
           cc: ${{ secrets.QA_EMAIL_CC }}
