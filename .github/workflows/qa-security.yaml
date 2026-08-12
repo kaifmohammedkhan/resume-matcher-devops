@@ -755,7 +755,7 @@ jobs:
 
 
   # ============================================================
-  # 4. QA PASS / FAIL + LOG-DRIVEN HTML REPORTS + EMAIL
+  # 4. QA PASS / FAIL + UI-WORTHY HTML REPORTS + EMAIL
   # ============================================================
 
   qa-pass:
@@ -808,7 +808,7 @@ jobs:
             -print \
             2>/dev/null || true
 
-      - name: Generate Individual HTML Stage Reports
+      - name: Generate UI-Worthy HTML Stage Reports
         if: always()
         env:
           CYPRESS_RESULT: ${{ needs.cypress-e2e.result }}
@@ -825,141 +825,301 @@ jobs:
           set -e
           mkdir -p reports/html
 
-          # -----------------------------------------------------------------
-          # 1. CYPRESS HTML REPORT GENERATOR
-          # -----------------------------------------------------------------
-          CYP_LOG="reports/cypress/cypress-run.log"
-          CYP_EXIT_CODE=$(cat reports/cypress/cypress-exit-code.txt 2>/dev/null || echo "Unknown")
-          CYP_RES="${{ env.CYPRESS_RESULT }}"
-          CYP_LOG_CONTENT=$(cat "$CYP_LOG" 2>/dev/null || echo "No Cypress log file captured.")
-          
-          cat << EOF > reports/html/cypress-e2e-report.html
-          <!DOCTYPE html>
+          node -e '
+          const fs = require("fs");
+          const path = require("path");
+
+          const env = process.env;
+          const repo = env.REPOSITORY || "N/A";
+          const branch = env.BRANCH || "N/A";
+          const commit = env.COMMIT || "N/A";
+          const runNumber = env.RUN_NUMBER || "N/A";
+
+          // Shared CSS Styles for gorgeous UI-worthy reports
+          const sharedStyles = `
+              :root {
+                  --bg-main: #0f172a;
+                  --bg-card: #1e293b;
+                  --bg-code: #0b0f19;
+                  --border-color: #334155;
+                  --text-main: #f8fafc;
+                  --text-muted: #94a3b8;
+                  --accent: #38bdf8;
+              }
+              body {
+                  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                  background: var(--bg-main);
+                  color: var(--text-main);
+                  padding: 2rem;
+                  margin: 0;
+              }
+              .container {
+                  max-width: 960px;
+                  margin: auto;
+                  background: var(--bg-card);
+                  padding: 2rem;
+                  border-radius: 12px;
+                  box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5);
+              }
+              h1 {
+                  font-size: 1.75rem;
+                  border-bottom: 2px solid var(--border-color);
+                  padding-bottom: 0.75rem;
+                  margin-top: 0;
+                  display: flex;
+                  justify-content: space-between;
+                  align-items: center;
+              }
+              .badge {
+                  padding: 0.35rem 1rem;
+                  border-radius: 9999px;
+                  font-size: 0.875rem;
+                  font-weight: 700;
+                  text-transform: uppercase;
+                  letter-spacing: 0.05em;
+              }
+              .success { background: #065f46; color: #6ee7b7; border: 1px solid #059669; }
+              .failure { background: #991b1b; color: #fca5a5; border: 1px solid #dc2626; }
+              .skipped { background: #475569; color: #cbd5e1; border: 1px solid #64748b; }
+              
+              .meta-grid {
+                  display: grid;
+                  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                  gap: 1rem;
+                  margin: 1.5rem 0;
+                  background: var(--bg-main);
+                  padding: 1rem;
+                  border-radius: 8px;
+                  border: 1px solid var(--border-color);
+              }
+              .meta-item span {
+                  color: var(--text-muted);
+                  display: block;
+                  font-size: 0.75rem;
+                  text-transform: uppercase;
+                  letter-spacing: 0.05em;
+                  margin-bottom: 0.25rem;
+              }
+              .meta-item b {
+                  font-size: 1rem;
+              }
+              .metrics-cards {
+                  display: grid;
+                  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+                  gap: 1rem;
+                  margin: 1.5rem 0;
+              }
+              .metric-card {
+                  background: var(--bg-main);
+                  border: 1px solid var(--border-color);
+                  border-radius: 8px;
+                  padding: 1rem;
+                  text-align: center;
+              }
+              .metric-card .val {
+                  font-size: 1.5rem;
+                  font-weight: bold;
+                  color: var(--accent);
+                  margin-top: 0.25rem;
+              }
+              .metric-card .lbl {
+                  font-size: 0.75rem;
+                  color: var(--text-muted);
+                  text-transform: uppercase;
+              }
+              h3 {
+                  margin-top: 2rem;
+                  font-size: 1.1rem;
+                  color: var(--text-muted);
+                  text-transform: uppercase;
+                  letter-spacing: 0.05em;
+              }
+              pre {
+                  background: var(--bg-code);
+                  color: var(--accent);
+                  padding: 1rem;
+                  border-radius: 6px;
+                  border: 1px solid var(--border-color);
+                  overflow-x: auto;
+                  font-size: 0.85rem;
+                  max-height: 350px;
+              }
+          `;
+
+          // ==========================================
+          // 1. GENERATE CYPRESS REPORT
+          // ==========================================
+          const cypRes = env.CYPRESS_RESULT || "UNKNOWN";
+          const cypBadgeClass = cypRes === "success" ? "success" : "failure";
+          const cypExitCode = fs.existsSync("reports/cypress/cypress-exit-code.txt") 
+              ? fs.readFileSync("reports/cypress/cypress-exit-code.txt", "utf8").trim() : "Unknown";
+          const cypLog = fs.existsSync("reports/cypress/cypress-run.log") 
+              ? fs.readFileSync("reports/cypress/cypress-run.log", "utf8") : "No Cypress log file captured.";
+
+          // Try parsing JUnit XML if available for clean stats
+          let cypTests = "N/A", cypFailures = "N/A", cypErrors = "N/A", cypTime = "N/A";
+          const junitDir = "reports/cypress";
+          if (fs.existsSync(junitDir)) {
+              const files = fs.readdirSync(junitDir).filter(f => f.endsWith(".xml"));
+              if (files.length > 0) {
+                  const xmlContent = fs.readFileSync(path.join(junitDir, files[0]), "utf8");
+                  const matchTestsuite = xmlContent.match(/<testsuite[^>]*tests="([^"]*)"[^>]*failures="([^"]*)"[^>]*errors="([^"]*)"[^>]*time="([^"]*)"/);
+                  if (matchTestsuite) {
+                      cypTests = matchTestsuite[1];
+                      cypFailures = matchTestsuite[2];
+                      cypErrors = matchTestsuite[3];
+                      cypTime = matchTestsuite[4] + "s";
+                  }
+              }
+          }
+
+          const cypHtml = `<!DOCTYPE html>
           <html>
           <head>
               <title>Cypress E2E Test Report</title>
-              <style>
-                  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; padding: 2rem; margin: 0; }
-                  .container { max-width: 900px; margin: auto; background: #1e293b; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.5); }
-                  h1 { font-size: 1.5rem; border-bottom: 2px solid #334155; padding-bottom: 0.75rem; margin-top: 0; display: flex; justify-content: space-between; align-items: center; }
-                  .badge { padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.875rem; font-weight: 600; text-transform: uppercase; }
-                  .success { background: #065f46; color: #6ee7b7; }
-                  .failure { background: #991b1b; color: #fca5a5; }
-                  .meta-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; margin: 1.5rem 0; background: #0f172a; padding: 1rem; border-radius: 8px; }
-                  .meta-item span { color: #94a3b8; display: block; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 0.25rem; }
-                  pre { background: #0b0f19; color: #38bdf8; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.85rem; max-height: 400px; }
-              </style>
+              <style>\${sharedStyles}</style>
           </head>
           <body>
               <div class="container">
                   <h1>
                       Cypress E2E Test Execution
-                      <span class="badge $CYP_RES">$CYP_RES</span>
+                      <span class="badge \${cypBadgeClass}">\${cypRes}</span>
                   </h1>
                   <div class="meta-grid">
-                      <div class="meta-item"><span>Repository</span><b>${{ env.REPOSITORY }}</b></div>
-                      <div class="meta-item"><span>Branch / Commit</span><b>${{ env.BRANCH }} (${{ env.COMMIT }})</b></div>
-                      <div class="meta-item"><span>Pipeline Run #</span><b>#${{ env.RUN_NUMBER }}</b></div>
-                      <div class="meta-item"><span>Exit Code</span><b>$CYP_EXIT_CODE</b></div>
+                      <div class="meta-item"><span>Repository</span><b>\${repo}</b></div>
+                      <div class="meta-item"><span>Branch / Commit</span><b>\${branch} (\${commit.substring(0,7)})</b></div>
+                      <div class="meta-item"><span>Pipeline Run #</span><b>#\${runNumber}</b></div>
+                      <div class="meta-item"><span>Exit Code</span><b>\${cypExitCode}</b></div>
                   </div>
-                  <h3>Execution Logs / Output:</h3>
-                  <pre><code>$CYP_LOG_CONTENT</code></pre>
+                  <div class="metrics-cards">
+                      <div class="metric-card"><div class="lbl">Total Tests</div><div class="val">\${cypTests}</div></div>
+                      <div class="metric-card"><div class="lbl">Failures</div><div class="val" style="color: \${cypFailures > 0 ? '#fca5a5' : '#6ee7b7'}">\${cypFailures}</div></div>
+                      <div class="metric-card"><div class="lbl">Errors</div><div class="val">\${cypErrors}</div></div>
+                      <div class="metric-card"><div class="lbl">Duration</div><div class="val">\${cypTime}</div></div>
+                  </div>
+                  <h3>Execution Console Output:</h3>
+                  <pre><code>\${cypLog.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</code></pre>
               </div>
           </body>
-          </html>
-          EOF
+          </html>`;
+          fs.writeFileSync("reports/html/cypress-e2e-report.html", cypHtml);
 
-          # -----------------------------------------------------------------
-          # 2. k6 SMOKE HTML REPORT GENERATOR
-          # -----------------------------------------------------------------
-          SMOKE_SUMMARY="reports/k6-smoke/smoke-summary.json"
-          SMOKE_EXIT=$(cat reports/k6-smoke/smoke-exit-code.txt 2>/dev/null || echo "Unknown")
-          SMOKE_RES="${{ env.K6_SMOKE_RESULT }}"
-          
-          SMOKE_METRICS="Check reports artifact JSON for deep metrics breakdown."
-          if [ -f "$SMOKE_SUMMARY" ]; then
-            SMOKE_METRICS=$(cat "$SMOKE_SUMMARY")
-          fi
+          // ==========================================
+          // 2. GENERATE k6 SMOKE REPORT
+          // ==========================================
+          const smokeRes = env.K6_SMOKE_RESULT || "UNKNOWN";
+          const smokeBadgeClass = smokeRes === "success" ? "success" : "failure";
+          const smokeExit = fs.existsSync("reports/k6-smoke/smoke-exit-code.txt")
+              ? fs.readFileSync("reports/k6-smoke/smoke-exit-code.txt", "utf8").trim() : "Unknown";
+          const smokeSummaryPath = "reports/k6-smoke/smoke-summary.json";
 
-          cat << EOF > reports/html/k6-smoke-report.html
-          <!DOCTYPE html>
+          let smokeReqs = "N/A", smokeAvg = "N/A", smokeP95 = "N/A", smokeFailedRate = "N/A";
+          let smokeJsonStr = "No k6 smoke summary metrics found.";
+          if (fs.existsSync(smokeSummaryPath)) {
+              const raw = fs.readFileSync(smokeSummaryPath, "utf8");
+              smokeJsonStr = raw;
+              try {
+                  const data = JSON.parse(raw);
+                  if (data.metrics) {
+                      if (data.metrics.http_reqs) smokeReqs = data.metrics.http_reqs.values.count;
+                      if (data.metrics.http_req_duration) {
+                          smokeAvg = (data.metrics.http_req_duration.values.avg || 0).toFixed(2) + "ms";
+                          smokeP95 = (data.metrics.http_req_duration.values["p(95)"] || 0).toFixed(2) + "ms";
+                      }
+                      if (data.metrics.http_req_failed) {
+                          smokeFailedRate = ((data.metrics.http_req_failed.values.rate || 0) * 100).toFixed(2) + "%";
+                      }
+                  }
+              } catch(e) {}
+          }
+
+          const smokeHtml = `<!DOCTYPE html>
           <html>
           <head>
               <title>k6 Smoke Test Report</title>
-              <style>
-                  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; padding: 2rem; margin: 0; }
-                  .container { max-width: 900px; margin: auto; background: #1e293b; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.5); }
-                  h1 { font-size: 1.5rem; border-bottom: 2px solid #334155; padding-bottom: 0.75rem; margin-top: 0; display: flex; justify-content: space-between; align-items: center; }
-                  .badge { padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.875rem; font-weight: 600; text-transform: uppercase; }
-                  .success { background: #065f46; color: #6ee7b7; }
-                  .failure { background: #991b1b; color: #fca5a5; }
-                  .meta-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; margin: 1.5rem 0; background: #0f172a; padding: 1rem; border-radius: 8px; }
-                  .meta-item span { color: #94a3b8; display: block; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 0.25rem; }
-                  pre { background: #0b0f19; color: #38bdf8; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.85rem; max-height: 400px; }
-              </style>
+              <style>\${sharedStyles}</style>
           </head>
           <body>
               <div class="container">
                   <h1>
                       k6 Smoke Test Execution
-                      <span class="badge $SMOKE_RES">$SMOKE_RES</span>
+                      <span class="badge \${smokeBadgeClass}">\${smokeRes}</span>
                   </h1>
                   <div class="meta-grid">
-                      <div class="meta-item"><span>Pipeline Run #</span><b>#${{ env.RUN_NUMBER }}</b></div>
-                      <div class="meta-item"><span>Exit Code</span><b>$SMOKE_EXIT</b></div>
+                      <div class="meta-item"><span>Pipeline Run #</span><b>#\${runNumber}</b></div>
+                      <div class="meta-item"><span>Exit Code</span><b>\${smokeExit}</b></div>
+                  </div>
+                  <div class="metrics-cards">
+                      <div class="metric-card"><div class="lbl">Total Requests</div><div class="val">\${smokeReqs}</div></div>
+                      <div class="metric-card"><div class="lbl">Avg Latency</div><div class="val">\${smokeAvg}</div></div>
+                      <div class="metric-card"><div class="lbl">P95 Latency</div><div class="val">\${smokeP95}</div></div>
+                      <div class="metric-card"><div class="lbl">Failed Rate</div><div class="val">\${smokeFailedRate}</div></div>
                   </div>
                   <h3>Raw Summary Metrics JSON:</h3>
-                  <pre><code>$SMOKE_METRICS</code></pre>
+                  <pre><code>\${smokeJsonStr.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</code></pre>
               </div>
           </body>
-          </html>
-          EOF
+          </html>`;
+          fs.writeFileSync("reports/html/k6-smoke-report.html", smokeHtml);
 
-          # -----------------------------------------------------------------
-          # 3. k6 LOAD HTML REPORT GENERATOR
-          # -----------------------------------------------------------------
-          LOAD_SUMMARY="reports/k6-load/summary.json"
-          LOAD_EXIT=$(cat reports/k6-load/k6-exit-code.txt 2>/dev/null || echo "Unknown")
-          LOAD_RES="${{ env.K6_LOAD_RESULT }}"
-          
-          LOAD_METRICS="Check reports artifact JSON for deep metrics breakdown."
-          if [ -f "$LOAD_SUMMARY" ]; then
-            LOAD_METRICS=$(cat "$LOAD_SUMMARY")
-          fi
+          // ==========================================
+          // 3. GENERATE k6 LOAD REPORT
+          // ==========================================
+          const loadRes = env.K6_LOAD_RESULT || "UNKNOWN";
+          const loadBadgeClass = loadRes === "success" ? "success" : "failure";
+          const loadExit = fs.existsSync("reports/k6-load/k6-exit-code.txt")
+              ? fs.readFileSync("reports/k6-load/k6-exit-code.txt", "utf8").trim() : "Unknown";
+          const loadSummaryPath = "reports/k6-load/summary.json";
 
-          cat << EOF > reports/html/k6-load-report.html
-          <!DOCTYPE html>
+          let loadReqs = "N/A", loadAvg = "N/A", loadP95 = "N/A", loadFailedRate = "N/A";
+          let loadJsonStr = "No k6 load summary metrics found.";
+          if (fs.existsSync(loadSummaryPath)) {
+              const raw = fs.readFileSync(loadSummaryPath, "utf8");
+              loadJsonStr = raw;
+              try {
+                  const data = JSON.parse(raw);
+                  if (data.metrics) {
+                      if (data.metrics.http_reqs) loadReqs = data.metrics.http_reqs.values.count;
+                      if (data.metrics.http_req_duration) {
+                          loadAvg = (data.metrics.http_req_duration.values.avg || 0).toFixed(2) + "ms";
+                          loadP95 = (data.metrics.http_req_duration.values["p(95)"] || 0).toFixed(2) + "ms";
+                      }
+                      if (data.metrics.http_req_failed) {
+                          loadFailedRate = ((data.metrics.http_req_failed.values.rate || 0) * 100).toFixed(2) + "%";
+                      }
+                  }
+              } catch(e) {}
+          }
+
+          const loadHtml = `<!DOCTYPE html>
           <html>
           <head>
               <title>k6 Load Test Report</title>
-              <style>
-                  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; padding: 2rem; margin: 0; }
-                  .container { max-width: 900px; margin: auto; background: #1e293b; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.5); }
-                  h1 { font-size: 1.5rem; border-bottom: 2px solid #334155; padding-bottom: 0.75rem; margin-top: 0; display: flex; justify-content: space-between; align-items: center; }
-                  .badge { padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.875rem; font-weight: 600; text-transform: uppercase; }
-                  .success { background: #065f46; color: #6ee7b7; }
-                  .failure { background: #991b1b; color: #fca5a5; }
-                  .meta-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; margin: 1.5rem 0; background: #0f172a; padding: 1rem; border-radius: 8px; }
-                  .meta-item span { color: #94a3b8; display: block; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 0.25rem; }
-                  pre { background: #0b0f19; color: #38bdf8; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.85rem; max-height: 400px; }
-              </style>
+              <style>\${sharedStyles}</style>
           </head>
           <body>
               <div class="container">
                   <h1>
                       k6 Load Test Execution (10 VUs / 30s)
-                      <span class="badge $LOAD_RES">$LOAD_RES</span>
+                      <span class="badge \${loadBadgeClass}">\${loadRes}</span>
                   </h1>
                   <div class="meta-grid">
-                      <div class="meta-item"><span>Pipeline Run #</span><b>#${{ env.RUN_NUMBER }}</b></div>
-                      <div class="meta-item"><span>Exit Code</span><b>$LOAD_EXIT</b></div>
+                      <div class="meta-item"><span>Pipeline Run #</span><b>#\${runNumber}</b></div>
+                      <div class="meta-item"><span>Exit Code</span><b>\${loadExit}</b></div>
+                  </div>
+                  <div class="metrics-cards">
+                      <div class="metric-card"><div class="lbl">Total Requests</div><div class="val">\${loadReqs}</div></div>
+                      <div class="metric-card"><div class="lbl">Avg Latency</div><div class="val">\${loadAvg}</div></div>
+                      <div class="metric-card"><div class="lbl">P95 Latency</div><div class="val">\${loadP95}</div></div>
+                      <div class="metric-card"><div class="lbl">Failed Rate</div><div class="val">\${loadFailedRate}</div></div>
                   </div>
                   <h3>Raw Summary Metrics JSON:</h3>
-                  <pre><code>$LOAD_METRICS</code></pre>
+                  <pre><code>\${loadJsonStr.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</code></pre>
               </div>
           </body>
-          </html>
-          EOF
+          </html>`;
+          fs.writeFileSync("reports/html/k6-load-report.html", loadHtml);
+          '
 
       # ==========================================================
       # SEND EMAIL NOTIFICATION WITH REPORTS
@@ -987,7 +1147,7 @@ jobs:
             - Commit: ${{ github.sha }}
             - Status: ${{ job.status }}
 
-            Please find the attached HTML test reports for Cypress, k6 Smoke, and k6 Load tests.
+            Please find the attached UI-worthy HTML test reports for Cypress E2E, k6 Smoke, and k6 Load tests containing live extracted performance and execution metrics.
 
             Regards,
             QA Automation Pipeline
