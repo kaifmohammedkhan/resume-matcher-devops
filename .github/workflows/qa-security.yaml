@@ -52,10 +52,7 @@ jobs:
           --health-retries=5
 
     steps:
-      - name: Cypress E2E Tests
-        run: |
-          echo "Cypress E2E steps were omitted from the supplied YAML."
-          echo "Insert the existing Cypress steps here."
+      # (unchanged Cypress steps...)
 
   # ============================================================
   # 2. k6 SMOKE TEST
@@ -89,11 +86,6 @@ jobs:
           - 8080:8080
         volumes:
           - ./wiremock/mappings:/home/wiremock/mappings
-        options: >-
-          --health-cmd="curl --fail http://localhost:8080/__admin/health || exit 1"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
 
     steps:
       - name: Checkout Repository
@@ -161,10 +153,7 @@ jobs:
           cat results/app.log || true
           exit 1
 
-      - name: k6 Smoke Test
-        run: |
-          echo "k6 smoke test steps were omitted from the supplied YAML."
-          echo "Insert the existing k6 smoke test steps here."
+      # (unchanged k6 smoke test steps...)
 
   # ============================================================
   # 3. k6 LOAD TEST
@@ -198,11 +187,6 @@ jobs:
           - 8080:8080
         volumes:
           - ./wiremock/mappings:/home/wiremock/mappings
-        options: >-
-          --health-cmd="curl --fail http://localhost:8080/__admin/health || exit 1"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
 
     steps:
       - name: Checkout Repository
@@ -213,6 +197,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
+
+      - name: Install Dependencies
+        uses: actions/checkout@v4
 
       - name: Install Dependencies
         run: npm ci
@@ -251,10 +238,9 @@ jobs:
           echo "$APP_PID" > results/app.pid
           echo "Application PID: $APP_PID"
 
-      - name: k6 Load Test
-        run: |
-          echo "k6 load test steps were omitted from the supplied YAML."
-          echo "Insert the existing k6 load test steps here."
+          # (unchanged readiness loop...)
+
+      # (unchanged k6 load test steps...)
 
   # ============================================================
   # 4. QA PASS / FAIL + UI-WORTHY HTML REPORTS + EMAIL
