@@ -12,19 +12,6 @@ permissions:
 
 # ============================================================
 # GLOBAL ENVIRONMENT
-#
-# DB_USER / DB_PASS are intentionally NOT provided by
-# GitHub Actions.
-#
-# The application must provide its own defaults when these
-# variables are absent.
-#
-# PostgreSQL service credentials:
-#
-#   user     = postgres
-#   password = postgres
-#   database = resume_db
-#
 # ============================================================
 
 env:
@@ -43,8 +30,6 @@ jobs:
 
   # ============================================================
   # 1. CYPRESS E2E
-  #
-  # Cypress must pass before any k6 testing starts.
   # ============================================================
 
   cypress-e2e:
@@ -71,16 +56,8 @@ jobs:
 
     steps:
 
-      # ----------------------------------------------------------
-      # Checkout
-      # ----------------------------------------------------------
-
       - name: Checkout Repository
         uses: actions/checkout@v4
-
-      # ----------------------------------------------------------
-      # Node.js
-      # ----------------------------------------------------------
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -88,16 +65,8 @@ jobs:
           node-version: 22
           cache: npm
 
-      # ----------------------------------------------------------
-      # Dependencies
-      # ----------------------------------------------------------
-
       - name: Install Dependencies
         run: npm ci
-
-      # ----------------------------------------------------------
-      # Build
-      # ----------------------------------------------------------
 
       - name: Build Application
         run: |
@@ -107,10 +76,6 @@ jobs:
           else
             echo "No build script found. Skipping build."
           fi
-
-      # ----------------------------------------------------------
-      # Verify Cypress Specs
-      # ----------------------------------------------------------
 
       - name: Verify Cypress Specs
         run: |
@@ -152,24 +117,6 @@ jobs:
               -name '*.cy.tsx' \
             \) \
             -print
-
-      # ----------------------------------------------------------
-      # Start Application
-      #
-      # IMPORTANT:
-      #
-      # DB_USER / DB_PASS are intentionally NOT supplied.
-      #
-      # PostgreSQL service itself is configured with:
-      #
-      #   user     = postgres
-      #   password = postgres
-      #   database = resume_db
-      #
-      # The Node.js application must provide/default its own
-      # database credentials when these environment variables
-      # are absent.
-      # ----------------------------------------------------------
 
       - name: Start Application
         env:
@@ -239,10 +186,6 @@ jobs:
 
           exit 1
 
-      # ----------------------------------------------------------
-      # Cypress
-      # ----------------------------------------------------------
-
       - name: Run Cypress E2E Tests
         id: cypress_tests
         continue-on-error: true
@@ -264,10 +207,6 @@ jobs:
             > cypress/reports/cypress-exit-code.txt
 
           exit "$CYPRESS_EXIT"
-
-      # ----------------------------------------------------------
-      # Diagnostics
-      # ----------------------------------------------------------
 
       - name: Capture Cypress Diagnostics
         if: always()
@@ -307,10 +246,6 @@ jobs:
 
           } > cypress/reports/diagnostics.log
 
-      # ----------------------------------------------------------
-      # Upload Cypress Reports
-      # ----------------------------------------------------------
-
       - name: Upload Cypress Reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -322,10 +257,6 @@ jobs:
             cypress/videos/
           if-no-files-found: warn
           retention-days: 14
-
-      # ----------------------------------------------------------
-      # Fail Cypress Stage
-      # ----------------------------------------------------------
 
       - name: Fail Cypress Stage
         if: always() && steps.cypress_tests.outcome == 'failure'
@@ -343,8 +274,6 @@ jobs:
 
   # ============================================================
   # 2. k6 SMOKE TEST
-  #
-  # Runs ONLY after Cypress passes.
   # ============================================================
 
   k6-smoke-test:
@@ -377,16 +306,8 @@ jobs:
 
     steps:
 
-      # ----------------------------------------------------------
-      # Checkout
-      # ----------------------------------------------------------
-
       - name: Checkout Repository
         uses: actions/checkout@v4
-
-      # ----------------------------------------------------------
-      # Node.js
-      # ----------------------------------------------------------
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -394,16 +315,8 @@ jobs:
           node-version: 22
           cache: npm
 
-      # ----------------------------------------------------------
-      # Dependencies
-      # ----------------------------------------------------------
-
       - name: Install Dependencies
         run: npm ci
-
-      # ----------------------------------------------------------
-      # Build
-      # ----------------------------------------------------------
 
       - name: Build Application
         run: |
@@ -413,16 +326,8 @@ jobs:
             echo "No build script found. Skipping build."
           fi
 
-      # ----------------------------------------------------------
-      # Setup k6
-      # ----------------------------------------------------------
-
       - name: Setup k6
         uses: grafana/setup-k6-action@v1
-
-      # ----------------------------------------------------------
-      # Verify k6 Script
-      # ----------------------------------------------------------
 
       - name: Verify k6 Script
         run: |
@@ -440,10 +345,6 @@ jobs:
           echo ""
 
           cat tests/load.js
-
-      # ----------------------------------------------------------
-      # Start Application
-      # ----------------------------------------------------------
 
       - name: Start Application
         env:
@@ -508,10 +409,6 @@ jobs:
 
           exit 1
 
-      # ----------------------------------------------------------
-      # k6 Smoke
-      # ----------------------------------------------------------
-
       - name: Run k6 Smoke Test
         id: k6_smoke
         continue-on-error: true
@@ -539,10 +436,6 @@ jobs:
             > results/smoke-exit-code.txt
 
           exit "$K6_EXIT"
-
-      # ----------------------------------------------------------
-      # Diagnostics
-      # ----------------------------------------------------------
 
       - name: Capture Smoke Diagnostics
         if: always()
@@ -587,10 +480,6 @@ jobs:
 
           } > results/smoke-diagnostics.log
 
-      # ----------------------------------------------------------
-      # Upload
-      # ----------------------------------------------------------
-
       - name: Upload k6 Smoke Reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -599,10 +488,6 @@ jobs:
           path: results/
           if-no-files-found: warn
           retention-days: 14
-
-      # ----------------------------------------------------------
-      # Fail Smoke Stage
-      # ----------------------------------------------------------
 
       - name: Fail k6 Smoke Stage
         if: always() && steps.k6_smoke.outcome == 'failure'
@@ -652,16 +537,8 @@ jobs:
 
     steps:
 
-      # ----------------------------------------------------------
-      # Checkout
-      # ----------------------------------------------------------
-
       - name: Checkout Repository
         uses: actions/checkout@v4
-
-      # ----------------------------------------------------------
-      # Node.js
-      # ----------------------------------------------------------
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -669,16 +546,8 @@ jobs:
           node-version: 22
           cache: npm
 
-      # ----------------------------------------------------------
-      # Dependencies
-      # ----------------------------------------------------------
-
       - name: Install Dependencies
         run: npm ci
-
-      # ----------------------------------------------------------
-      # Build
-      # ----------------------------------------------------------
 
       - name: Build Application
         run: |
@@ -688,16 +557,8 @@ jobs:
             echo "No build script found. Skipping build."
           fi
 
-      # ----------------------------------------------------------
-      # Setup k6
-      # ----------------------------------------------------------
-
       - name: Setup k6
         uses: grafana/setup-k6-action@v1
-
-      # ----------------------------------------------------------
-      # Start Application
-      # ----------------------------------------------------------
 
       - name: Start Application
         env:
@@ -762,10 +623,6 @@ jobs:
 
           exit 1
 
-      # ----------------------------------------------------------
-      # Verify Application
-      # ----------------------------------------------------------
-
       - name: Verify Application Before Load Test
         run: |
           HTTP_STATUS=$(
@@ -793,10 +650,6 @@ jobs:
           echo ""
           echo "Application is reachable."
           echo "Target: http://127.0.0.1:3000"
-
-      # ----------------------------------------------------------
-      # k6 Load
-      # ----------------------------------------------------------
 
       - name: Run k6 Load Test
         id: k6_load
@@ -832,10 +685,6 @@ jobs:
           echo "k6 exit code: $K6_EXIT"
 
           exit "$K6_EXIT"
-
-      # ----------------------------------------------------------
-      # Diagnostics
-      # ----------------------------------------------------------
 
       - name: Capture Load Diagnostics
         if: always()
@@ -880,10 +729,6 @@ jobs:
 
           } > results/diagnostics.log
 
-      # ----------------------------------------------------------
-      # Upload
-      # ----------------------------------------------------------
-
       - name: Upload k6 Load Reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -892,10 +737,6 @@ jobs:
           path: results/
           if-no-files-found: warn
           retention-days: 14
-
-      # ----------------------------------------------------------
-      # Fail Load Stage
-      # ----------------------------------------------------------
 
       - name: Fail k6 Load Stage
         if: always() && steps.k6_load.outcome == 'failure'
@@ -914,7 +755,7 @@ jobs:
 
 
   # ============================================================
-  # 4. QA PASS / FAIL + INDIVIDUAL HTML STAGE REPORTS + EMAIL
+  # 4. QA PASS / FAIL + LOG-DRIVEN HTML REPORTS + EMAIL
   # ============================================================
 
   qa-pass:
@@ -984,10 +825,137 @@ jobs:
           set -e
           mkdir -p reports/html
 
-          # Basic placeholder generator to ensure files exist for attachments
-          echo "<html><body><h1>Cypress Test Result: $CYPRESS_RESULT</h1></body></html>" > reports/html/cypress-e2e-report.html
-          echo "<html><body><h1>k6 Smoke Result: $K6_SMOKE_RESULT</h1></body></html>" > reports/html/k6-smoke-report.html
-          echo "<html><body><h1>k6 Load Result: $K6_LOAD_RESULT</h1></body></html>" > reports/html/k6-load-report.html
+          # -----------------------------------------------------------------
+          # 1. CYPRESS HTML REPORT GENERATOR (LOG-DRIVEN)
+          # -----------------------------------------------------------------
+          CYP_LOG="reports/cypress/cypress-run.log"
+          CYP_EXIT_CODE=$(cat reports/cypress/cypress-exit-code.txt 2>/dev/null || echo "Unknown")
+          
+          cat << 'EOF' > reports/html/cypress-e2e-report.html
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>Cypress E2E Test Report</title>
+              <style>
+                  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; padding: 2rem; margin: 0; }
+                  .container { max-width: 900px; margin: auto; background: #1e293b; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.5); }
+                  h1 { font-size: 1.5rem; border-bottom: 2px solid #334155; padding-bottom: 0.75rem; margin-top: 0; display: flex; justify-content: space-between; align-items: center; }
+                  .badge { padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.875rem; font-weight: 600; text-transform: uppercase; }
+                  .success { background: #065f46; color: #6ee7b7; }
+                  .failure { background: #991b1b; color: #fca5a5; }
+                  .meta-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; margin: 1.5rem 0; background: #0f172a; padding: 1rem; border-radius: 8px; }
+                  .meta-item span { color: #94a3b8; display: block; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 0.25rem; }
+                  pre { background: #0b0f19; color: #38bdf8; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.85rem; max-height: 400px; }
+              </style>
+          </head>
+          <body>
+              <div class="container">
+                  <h1>
+                      Cypress E2E Test Execution
+                      <span class="badge ${{ env.CYPRESS_RESULT == 'success' && 'success' || 'failure' }}">${{ env.CYPRESS_RESULT }}</span>
+                  </h1>
+                  <div class="meta-grid">
+                      <div class="meta-item"><span>Repository</span><b>${{ env.REPOSITORY }}</b></div>
+                      <div class="meta-item"><span>Branch / Commit</span><b>${{ env.BRANCH }} (${{ env.COMMIT }})</b></div>
+                      <div class="meta-item"><span>Pipeline Run #</span><b>#${{ env.RUN_NUMBER }}</b></div>
+                      <div class="meta-item"><span>Exit Code</span><b>${{ CYP_EXIT_CODE }}</b></div>
+                  </div>
+                  <h3>Execution Logs / Output:</h3>
+                  <pre><code>$(cat "$CYP_LOG" 2>/dev/null || echo "No Cypress log file captured.")</code></pre>
+              </div>
+          </body>
+          </html>
+          EOF
+
+          # -----------------------------------------------------------------
+          # 2. k6 SMOKE HTML REPORT GENERATOR (LOG-DRIVEN)
+          # -----------------------------------------------------------------
+          SMOKE_SUMMARY="reports/k6-smoke/smoke-summary.json"
+          SMOKE_EXIT=$(cat reports/k6-smoke/smoke-exit-code.txt 2>/dev/null || echo "Unknown")
+          
+          SMOKE_METRICS="Check reports artifact JSON for deep metrics breakdown."
+          if [ -f "$SMOKE_SUMMARY" ]; then
+            SMOKE_METRICS=$(cat "$SMOKE_SUMMARY")
+          fi
+
+          cat << EOF > reports/html/k6-smoke-report.html
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>k6 Smoke Test Report</title>
+              <style>
+                  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; padding: 2rem; margin: 0; }
+                  .container { max-width: 900px; margin: auto; background: #1e293b; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.5); }
+                  h1 { font-size: 1.5rem; border-bottom: 2px solid #334155; padding-bottom: 0.75rem; margin-top: 0; display: flex; justify-content: space-between; align-items: center; }
+                  .badge { padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.875rem; font-weight: 600; text-transform: uppercase; }
+                  .success { background: #065f46; color: #6ee7b7; }
+                  .failure { background: #991b1b; color: #fca5a5; }
+                  .meta-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; margin: 1.5rem 0; background: #0f172a; padding: 1rem; border-radius: 8px; }
+                  .meta-item span { color: #94a3b8; display: block; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 0.25rem; }
+                  pre { background: #0b0f19; color: #38bdf8; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.85rem; max-height: 400px; }
+              </style>
+          </head>
+          <body>
+              <div class="container">
+                  <h1>
+                      k6 Smoke Test Execution
+                      <span class="badge ${{ env.K6_SMOKE_RESULT == 'success' && 'success' || 'failure' }}">${{ env.K6_SMOKE_RESULT }}</span>
+                  </h1>
+                  <div class="meta-grid">
+                      <div class="meta-item"><span>Pipeline Run #</span><b>#${{ env.RUN_NUMBER }}</b></div>
+                      <div class="meta-item"><span>Exit Code</span><b>${{ SMOKE_EXIT }}</b></div>
+                  </div>
+                  <h3>Raw Summary Metrics JSON:</h3>
+                  <pre><code>$SMOKE_METRICS</code></pre>
+              </div>
+          </body>
+          </html>
+          EOF
+
+          # -----------------------------------------------------------------
+          # 3. k6 LOAD HTML REPORT GENERATOR (LOG-DRIVEN)
+          # -----------------------------------------------------------------
+          LOAD_SUMMARY="reports/k6-load/summary.json"
+          LOAD_EXIT=$(cat reports/k6-load/k6-exit-code.txt 2>/dev/null || echo "Unknown")
+          
+          LOAD_METRICS="Check reports artifact JSON for deep metrics breakdown."
+          if [ -f "$LOAD_SUMMARY" ]; then
+            LOAD_METRICS=$(cat "$LOAD_SUMMARY")
+          fi
+
+          cat << EOF > reports/html/k6-load-report.html
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>k6 Load Test Report</title>
+              <style>
+                  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; background: #0f172a; color: #f8fafc; padding: 2rem; margin: 0; }
+                  .container { max-width: 900px; margin: auto; background: #1e293b; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.5); }
+                  h1 { font-size: 1.5rem; border-bottom: 2px solid #334155; padding-bottom: 0.75rem; margin-top: 0; display: flex; justify-content: space-between; align-items: center; }
+                  .badge { padding: 0.25rem 0.75rem; border-radius: 9999px; font-size: 0.875rem; font-weight: 600; text-transform: uppercase; }
+                  .success { background: #065f46; color: #6ee7b7; }
+                  .failure { background: #991b1b; color: #fca5a5; }
+                  .meta-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 1rem; margin: 1.5rem 0; background: #0f172a; padding: 1rem; border-radius: 8px; }
+                  .meta-item span { color: #94a3b8; display: block; font-size: 0.75rem; text-transform: uppercase; margin-bottom: 0.25rem; }
+                  pre { background: #0b0f19; color: #38bdf8; padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.85rem; max-height: 400px; }
+              </style>
+          </head>
+          <body>
+              <div class="container">
+                  <h1>
+                      k6 Load Test Execution (10 VUs / 30s)
+                      <span class="badge ${{ env.K6_LOAD_RESULT == 'success' && 'success' || 'failure' }}">${{ env.K6_LOAD_RESULT }}</span>
+                  </h1>
+                  <div class="meta-grid">
+                      <div class="meta-item"><span>Pipeline Run #</span><b>#${{ env.RUN_NUMBER }}</b></div>
+                      <div class="meta-item"><span>Exit Code</span><b>${{ LOAD_EXIT }}</b></div>
+                  </div>
+                  <h3>Raw Summary Metrics JSON:</h3>
+                  <pre><code>$LOAD_METRICS</code></pre>
+              </div>
+          </body>
+          </html>
+          EOF
 
       # ==========================================================
       # SEND EMAIL NOTIFICATION WITH REPORTS
