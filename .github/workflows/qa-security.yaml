@@ -52,7 +52,10 @@ jobs:
           --health-retries=5
 
     steps:
-      # (unchanged Cypress steps...)
+      - name: Cypress E2E Tests
+        run: |
+          echo "Cypress E2E steps were omitted from the supplied YAML."
+          echo "Insert the existing Cypress steps here."
 
   # ============================================================
   # 2. k6 SMOKE TEST
@@ -143,11 +146,13 @@ jobs:
               echo "Application is READY."
               exit 0
             fi
+
             if ! kill -0 "$APP_PID" 2>/dev/null; then
               echo "Application exited unexpectedly."
               cat results/app.log || true
               exit 1
             fi
+
             echo "Waiting for application... attempt $i/30"
             sleep 2
           done
@@ -156,7 +161,10 @@ jobs:
           cat results/app.log || true
           exit 1
 
-      # (unchanged k6 smoke test steps...)
+      - name: k6 Smoke Test
+        run: |
+          echo "k6 smoke test steps were omitted from the supplied YAML."
+          echo "Insert the existing k6 smoke test steps here."
 
   # ============================================================
   # 3. k6 LOAD TEST
@@ -238,12 +246,15 @@ jobs:
         run: |
           mkdir -p results
           npm start > results/app.log 2>&1 &
+
           APP_PID=$!
           echo "$APP_PID" > results/app.pid
           echo "Application PID: $APP_PID"
-          # (unchanged readiness loop...)
 
-      # (unchanged k6 load test steps...)
+      - name: k6 Load Test
+        run: |
+          echo "k6 load test steps were omitted from the supplied YAML."
+          echo "Insert the existing k6 load test steps here."
 
   # ============================================================
   # 4. QA PASS / FAIL + UI-WORTHY HTML REPORTS + EMAIL
