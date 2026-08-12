@@ -1,2086 +1,2095 @@
 name: QA Pipeline
 
 on:
-  push:
-    branches:
-      - main
+push:
+branches:
+- main
 
-  workflow_dispatch:
+workflow_dispatch:
 
 permissions:
-  contents: read
+contents: read
 
 # ============================================================
+
 # GLOBAL ENVIRONMENT
+
 # ============================================================
 
 env:
-  GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-  EMAIL_USER: ${{ secrets.EMAIL_USER }}
-  EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
-  NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-  QA_EMAIL_TO: ${{ secrets.QA_EMAIL_TO }}
-  QA_EMAIL_CC: ${{ secrets.QA_EMAIL_CC }}
-  SONAR_HOST: ${{ secrets.SONAR_HOST }}
-  SONAR_ORG: ${{ secrets.SONAR_ORG }}
-  SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
-  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+EMAIL_USER: ${{ secrets.EMAIL_USER }}
+EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+QA_EMAIL_TO: ${{ secrets.QA_EMAIL_TO }}
+QA_EMAIL_CC: ${{ secrets.QA_EMAIL_CC }}
+SONAR_HOST: ${{ secrets.SONAR_HOST }}
+SONAR_ORG: ${{ secrets.SONAR_ORG }}
+SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
 
 jobs:
 
-  # ============================================================
-  # 1. CYPRESS E2E
-  # ============================================================
+# ============================================================
 
-  cypress-e2e:
-    name: Cypress E2E Tests
-    runs-on: ubuntu-latest
+# 1. CYPRESS E2E
 
-    services:
-      postgres:
-        image: postgres:15
+# ============================================================
 
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: resume_db
+cypress-e2e:
+name: Cypress E2E Tests
+runs-on: ubuntu-latest
 
-        ports:
-          - 5432:5432
+```
+services:
+  postgres:
+    image: postgres:15
 
-        options: >-
-          --health-cmd="pg_isready -U postgres -d resume_db"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
+    env:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: resume_db
 
-    steps:
+    ports:
+      - 5432:5432
 
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+    options: >-
+      --health-cmd="pg_isready -U postgres -d resume_db"
+      --health-interval=10s
+      --health-timeout=5s
+      --health-retries=5
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
+steps:
 
-      - name: Install Dependencies
-        run: npm ci
+  - name: Checkout Repository
+    uses: actions/checkout@v4
 
-      - name: Build Application
-        run: |
-          if npm run | grep -q "build"; then
-            echo "Build script found."
-            npm run build
-          else
-            echo "No build script found. Skipping build."
-          fi
+  - name: Setup Node.js
+    uses: actions/setup-node@v4
+    with:
+      node-version: 22
+      cache: npm
 
-      - name: Verify Cypress Specs
-        run: |
-          echo "Searching for Cypress E2E specs..."
+  - name: Install Dependencies
+    run: npm ci
 
-          if ! find cypress/e2e \
-            -type f \
-            \( \
-              -name '*.cy.js' \
-              -o \
-              -name '*.cy.jsx' \
-              -o \
-              -name '*.cy.ts' \
-              -o \
-              -name '*.cy.tsx' \
-            \) \
-            -print -quit 2>/dev/null | grep -q .; then
+  - name: Build Application
+    run: |
+      if npm run | grep -q "build"; then
+        echo "Build script found."
+        npm run build
+      else
+        echo "No build script found. Skipping build."
+      fi
 
-            echo ""
-            echo "ERROR: No Cypress E2E specs found."
-            echo "Expected location: cypress/e2e/"
-            echo ""
+  - name: Verify Cypress Specs
+    run: |
+      echo "Searching for Cypress E2E specs..."
 
-            exit 1
-          fi
+      if ! find cypress/e2e \
+        -type f \
+        \( \
+          -name '*.cy.js' \
+          -o \
+          -name '*.cy.jsx' \
+          -o \
+          -name '*.cy.ts' \
+          -o \
+          -name '*.cy.tsx' \
+        \) \
+        -print -quit 2>/dev/null | grep -q .; then
 
-          echo ""
-          echo "Cypress specs found:"
+        echo ""
+        echo "ERROR: No Cypress E2E specs found."
+        echo "Expected location: cypress/e2e/"
+        echo ""
 
-          find cypress/e2e \
-            -type f \
-            \( \
-              -name '*.cy.js' \
-              -o \
-              -name '*.cy.jsx' \
-              -o \
-              -name '*.cy.ts' \
-              -o \
-              -name '*.cy.tsx' \
-            \) \
-            -print
+        exit 1
+      fi
 
-      - name: Start Application
-        env:
-          PORT: 3000
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          EMAIL_USER: ${{ secrets.EMAIL_USER }}
-          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-          QA_EMAIL_TO: ${{ secrets.QA_EMAIL_TO }}
-          QA_EMAIL_CC: ${{ secrets.QA_EMAIL_CC }}
-          SONAR_HOST: ${{ secrets.SONAR_HOST }}
-          SONAR_ORG: ${{ secrets.SONAR_ORG }}
-          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: |
-          mkdir -p cypress/reports
+      echo ""
+      echo "Cypress specs found:"
 
-          echo "Starting application..."
+      find cypress/e2e \
+        -type f \
+        \( \
+          -name '*.cy.js' \
+          -o \
+          -name '*.cy.jsx' \
+          -o \
+          -name '*.cy.ts' \
+          -o \
+          -name '*.cy.tsx' \
+        \) \
+        -print
 
-          npm start > cypress/reports/app.log 2>&1 &
+  - name: Start Application
+    env:
+      PORT: 3000
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      EMAIL_USER: ${{ secrets.EMAIL_USER }}
+      EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+      NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+      QA_EMAIL_TO: ${{ secrets.QA_EMAIL_TO }}
+      QA_EMAIL_CC: ${{ secrets.QA_EMAIL_CC }}
+      SONAR_HOST: ${{ secrets.SONAR_HOST }}
+      SONAR_ORG: ${{ secrets.SONAR_ORG }}
+      SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    run: |
+      mkdir -p cypress/reports
 
-          APP_PID=$!
+      echo "Starting application..."
 
-          echo "$APP_PID" > cypress/reports/app.pid
+      npm start > cypress/reports/app.log 2>&1 &
 
-          echo "Application PID: $APP_PID"
+      APP_PID=$!
 
-          for i in {1..30}; do
+      echo "$APP_PID" > cypress/reports/app.pid
 
-            if curl \
-              --silent \
-              --show-error \
-              --fail \
-              http://127.0.0.1:3000/ \
-              > /dev/null 2>&1; then
+      echo "Application PID: $APP_PID"
 
-              echo "=========================================="
-              echo "Application is READY"
-              echo "URL: http://127.0.0.1:3000"
-              echo "=========================================="
+      for i in {1..30}; do
 
-              exit 0
-            fi
+        if curl \
+          --silent \
+          --show-error \
+          --fail \
+          http://127.0.0.1:3000/ \
+          > /dev/null 2>&1; then
 
-            if ! kill -0 "$APP_PID" 2>/dev/null; then
+          echo "=========================================="
+          echo "Application is READY"
+          echo "URL: http://127.0.0.1:3000"
+          echo "=========================================="
 
-              echo ""
-              echo "ERROR: Application exited unexpectedly."
-              echo ""
+          exit 0
+        fi
 
-              cat cypress/reports/app.log || true
-
-              exit 1
-            fi
-
-            echo "Waiting for application... attempt $i/30"
-
-            sleep 2
-
-          done
+        if ! kill -0 "$APP_PID" 2>/dev/null; then
 
           echo ""
-          echo "ERROR: Application failed to become ready."
+          echo "ERROR: Application exited unexpectedly."
           echo ""
 
           cat cypress/reports/app.log || true
 
           exit 1
+        fi
 
-      - name: Run Cypress E2E Tests
-        id: cypress_tests
-        continue-on-error: true
-        env:
-          CYPRESS_baseUrl: http://127.0.0.1:3000
-        run: |
-          mkdir -p cypress/reports
+        echo "Waiting for application... attempt $i/30"
 
-          npx cypress run \
-            --browser chrome \
-            --headless \
-            --reporter junit \
-            --reporter-options "mochaFile=cypress/reports/junit-[hash].xml,toConsole=true" \
-            2>&1 | tee cypress/reports/cypress-run.log
+        sleep 2
 
-          CYPRESS_EXIT=${PIPESTATUS[0]}
+      done
 
-          echo "$CYPRESS_EXIT" \
-            > cypress/reports/cypress-exit-code.txt
+      echo ""
+      echo "ERROR: Application failed to become ready."
+      echo ""
 
-          exit "$CYPRESS_EXIT"
+      cat cypress/reports/app.log || true
 
-      - name: Capture Cypress Diagnostics
-        if: always()
-        run: |
-          mkdir -p cypress/reports
+      exit 1
 
-          {
-            echo "=========================================="
-            echo "Cypress Diagnostics"
-            echo "=========================================="
+  - name: Run Cypress E2E Tests
+    id: cypress_tests
+    continue-on-error: true
+    env:
+      CYPRESS_baseUrl: http://127.0.0.1:3000
+    run: |
+      mkdir -p cypress/reports
 
-            echo ""
-            echo "Timestamp:"
-            date -u '+%Y-%m-%dT%H:%M:%SZ'
+      npx cypress run \
+        --browser chrome \
+        --headless \
+        --reporter junit \
+        --reporter-options "mochaFile=cypress/reports/junit-[hash].xml,toConsole=true" \
+        2>&1 | tee cypress/reports/cypress-run.log
 
-            echo ""
-            echo "Cypress step outcome:"
-            echo "${{ steps.cypress_tests.outcome }}"
+      CYPRESS_EXIT=${PIPESTATUS[0]}
 
-            echo ""
-            echo "Cypress exit code:"
-            cat cypress/reports/cypress-exit-code.txt 2>/dev/null || true
+      echo "$CYPRESS_EXIT" \
+        > cypress/reports/cypress-exit-code.txt
 
-            echo ""
-            echo "=========================================="
-            echo "Application Log"
-            echo "=========================================="
+      exit "$CYPRESS_EXIT"
 
-            cat cypress/reports/app.log 2>/dev/null || true
-
-            echo ""
-            echo "=========================================="
-            echo "Cypress Console Log"
-            echo "=========================================="
-
-            cat cypress/reports/cypress-run.log 2>/dev/null || true
-
-          } > cypress/reports/diagnostics.log
-
-      - name: Upload Cypress Reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: cypress-e2e-report
-          path: |
-            cypress/reports/
-            cypress/screenshots/
-            cypress/videos/
-          if-no-files-found: warn
-          retention-days: 14
-
-      - name: Fail Cypress Stage
-        if: always() && steps.cypress_tests.outcome == 'failure'
-        run: |
-          echo "=========================================="
-          echo "Cypress E2E tests FAILED"
-          echo "=========================================="
-          echo ""
-          echo "k6 testing will NOT run."
-          echo ""
-          echo "Review the cypress-e2e-report artifact."
-
-          exit 1
-
-
-  # ============================================================
-  # 2. k6 SMOKE TEST
-  # ============================================================
-
-  k6-smoke-test:
-    name: k6 Smoke Test
-
-    needs:
-      - cypress-e2e
-
-    if: needs.cypress-e2e.result == 'success'
-
-    runs-on: ubuntu-latest
-
-    services:
-      postgres:
-        image: postgres:15
-
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: resume_db
-
-        ports:
-          - 5432:5432
-
-        options: >-
-          --health-cmd="pg_isready -U postgres -d resume_db"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-
-    steps:
-
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install Dependencies
-        run: npm ci
-
-      - name: Build Application
-        run: |
-          if npm run | grep -q "build"; then
-            npm run build
-          else
-            echo "No build script found. Skipping build."
-          fi
-
-      - name: Setup k6
-        uses: grafana/setup-k6-action@v1
-
-      - name: Verify k6 Script
-        run: |
-          if [ ! -f tests/load.js ]; then
-            echo ""
-            echo "ERROR: tests/load.js not found."
-            echo ""
-
-            exit 1
-          fi
-
-          echo ""
-          echo "k6 script:"
-          echo "tests/load.js"
-          echo ""
-
-          cat tests/load.js
-
-      - name: Start Application
-        env:
-          PORT: 3000
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          EMAIL_USER: ${{ secrets.EMAIL_USER }}
-          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-          QA_EMAIL_TO: ${{ secrets.QA_EMAIL_TO }}
-          QA_EMAIL_CC: ${{ secrets.QA_EMAIL_CC }}
-          SONAR_HOST: ${{ secrets.SONAR_HOST }}
-          SONAR_ORG: ${{ secrets.SONAR_ORG }}
-          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: |
-          mkdir -p results
-
-          npm start > results/app.log 2>&1 &
-
-          APP_PID=$!
-
-          echo "$APP_PID" > results/app.pid
-
-          echo "Application PID: $APP_PID"
-
-          for i in {1..30}; do
-
-            if curl \
-              --silent \
-              --show-error \
-              --fail \
-              http://127.0.0.1:3000/ \
-              > /dev/null 2>&1; then
-
-              echo "Application is READY."
-
-              exit 0
-            fi
-
-            if ! kill -0 "$APP_PID" 2>/dev/null; then
-
-              echo ""
-              echo "Application exited unexpectedly."
-              echo ""
-
-              cat results/app.log || true
-
-              exit 1
-            fi
-
-            echo "Waiting for application... attempt $i/30"
-
-            sleep 2
-
-          done
-
-          echo ""
-          echo "Application failed to start."
-          echo ""
-
-          cat results/app.log || true
-
-          exit 1
-
-      - name: Run k6 Smoke Test
-        id: k6_smoke
-        continue-on-error: true
-        run: |
-          echo "=========================================="
-          echo "k6 SMOKE TEST"
-          echo "=========================================="
-          echo ""
-          echo "Target: http://127.0.0.1:3000"
-          echo ""
-
-          set +e
-
-          k6 run \
-            --out json=results/smoke-output.json \
-            --summary-export=results/smoke-summary.json \
-            tests/load.js \
-            2>&1 | tee results/smoke-console.log
-
-          K6_EXIT=${PIPESTATUS[0]}
-
-          set -e
-
-          echo "$K6_EXIT" \
-            > results/smoke-exit-code.txt
-
-          exit "$K6_EXIT"
-
-      - name: Capture Smoke Diagnostics
-        if: always()
-        run: |
-          {
-            echo "=========================================="
-            echo "k6 Smoke Diagnostics"
-            echo "=========================================="
-
-            echo ""
-            echo "Timestamp:"
-            date -u '+%Y-%m-%dT%H:%M:%SZ'
-
-            echo ""
-            echo "Step outcome:"
-            echo "${{ steps.k6_smoke.outcome }}"
-
-            echo ""
-            echo "Exit code:"
-            cat results/smoke-exit-code.txt 2>/dev/null || true
-
-            echo ""
-            echo "=========================================="
-            echo "Application Log"
-            echo "=========================================="
-
-            cat results/app.log 2>/dev/null || true
-
-            echo ""
-            echo "=========================================="
-            echo "k6 Console"
-            echo "=========================================="
-
-            cat results/smoke-console.log 2>/dev/null || true
-
-            echo ""
-            echo "=========================================="
-            echo "k6 Summary"
-            echo "=========================================="
-
-            cat results/smoke-summary.json 2>/dev/null || true
-
-          } > results/smoke-diagnostics.log
-
-      - name: Upload k6 Smoke Reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: k6-smoke-test-report
-          path: results/
-          if-no-files-found: warn
-          retention-days: 14
-
-      - name: Fail k6 Smoke Stage
-        if: always() && steps.k6_smoke.outcome == 'failure'
-        run: |
-          echo "=========================================="
-          echo "k6 SMOKE TEST FAILED"
-          echo "=========================================="
-          echo ""
-          echo "Load testing will NOT run."
-          echo ""
-          echo "Review the k6-smoke-test-report artifact."
-
-          exit 1
-
-
-  # ============================================================
-  # 3. k6 LOAD TEST
-  # ============================================================
-
-  k6-load-test:
-    name: k6 Load Test
-
-    needs:
-      - k6-smoke-test
-
-    if: needs.k6-smoke-test.result == 'success'
-
-    runs-on: ubuntu-latest
-
-    services:
-      postgres:
-        image: postgres:15
-
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: resume_db
-
-        ports:
-          - 5432:5432
-
-        options: >-
-          --health-cmd="pg_isready -U postgres -d resume_db"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-
-    steps:
-
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install Dependencies
-        run: npm ci
-
-      - name: Build Application
-        run: |
-          if npm run | grep -q "build"; then
-            npm run build
-          else
-            echo "No build script found. Skipping build."
-          fi
-
-      - name: Setup k6
-        uses: grafana/setup-k6-action@v1
-
-      - name: Start Application
-        env:
-          PORT: 3000
-          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
-          EMAIL_USER: ${{ secrets.EMAIL_USER }}
-          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
-          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
-          QA_EMAIL_TO: ${{ secrets.QA_EMAIL_TO }}
-          QA_EMAIL_CC: ${{ secrets.QA_EMAIL_CC }}
-          SONAR_HOST: ${{ secrets.SONAR_HOST }}
-          SONAR_ORG: ${{ secrets.SONAR_ORG }}
-          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: |
-          mkdir -p results
-
-          npm start > results/app.log 2>&1 &
-
-          APP_PID=$!
-
-          echo "$APP_PID" > results/app.pid
-
-          echo "Application PID: $APP_PID"
-
-          for i in {1..30}; do
-
-            if curl \
-              --silent \
-              --show-error \
-              --fail \
-              http://127.0.0.1:3000/ \
-              > /dev/null 2>&1; then
-
-              echo "Application is READY."
-
-              exit 0
-            fi
-
-            if ! kill -0 "$APP_PID" 2>/dev/null; then
-
-              echo ""
-              echo "Application exited unexpectedly."
-              echo ""
-
-              cat results/app.log || true
-
-              exit 1
-            fi
-
-            echo "Waiting for application... attempt $i/30"
-
-            sleep 2
-
-          done
-
-          echo ""
-          echo "Application failed to start."
-          echo ""
-
-          cat results/app.log || true
-
-          exit 1
-
-      - name: Verify Application Before Load Test
-        run: |
-          HTTP_STATUS=$(
-            curl \
-              --silent \
-              --output /dev/null \
-              --write-out "%{http_code}" \
-              http://127.0.0.1:3000/ \
-              || true
-          )
-
-          echo "HTTP status: $HTTP_STATUS"
-
-          if [ "$HTTP_STATUS" = "000" ]; then
-
-            echo ""
-            echo "ERROR: Application is unreachable."
-            echo ""
-
-            cat results/app.log || true
-
-            exit 1
-          fi
-
-          echo ""
-          echo "Application is reachable."
-          echo "Target: http://127.0.0.1:3000"
-
-      - name: Run k6 Load Test
-        id: k6_load
-        continue-on-error: true
-        run: |
-          echo "=========================================="
-          echo "k6 LOAD TEST"
-          echo "=========================================="
-          echo ""
-          echo "Target: http://127.0.0.1:3000"
-          echo "Virtual Users: 10"
-          echo "Duration: 30 seconds"
-          echo ""
-
-          set +e
-
-          k6 run \
-            --vus 10 \
-            --duration 30s \
-            --out json=results/output.json \
-            --summary-export=results/summary.json \
-            tests/load.js \
-            2>&1 | tee results/k6-console.log
-
-          K6_EXIT=${PIPESTATUS[0]}
-
-          set -e
-
-          echo "$K6_EXIT" \
-            > results/k6-exit-code.txt
-
-          echo ""
-          echo "k6 exit code: $K6_EXIT"
-
-          exit "$K6_EXIT"
-
-      - name: Capture Load Diagnostics
-        if: always()
-        run: |
-          {
-            echo "=========================================="
-            echo "k6 Load Diagnostics"
-            echo "=========================================="
-
-            echo ""
-            echo "Timestamp:"
-            date -u '+%Y-%m-%dT%H:%M:%SZ'
-
-            echo ""
-            echo "k6 step outcome:"
-            echo "${{ steps.k6_load.outcome }}"
-
-            echo ""
-            echo "k6 exit code:"
-            cat results/k6-exit-code.txt 2>/dev/null || true
-
-            echo ""
-            echo "=========================================="
-            echo "Application Log"
-            echo "=========================================="
-
-            cat results/app.log 2>/dev/null || true
-
-            echo ""
-            echo "=========================================="
-            echo "k6 Console Log"
-            echo "=========================================="
-
-            cat results/k6-console.log 2>/dev/null || true
-
-            echo ""
-            echo "=========================================="
-            echo "k6 Summary"
-            echo "=========================================="
-
-            cat results/summary.json 2>/dev/null || true
-
-          } > results/diagnostics.log
-
-      - name: Upload k6 Load Reports
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: k6-load-test-report
-          path: results/
-          if-no-files-found: warn
-          retention-days: 14
-
-      - name: Fail k6 Load Stage
-        if: always() && steps.k6_load.outcome == 'failure'
-        run: |
-          echo "=========================================="
-          echo "k6 LOAD TEST FAILED"
-          echo "=========================================="
-          echo ""
-          echo "Review:"
-          echo "  results/summary.json"
-          echo "  results/output.json"
-          echo "  results/k6-console.log"
-          echo "  results/diagnostics.log"
-
-          exit 1
-
-
-  # ============================================================
-  # 4. QA PASS / FAIL + UI-WORTHY HTML REPORTS + EMAIL
-  # ============================================================
-
-  qa-pass:
-    name: QA PASS
-
-    needs:
-      - cypress-e2e
-      - k6-smoke-test
-      - k6-load-test
-
+  - name: Capture Cypress Diagnostics
     if: always()
+    run: |
+      mkdir -p cypress/reports
 
-    runs-on: ubuntu-latest
+      {
+        echo "=========================================="
+        echo "Cypress Diagnostics"
+        echo "=========================================="
 
-    steps:
+        echo ""
+        echo "Timestamp:"
+        date -u '+%Y-%m-%dT%H:%M:%SZ'
 
-      - name: Download Cypress Report
-        if: always()
-        uses: actions/download-artifact@v4
-        with:
-          name: cypress-e2e-report
-          path: reports/cypress
-        continue-on-error: true
+        echo ""
+        echo "Cypress step outcome:"
+        echo "${{ steps.cypress_tests.outcome }}"
 
-      - name: Download k6 Smoke Report
-        if: always()
-        uses: actions/download-artifact@v4
-        with:
-          name: k6-smoke-test-report
-          path: reports/k6-smoke
-        continue-on-error: true
+        echo ""
+        echo "Cypress exit code:"
+        cat cypress/reports/cypress-exit-code.txt 2>/dev/null || true
 
-      - name: Download k6 Load Report
-        if: always()
-        uses: actions/download-artifact@v4
-        with:
-          name: k6-load-test-report
-          path: reports/k6-load
-        continue-on-error: true
+        echo ""
+        echo "=========================================="
+        echo "Application Log"
+        echo "=========================================="
 
-      - name: Inspect Downloaded QA Artifacts
-        if: always()
-        run: |
-          echo "=========================================="
-          echo "DOWNLOADED QA ARTIFACTS"
-          echo "=========================================="
+        cat cypress/reports/app.log 2>/dev/null || true
 
-          find reports \
-            -type f \
-            -print \
-            2>/dev/null || true
+        echo ""
+        echo "=========================================="
+        echo "Cypress Console Log"
+        echo "=========================================="
 
-      - name: Generate UI-Worthy HTML Stage Reports
-        if: always()
-        env:
-          CYPRESS_RESULT: ${{ needs.cypress-e2e.result }}
-          K6_SMOKE_RESULT: ${{ needs.k6-smoke-test.result }}
-          K6_LOAD_RESULT: ${{ needs.k6-load-test.result }}
+        cat cypress/reports/cypress-run.log 2>/dev/null || true
 
-          REPOSITORY: ${{ github.repository }}
-          BRANCH: ${{ github.ref_name }}
-          COMMIT: ${{ github.sha }}
-          RUN_NUMBER: ${{ github.run_number }}
-          RUN_ID: ${{ github.run_id }}
-          ACTOR: ${{ github.actor }}
-          SERVER_URL: ${{ github.server_url }}
-        run: |
-          set -e
-          mkdir -p reports/html
+      } > cypress/reports/diagnostics.log
 
-          node <<'NODE'
-          const fs = require("fs");
-          const path = require("path");
+  - name: Upload Cypress Reports
+    if: always()
+    uses: actions/upload-artifact@v4
+    with:
+      name: cypress-e2e-report
+      path: |
+        cypress/reports/
+        cypress/screenshots/
+        cypress/videos/
+      if-no-files-found: warn
+      retention-days: 14
 
-          const env = process.env;
+  - name: Fail Cypress Stage
+    if: always() && steps.cypress_tests.outcome == 'failure'
+    run: |
+      echo "=========================================="
+      echo "Cypress E2E tests FAILED"
+      echo "=========================================="
+      echo ""
+      echo "k6 testing will NOT run."
+      echo ""
+      echo "Review the cypress-e2e-report artifact."
 
-          const repo = env.REPOSITORY || "N/A";
-          const branch = env.BRANCH || "N/A";
-          const commit = env.COMMIT || "N/A";
-          const shortCommit = commit.substring(0, 7);
-          const runNumber = env.RUN_NUMBER || "N/A";
-          const runId = env.RUN_ID || "N/A";
-          const actor = env.ACTOR || "N/A";
-          const serverUrl = env.SERVER_URL || "https://github.com";
+      exit 1
+```
 
-          function readFile(file, fallback = "") {
-              try {
-                  return fs.existsSync(file)
-                      ? fs.readFileSync(file, "utf8")
-                      : fallback;
-              } catch {
-                  return fallback;
-              }
+# ============================================================
+
+# 2. k6 SMOKE TEST
+
+# ============================================================
+
+k6-smoke-test:
+name: k6 Smoke Test
+
+```
+needs:
+  - cypress-e2e
+
+if: needs.cypress-e2e.result == 'success'
+
+runs-on: ubuntu-latest
+
+services:
+  postgres:
+    image: postgres:15
+
+    env:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: resume_db
+
+    ports:
+      - 5432:5432
+
+    options: >-
+      --health-cmd="pg_isready -U postgres -d resume_db"
+      --health-interval=10s
+      --health-timeout=5s
+      --health-retries=5
+
+steps:
+
+  - name: Checkout Repository
+    uses: actions/checkout@v4
+
+  - name: Setup Node.js
+    uses: actions/setup-node@v4
+    with:
+      node-version: 22
+      cache: npm
+
+  - name: Install Dependencies
+    run: npm ci
+
+  - name: Build Application
+    run: |
+      if npm run | grep -q "build"; then
+        npm run build
+      else
+        echo "No build script found. Skipping build."
+      fi
+
+  - name: Setup k6
+    uses: grafana/setup-k6-action@v1
+
+  - name: Verify k6 Script
+    run: |
+      if [ ! -f tests/load.js ]; then
+        echo ""
+        echo "ERROR: tests/load.js not found."
+        echo ""
+
+        exit 1
+      fi
+
+      echo ""
+      echo "k6 script:"
+      echo "tests/load.js"
+      echo ""
+
+      cat tests/load.js
+
+  - name: Start Application
+    env:
+      PORT: 3000
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      EMAIL_USER: ${{ secrets.EMAIL_USER }}
+      EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+      NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+      QA_EMAIL_TO: ${{ secrets.QA_EMAIL_TO }}
+      QA_EMAIL_CC: ${{ secrets.QA_EMAIL_CC }}
+      SONAR_HOST: ${{ secrets.SONAR_HOST }}
+      SONAR_ORG: ${{ secrets.SONAR_ORG }}
+      SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    run: |
+      mkdir -p results
+
+      npm start > results/app.log 2>&1 &
+
+      APP_PID=$!
+
+      echo "$APP_PID" > results/app.pid
+
+      echo "Application PID: $APP_PID"
+
+      for i in {1..30}; do
+
+        if curl \
+          --silent \
+          --show-error \
+          --fail \
+          http://127.0.0.1:3000/ \
+          > /dev/null 2>&1; then
+
+          echo "Application is READY."
+
+          exit 0
+        fi
+
+        if ! kill -0 "$APP_PID" 2>/dev/null; then
+
+          echo ""
+          echo "Application exited unexpectedly."
+          echo ""
+
+          cat results/app.log || true
+
+          exit 1
+        fi
+
+        echo "Waiting for application... attempt $i/30"
+
+        sleep 2
+
+      done
+
+      echo ""
+      echo "Application failed to start."
+      echo ""
+
+      cat results/app.log || true
+
+      exit 1
+
+  - name: Run k6 Smoke Test
+    id: k6_smoke
+    continue-on-error: true
+    run: |
+      echo "=========================================="
+      echo "k6 SMOKE TEST"
+      echo "=========================================="
+      echo ""
+      echo "Target: http://127.0.0.1:3000"
+      echo ""
+
+      set +e
+
+      k6 run \
+        --out json=results/smoke-output.json \
+        --summary-export=results/smoke-summary.json \
+        tests/load.js \
+        2>&1 | tee results/smoke-console.log
+
+      K6_EXIT=${PIPESTATUS[0]}
+
+      set -e
+
+      echo "$K6_EXIT" \
+        > results/smoke-exit-code.txt
+
+      exit "$K6_EXIT"
+
+  - name: Capture Smoke Diagnostics
+    if: always()
+    run: |
+      {
+        echo "=========================================="
+        echo "k6 Smoke Diagnostics"
+        echo "=========================================="
+
+        echo ""
+        echo "Timestamp:"
+        date -u '+%Y-%m-%dT%H:%M:%SZ'
+
+        echo ""
+        echo "Step outcome:"
+        echo "${{ steps.k6_smoke.outcome }}"
+
+        echo ""
+        echo "Exit code:"
+        cat results/smoke-exit-code.txt 2>/dev/null || true
+
+        echo ""
+        echo "=========================================="
+        echo "Application Log"
+        echo "=========================================="
+
+        cat results/app.log 2>/dev/null || true
+
+        echo ""
+        echo "=========================================="
+        echo "k6 Console"
+        echo "=========================================="
+
+        cat results/smoke-console.log 2>/dev/null || true
+
+        echo ""
+        echo "=========================================="
+        echo "k6 Summary"
+        echo "=========================================="
+
+        cat results/smoke-summary.json 2>/dev/null || true
+
+      } > results/smoke-diagnostics.log
+
+  - name: Upload k6 Smoke Reports
+    if: always()
+    uses: actions/upload-artifact@v4
+    with:
+      name: k6-smoke-test-report
+      path: results/
+      if-no-files-found: warn
+      retention-days: 14
+
+  - name: Fail k6 Smoke Stage
+    if: always() && steps.k6_smoke.outcome == 'failure'
+    run: |
+      echo "=========================================="
+      echo "k6 SMOKE TEST FAILED"
+      echo "=========================================="
+      echo ""
+      echo "Load testing will NOT run."
+      echo ""
+      echo "Review the k6-smoke-test-report artifact."
+
+      exit 1
+```
+
+# ============================================================
+
+# 3. k6 LOAD TEST
+
+# ============================================================
+
+k6-load-test:
+name: k6 Load Test
+
+```
+needs:
+  - k6-smoke-test
+
+if: needs.k6-smoke-test.result == 'success'
+
+runs-on: ubuntu-latest
+
+services:
+  postgres:
+    image: postgres:15
+
+    env:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: resume_db
+
+    ports:
+      - 5432:5432
+
+    options: >-
+      --health-cmd="pg_isready -U postgres -d resume_db"
+      --health-interval=10s
+      --health-timeout=5s
+      --health-retries=5
+
+steps:
+
+  - name: Checkout Repository
+    uses: actions/checkout@v4
+
+  - name: Setup Node.js
+    uses: actions/setup-node@v4
+    with:
+      node-version: 22
+      cache: npm
+
+  - name: Install Dependencies
+    run: npm ci
+
+  - name: Build Application
+    run: |
+      if npm run | grep -q "build"; then
+        npm run build
+      else
+        echo "No build script found. Skipping build."
+      fi
+
+  - name: Setup k6
+    uses: grafana/setup-k6-action@v1
+
+  - name: Start Application
+    env:
+      PORT: 3000
+      GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+      EMAIL_USER: ${{ secrets.EMAIL_USER }}
+      EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+      NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+      QA_EMAIL_TO: ${{ secrets.QA_EMAIL_TO }}
+      QA_EMAIL_CC: ${{ secrets.QA_EMAIL_CC }}
+      SONAR_HOST: ${{ secrets.SONAR_HOST }}
+      SONAR_ORG: ${{ secrets.SONAR_ORG }}
+      SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+    run: |
+      mkdir -p results
+
+      npm start > results/app.log 2>&1 &
+
+      APP_PID=$!
+
+      echo "$APP_PID" > results/app.pid
+
+      echo "Application PID: $APP_PID"
+
+      for i in {1..30}; do
+
+        if curl \
+          --silent \
+          --show-error \
+          --fail \
+          http://127.0.0.1:3000/ \
+          > /dev/null 2>&1; then
+
+          echo "Application is READY."
+
+          exit 0
+        fi
+
+        if ! kill -0 "$APP_PID" 2>/dev/null; then
+
+          echo ""
+          echo "Application exited unexpectedly."
+          echo ""
+
+          cat results/app.log || true
+
+          exit 1
+        fi
+
+        echo "Waiting for application... attempt $i/30"
+
+        sleep 2
+
+      done
+
+      echo ""
+      echo "Application failed to start."
+      echo ""
+
+      cat results/app.log || true
+
+      exit 1
+
+  - name: Verify Application Before Load Test
+    run: |
+      HTTP_STATUS=$(
+        curl \
+          --silent \
+          --output /dev/null \
+          --write-out "%{http_code}" \
+          http://127.0.0.1:3000/ \
+          || true
+      )
+
+      echo "HTTP status: $HTTP_STATUS"
+
+      if [ "$HTTP_STATUS" = "000" ]; then
+
+        echo ""
+        echo "ERROR: Application is unreachable."
+        echo ""
+
+        cat results/app.log || true
+
+        exit 1
+      fi
+
+      echo ""
+      echo "Application is reachable."
+      echo "Target: http://127.0.0.1:3000"
+
+  - name: Run k6 Load Test
+    id: k6_load
+    continue-on-error: true
+    run: |
+      echo "=========================================="
+      echo "k6 LOAD TEST"
+      echo "=========================================="
+      echo ""
+      echo "Target: http://127.0.0.1:3000"
+      echo "Virtual Users: 10"
+      echo "Duration: 30 seconds"
+      echo ""
+
+      set +e
+
+      k6 run \
+        --vus 10 \
+        --duration 30s \
+        --out json=results/output.json \
+        --summary-export=results/summary.json \
+        tests/load.js \
+        2>&1 | tee results/k6-console.log
+
+      K6_EXIT=${PIPESTATUS[0]}
+
+      set -e
+
+      echo "$K6_EXIT" \
+        > results/k6-exit-code.txt
+
+      echo ""
+      echo "k6 exit code: $K6_EXIT"
+
+      exit "$K6_EXIT"
+
+  - name: Capture Load Diagnostics
+    if: always()
+    run: |
+      {
+        echo "=========================================="
+        echo "k6 Load Diagnostics"
+        echo "=========================================="
+
+        echo ""
+        echo "Timestamp:"
+        date -u '+%Y-%m-%dT%H:%M:%SZ'
+
+        echo ""
+        echo "k6 step outcome:"
+        echo "${{ steps.k6_load.outcome }}"
+
+        echo ""
+        echo "k6 exit code:"
+        cat results/k6-exit-code.txt 2>/dev/null || true
+
+        echo ""
+        echo "=========================================="
+        echo "Application Log"
+        echo "=========================================="
+
+        cat results/app.log 2>/dev/null || true
+
+        echo ""
+        echo "=========================================="
+        echo "k6 Console Log"
+        echo "=========================================="
+
+        cat results/k6-console.log 2>/dev/null || true
+
+        echo ""
+        echo "=========================================="
+        echo "k6 Summary"
+        echo "=========================================="
+
+        cat results/summary.json 2>/dev/null || true
+
+      } > results/diagnostics.log
+
+  - name: Upload k6 Load Reports
+    if: always()
+    uses: actions/upload-artifact@v4
+    with:
+      name: k6-load-test-report
+      path: results/
+      if-no-files-found: warn
+      retention-days: 14
+
+  - name: Fail k6 Load Stage
+    if: always() && steps.k6_load.outcome == 'failure'
+    run: |
+      echo "=========================================="
+      echo "k6 LOAD TEST FAILED"
+      echo "=========================================="
+      echo ""
+      echo "Review:"
+      echo "  results/summary.json"
+      echo "  results/output.json"
+      echo "  results/k6-console.log"
+      echo "  results/diagnostics.log"
+
+      exit 1
+```
+
+# ============================================================
+
+# 4. QA PASS / FAIL + UI-WORTHY HTML REPORTS + EMAIL
+
+# ============================================================
+
+qa-pass:
+name: QA PASS
+
+```
+needs:
+  - cypress-e2e
+  - k6-smoke-test
+  - k6-load-test
+
+if: always()
+
+runs-on: ubuntu-latest
+
+steps:
+
+  - name: Download Cypress Report
+    if: always()
+    uses: actions/download-artifact@v4
+    with:
+      name: cypress-e2e-report
+      path: reports/cypress
+    continue-on-error: true
+
+  - name: Download k6 Smoke Report
+    if: always()
+    uses: actions/download-artifact@v4
+    with:
+      name: k6-smoke-test-report
+      path: reports/k6-smoke
+    continue-on-error: true
+
+  - name: Download k6 Load Report
+    if: always()
+    uses: actions/download-artifact@v4
+    with:
+      name: k6-load-test-report
+      path: reports/k6-load
+    continue-on-error: true
+
+  - name: Inspect Downloaded QA Artifacts
+    if: always()
+    run: |
+      echo "=========================================="
+      echo "DOWNLOADED QA ARTIFACTS"
+      echo "=========================================="
+
+      find reports \
+        -type f \
+        -print \
+        2>/dev/null || true
+
+  - name: Generate UI-Worthy HTML Stage Reports
+    if: always()
+    env:
+      CYPRESS_RESULT: ${{ needs.cypress-e2e.result }}
+      K6_SMOKE_RESULT: ${{ needs.k6-smoke-test.result }}
+      K6_LOAD_RESULT: ${{ needs.k6-load-test.result }}
+      REPOSITORY: ${{ github.repository }}
+      BRANCH: ${{ github.ref_name }}
+      COMMIT: ${{ github.sha }}
+      RUN_NUMBER: ${{ github.run_number }}
+      RUN_ID: ${{ github.run_id }}
+      ACTOR: ${{ github.actor }}
+    run: |
+      set -e
+      mkdir -p reports/html
+
+      node <<'NODE'
+      const fs = require("fs");
+      const path = require("path");
+
+      const env = process.env;
+
+      const repo = env.REPOSITORY || "N/A";
+      const branch = env.BRANCH || "N/A";
+      const commit = env.COMMIT || "N/A";
+      const shortCommit = commit.substring(0, 7);
+      const runNumber = env.RUN_NUMBER || "N/A";
+      const runId = env.RUN_ID || "N/A";
+      const actor = env.ACTOR || "N/A";
+
+      function escapeHtml(value) {
+        return String(value ?? "")
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function findFiles(root, predicate) {
+        const found = [];
+        if (!fs.existsSync(root)) return found;
+
+        function walk(current) {
+          let entries = [];
+
+          try {
+            entries = fs.readdirSync(
+              current,
+              { withFileTypes: true }
+            );
+          } catch {
+            return;
           }
 
-          function escapeHtml(value) {
-              const str = String(value ?? "");
+          for (const entry of entries) {
+            const full = path.join(
+              current,
+              entry.name
+            );
 
-              return str
-                  .replaceAll("&", "&amp;")
-                  .replaceAll("<", "&lt;")
-                  .replaceAll(">", "&gt;")
-                  .replaceAll('"', "&quot;")
-                  .replaceAll("'", "&#39;");
+            if (entry.isDirectory()) {
+              walk(full);
+            } else if (
+              predicate(full, entry.name)
+            ) {
+              found.push(full);
+            }
           }
+        }
+
+        walk(root);
+
+        return found;
+      }
+
+      function firstFile(root, names) {
+        const wanted = new Set(names);
+
+        return findFiles(
+          root,
+          (_, name) => wanted.has(name)
+        )[0] || null;
+      }
+
+      function readText(
+        file,
+        fallback = ""
+      ) {
+        if (
+          !file ||
+          !fs.existsSync(file)
+        ) {
+          return fallback;
+        }
+
+        try {
+          return fs.readFileSync(
+            file,
+            "utf8"
+          );
+        } catch {
+          return fallback;
+        }
+      }
+
+      function number(value) {
+        return Number.isFinite(
+          Number(value)
+        )
+          ? Number(value)
+          : null;
+      }
+
+      function formatNumber(value) {
+        const n = number(value);
+
+        return n === null
+          ? "N/A"
+          : n.toLocaleString("en-US");
+      }
+
+      function formatMs(value) {
+        const n = number(value);
+
+        return n === null
+          ? "N/A"
+          : `${n.toFixed(2)} ms`;
+      }
+
+      function formatPercent(value) {
+        const n = number(value);
+
+        return n === null
+          ? "N/A"
+          : `${(n * 100).toFixed(2)}%`;
+      }
+
+      function executionLabel(result) {
+        const value =
+          String(
+            result || "unknown"
+          ).toLowerCase();
+
+        if (value === "success") {
+          return "EXECUTION PASSED";
+        }
+
+        if (value === "failure") {
+          return "EXECUTION FAILED";
+        }
+
+        if (value === "skipped") {
+          return "SKIPPED";
+        }
+
+        return value.toUpperCase();
+      }
+
+      const styles = `
+        :root {
+          --bg: #0b1220;
+          --panel: #111827;
+          --panel2: #0f172a;
+          --border: #263449;
+          --text: #f8fafc;
+          --muted: #94a3b8;
+          --accent: #38bdf8;
+          --good: #34d399;
+          --bad: #f87171;
+        }
+
+        * {
+          box-sizing: border-box;
+        }
+
+        body {
+          margin: 0;
+          padding: 28px;
+          background: var(--bg);
+          color: var(--text);
+          font-family:
+            -apple-system,
+            BlinkMacSystemFont,
+            "Segoe UI",
+            Roboto,
+            Arial,
+            sans-serif;
+          line-height: 1.5;
+        }
+
+        .container {
+          max-width: 1120px;
+          margin: 0 auto;
+          background: var(--panel);
+          border: 1px solid var(--border);
+          border-radius: 18px;
+          padding: 28px;
+          box-shadow:
+            0 20px 60px rgba(0,0,0,.35);
+        }
+
+        .header {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          gap: 18px;
+          border-bottom: 1px solid var(--border);
+          padding-bottom: 20px;
+        }
+
+        h1 {
+          margin: 0;
+          font-size: 25px;
+        }
+
+        .subtitle {
+          color: var(--muted);
+          margin-top: 5px;
+        }
+
+        .badges {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+          justify-content: flex-end;
+        }
+
+        .badge {
+          display: inline-flex;
+          align-items: center;
+          padding: 7px 11px;
+          border-radius: 999px;
+          border: 1px solid var(--border);
+          font-size: 11px;
+          font-weight: 800;
+          letter-spacing: .05em;
+          white-space: nowrap;
+        }
+
+        .success {
+          color: var(--good);
+          background:
+            rgba(52,211,153,.10);
+          border-color:
+            rgba(52,211,153,.35);
+        }
+
+        .failure {
+          color: var(--bad);
+          background:
+            rgba(248,113,113,.10);
+          border-color:
+            rgba(248,113,113,.35);
+        }
+
+        .neutral {
+          color: var(--muted);
+          background:
+            rgba(148,163,184,.08);
+        }
+
+        .meta,
+        .cards {
+          display: grid;
+          gap: 12px;
+        }
+
+        .meta {
+          grid-template-columns:
+            repeat(
+              auto-fit,
+              minmax(190px, 1fr)
+            );
+          margin-top: 20px;
+        }
+
+        .meta-card,
+        .metric {
+          background: var(--panel2);
+          border: 1px solid var(--border);
+          border-radius: 12px;
+        }
+
+        .meta-card {
+          padding: 13px;
+        }
+
+        .label {
+          display: block;
+          color: var(--muted);
+          font-size: 10px;
+          text-transform: uppercase;
+          letter-spacing: .08em;
+          margin-bottom: 4px;
+        }
+
+        .value {
+          font-weight: 700;
+          word-break: break-word;
+        }
+
+        .cards {
+          grid-template-columns:
+            repeat(
+              auto-fit,
+              minmax(155px, 1fr)
+            );
+          margin-top: 18px;
+        }
+
+        .metric {
+          padding: 16px;
+        }
+
+        .metric .value {
+          color: var(--accent);
+          font-size: 22px;
+        }
+
+        .metric.good .value {
+          color: var(--good);
+        }
+
+        .metric.bad .value {
+          color: var(--bad);
+        }
+
+        details {
+          margin-top: 18px;
+          border: 1px solid var(--border);
+          border-radius: 10px;
+          overflow: hidden;
+        }
+
+        summary {
+          cursor: pointer;
+          padding: 12px 14px;
+          color: var(--muted);
+          font-weight: 700;
+        }
+
+        pre {
+          margin: 0;
+          padding: 16px;
+          background: #020617;
+          color: #cbd5e1;
+          overflow: auto;
+          max-height: 520px;
+          font-size: 12px;
+          white-space: pre-wrap;
+          word-break: break-word;
+        }
+
+        .footer {
+          margin-top: 24px;
+          padding-top: 16px;
+          border-top: 1px solid var(--border);
+          color: var(--muted);
+          font-size: 12px;
+        }
+      `;
+
+      function metric(
+        label,
+        value,
+        className = ""
+      ) {
+        return `
+          <div class="metric ${className}">
+            <span class="label">
+              ${escapeHtml(label)}
+            </span>
+
+            <div class="value">
+              ${escapeHtml(value)}
+            </div>
+          </div>
+        `;
+      }
+
+      function meta(label, value) {
+        return `
+          <div class="meta-card">
+            <span class="label">
+              ${escapeHtml(label)}
+            </span>
+
+            <div class="value">
+              ${escapeHtml(value)}
+            </div>
+          </div>
+        `;
+      }
+
+      function page(
+        title,
+        badges,
+        content,
+        footer
+      ) {
+        return `
+          <!doctype html>
 
-          function formatNumber(value) {
-              if (
-                  value === undefined ||
-                  value === null ||
-                  Number.isNaN(Number(value))
-              ) {
-                  return "N/A";
-              }
-
-              return Number(value).toLocaleString("en-US");
-          }
-
-          function formatMs(value) {
-              if (
-                  value === undefined ||
-                  value === null ||
-                  Number.isNaN(Number(value))
-              ) {
-                  return "N/A";
-              }
-
-              return `${Number(value).toFixed(2)} ms`;
-          }
-
-          function formatPercent(value) {
-              if (
-                  value === undefined ||
-                  value === null ||
-                  Number.isNaN(Number(value))
-              ) {
-                  return "N/A";
-              }
-
-              return `${(Number(value) * 100).toFixed(2)}%`;
-          }
-
-          function statusLabel(result) {
-              const normalized = String(result || "unknown").toLowerCase();
-
-              if (normalized === "success") return "PASSED";
-              if (normalized === "failure") return "FAILED";
-              if (normalized === "skipped") return "SKIPPED";
-
-              return normalized.toUpperCase();
-          }
-
-          function statusClass(result) {
-              const normalized = String(result || "unknown").toLowerCase();
-
-              if (normalized === "success") return "success";
-              if (normalized === "failure") return "failure";
-              if (normalized === "skipped") return "skipped";
-
-              return "unknown";
-          }
-
-          function getK6Metrics(summaryPath) {
-              const raw = readFile(summaryPath, "");
-
-              const result = {
-                  raw: raw || "No k6 summary file was captured.",
-                  requests: "N/A",
-                  avg: "N/A",
-                  p95: "N/A",
-                  failedRate: "N/A",
-                  iterations: "N/A",
-                  vus: "N/A",
-                  vusMax: "N/A",
-                  duration: "N/A"
-              };
-
-              if (!raw) {
-                  return result;
-              }
-
-              try {
-                  const data = JSON.parse(raw);
-                  const metrics = data.metrics || {};
-
-                  if (metrics.http_reqs?.values?.count !== undefined) {
-                      result.requests =
-                          formatNumber(metrics.http_reqs.values.count);
-                  }
-
-                  if (metrics.http_req_duration?.values) {
-                      result.avg =
-                          formatMs(metrics.http_req_duration.values.avg);
-
-                      result.p95 =
-                          formatMs(
-                              metrics.http_req_duration.values["p(95)"]
-                          );
-                  }
-
-                  if (
-                      metrics.http_req_failed?.values?.rate !== undefined
-                  ) {
-                      result.failedRate =
-                          formatPercent(
-                              metrics.http_req_failed.values.rate
-                          );
-                  }
-
-                  if (metrics.iterations?.values?.count !== undefined) {
-                      result.iterations =
-                          formatNumber(
-                              metrics.iterations.values.count
-                          );
-                  }
-
-                  if (metrics.vus?.values?.max !== undefined) {
-                      result.vusMax =
-                          formatNumber(metrics.vus.values.max);
-                  } else if (
-                      metrics.vus?.values?.value !== undefined
-                  ) {
-                      result.vus =
-                          formatNumber(metrics.vus.values.value);
-                  }
-
-                  if (
-                      metrics.vus_max?.values?.value !== undefined
-                  ) {
-                      result.vusMax =
-                          formatNumber(
-                              metrics.vus_max.values.value
-                          );
-                  }
-
-                  if (data.state?.testRunDuration !== undefined) {
-                      result.duration =
-                          `${(
-                              Number(data.state.testRunDuration) /
-                              1000000000
-                          ).toFixed(2)} s`;
-                  }
-
-                  return result;
-              } catch (error) {
-                  result.raw =
-                      `${raw}\n\nSummary parsing error: ${error.message}`;
-
-                  return result;
-              }
-          }
-
-          function getCypressMetrics() {
-              const metrics = {
-                  tests: 0,
-                  failures: 0,
-                  errors: 0,
-                  skipped: 0,
-                  time: 0,
-                  suites: 0,
-                  found: false
-              };
-
-              const directory = "reports/cypress";
-
-              if (!fs.existsSync(directory)) {
-                  return metrics;
-              }
-
-              const xmlFiles =
-                  fs.readdirSync(directory)
-                      .filter(file => file.endsWith(".xml"));
-
-              for (const file of xmlFiles) {
-                  const xml =
-                      readFile(
-                          path.join(directory, file),
-                          ""
-                      );
-
-                  if (!xml) {
-                      continue;
-                  }
-
-                  metrics.found = true;
-
-                  const suiteTags =
-                      xml.match(
-                          /<testsuite\b[^>]*>/g
-                      ) || [];
-
-                  for (const tag of suiteTags) {
-                      const tests =
-                          tag.match(
-                              /\btests="([^"]*)"/
-                          );
-
-                      const failures =
-                          tag.match(
-                              /\bfailures="([^"]*)"/
-                          );
-
-                      const errors =
-                          tag.match(
-                              /\berrors="([^"]*)"/
-                          );
-
-                      const skipped =
-                          tag.match(
-                              /\bskipped="([^"]*)"/
-                          );
-
-                      const time =
-                          tag.match(
-                              /\btime="([^"]*)"/
-                          );
-
-                      if (
-                          tests ||
-                          failures ||
-                          errors ||
-                          skipped ||
-                          time
-                      ) {
-                          metrics.suites += 1;
-
-                          metrics.tests +=
-                              Number(
-                                  tests?.[1] || 0
-                              );
-
-                          metrics.failures +=
-                              Number(
-                                  failures?.[1] || 0
-                              );
-
-                          metrics.errors +=
-                              Number(
-                                  errors?.[1] || 0
-                              );
-
-                          metrics.skipped +=
-                              Number(
-                                  skipped?.[1] || 0
-                              );
-
-                          metrics.time +=
-                              Number(
-                                  time?.[1] || 0
-                              );
-                      }
-                  }
-              }
-
-              return metrics;
-          }
-
-          const cypResult =
-              env.CYPRESS_RESULT || "unknown";
-
-          const smokeResult =
-              env.K6_SMOKE_RESULT || "unknown";
-
-          const loadResult =
-              env.K6_LOAD_RESULT || "unknown";
-
-          const cypExit =
-              readFile(
-                  "reports/cypress/cypress-exit-code.txt",
-                  "N/A"
-              ).trim();
-
-          const cypLog =
-              readFile(
-                  "reports/cypress/cypress-run.log",
-                  "No Cypress console log was captured."
-              );
-
-          const cyp =
-              getCypressMetrics();
-
-          const smokeExit =
-              readFile(
-                  "reports/k6-smoke/smoke-exit-code.txt",
-                  "N/A"
-              ).trim();
-
-          const smoke =
-              getK6Metrics(
-                  "reports/k6-smoke/smoke-summary.json"
-              );
-
-          const loadExit =
-              readFile(
-                  "reports/k6-load/k6-exit-code.txt",
-                  "N/A"
-              ).trim();
-
-          const load =
-              getK6Metrics(
-                  "reports/k6-load/summary.json"
-              );
-
-          const overallPassed =
-              cypResult === "success" &&
-              smokeResult === "success" &&
-              loadResult === "success";
-
-          const overallStatus =
-              overallPassed
-                  ? "PASSED"
-                  : "FAILED";
-
-          const generatedAt =
-              new Date().toISOString();
-
-          const sharedStyles = `
-              :root {
-                  --bg-main: #0f172a;
-                  --bg-card: #1e293b;
-                  --bg-code: #020617;
-                  --border-color: #334155;
-                  --text-main: #f8fafc;
-                  --text-muted: #94a3b8;
-                  --accent: #38bdf8;
-                  --success: #34d399;
-                  --failure: #f87171;
-              }
-
-              * {
-                  box-sizing: border-box;
-              }
-
-              body {
-                  font-family:
-                      -apple-system,
-                      BlinkMacSystemFont,
-                      "Segoe UI",
-                      Roboto,
-                      Arial,
-                      sans-serif;
-
-                  background: var(--bg-main);
-                  color: var(--text-main);
-                  padding: 24px;
-                  margin: 0;
-                  line-height: 1.5;
-              }
-
-              .container {
-                  max-width: 1100px;
-                  margin: auto;
-                  background: var(--bg-card);
-                  padding: 28px;
-                  border-radius: 16px;
-                  border: 1px solid var(--border-color);
-                  box-shadow:
-                      0 20px 45px rgba(0,0,0,0.35);
-              }
-
-              h1 {
-                  margin: 0;
-                  font-size: 1.65rem;
-                  display: flex;
-                  justify-content: space-between;
-                  align-items: center;
-                  gap: 16px;
-              }
-
-              h3 {
-                  margin-top: 26px;
-                  color: var(--text-muted);
-                  font-size: 0.82rem;
-                  text-transform: uppercase;
-                  letter-spacing: 0.08em;
-              }
-
-              .badge {
-                  display: inline-block;
-                  padding: 6px 12px;
-                  border-radius: 999px;
-                  font-size: 0.78rem;
-                  font-weight: 800;
-                  letter-spacing: 0.06em;
-              }
-
-              .success {
-                  background:
-                      rgba(16,185,129,0.15);
-
-                  color: var(--success);
-
-                  border:
-                      1px solid
-                      rgba(52,211,153,0.35);
-              }
-
-              .failure {
-                  background:
-                      rgba(239,68,68,0.15);
-
-                  color: var(--failure);
-
-                  border:
-                      1px solid
-                      rgba(248,113,113,0.35);
-              }
-
-              .skipped,
-              .unknown {
-                  background:
-                      rgba(148,163,184,0.12);
-
-                  color: var(--text-muted);
-
-                  border:
-                      1px solid
-                      var(--border-color);
-              }
-
-              .meta-grid,
-              .metrics-cards,
-              .stage-grid {
-                  display: grid;
-                  gap: 12px;
-              }
-
-              .meta-grid {
-                  grid-template-columns:
-                      repeat(
-                          auto-fit,
-                          minmax(210px, 1fr)
-                      );
-
-                  margin: 22px 0;
-                  padding: 16px;
-                  background: var(--bg-main);
-                  border-radius: 10px;
-                  border: 1px solid var(--border-color);
-              }
-
-              .meta-item span,
-              .metric-card .lbl {
-                  display: block;
-                  color: var(--text-muted);
-                  font-size: 0.72rem;
-                  text-transform: uppercase;
-                  letter-spacing: 0.06em;
-              }
-
-              .meta-item b {
-                  display: block;
-                  margin-top: 4px;
-                  word-break: break-word;
-              }
-
-              .stage-grid {
-                  grid-template-columns:
-                      repeat(
-                          auto-fit,
-                          minmax(280px, 1fr)
-                      );
-
-                  margin: 22px 0;
-              }
-
-              .stage-card {
-                  background: var(--bg-main);
-                  border: 1px solid var(--border-color);
-                  border-radius: 12px;
-                  padding: 18px;
-              }
-
-              .stage-title {
-                  display: flex;
-                  align-items: center;
-                  justify-content: space-between;
-                  gap: 10px;
-                  margin-bottom: 14px;
-                  font-weight: 800;
-              }
-
-              .metrics-cards {
-                  grid-template-columns:
-                      repeat(
-                          auto-fit,
-                          minmax(150px, 1fr)
-                      );
-
-                  margin: 18px 0;
-              }
-
-              .metric-card {
-                  background: var(--bg-main);
-                  border: 1px solid var(--border-color);
-                  border-radius: 10px;
-                  padding: 14px;
-              }
-
-              .metric-card .val {
-                  margin-top: 5px;
-                  font-size: 1.35rem;
-                  font-weight: 800;
-                  color: var(--accent);
-              }
-
-              pre {
-                  background: var(--bg-code);
-                  color: #cbd5e1;
-                  padding: 16px;
-                  border-radius: 10px;
-                  border: 1px solid var(--border-color);
-                  overflow-x: auto;
-                  font-size: 0.82rem;
-                  white-space: pre-wrap;
-                  word-break: break-word;
-                  max-height: 480px;
-              }
-
-              .footer {
-                  margin-top: 28px;
-                  padding-top: 16px;
-                  border-top: 1px solid var(--border-color);
-                  color: var(--text-muted);
-                  font-size: 0.78rem;
-              }
-          `;
-
-          function metricCard(label, value) {
-              return `
-                  <div class="metric-card">
-                      <div class="lbl">
-                          ${escapeHtml(label)}
-                      </div>
-
-                      <div class="val">
-                          ${escapeHtml(value)}
-                      </div>
-                  </div>
-              `;
-          }
-
-          function stageCard(title, result, details) {
-              return `
-                  <div class="stage-card">
-
-                      <div class="stage-title">
-                          <span>
-                              ${escapeHtml(title)}
-                          </span>
-
-                          <span
-                              class="badge ${statusClass(result)}"
-                          >
-                              ${escapeHtml(
-                                  statusLabel(result)
-                              )}
-                          </span>
-                      </div>
-
-                      ${details}
-                  </div>
-              `;
-          }
-
-          const cypressHtml = `<!DOCTYPE html>
           <html>
           <head>
-              <meta charset="utf-8">
-              <meta
-                  name="viewport"
-                  content="width=device-width, initial-scale=1"
-              >
-              <title>Cypress E2E Test Report</title>
-              <style>${sharedStyles}</style>
+
+            <meta charset="utf-8">
+
+            <meta
+              name="viewport"
+              content="width=device-width,initial-scale=1"
+            >
+
+            <title>
+              ${escapeHtml(title)}
+            </title>
+
+            <style>
+              ${styles}
+            </style>
+
           </head>
 
           <body>
-              <div class="container">
+
+            <main class="container">
+
+              <div class="header">
+
+                <div>
 
                   <h1>
-                      <span>
-                          Cypress E2E Test Execution
-                      </span>
-
-                      <span
-                          class="badge ${statusClass(cypResult)}"
-                      >
-                          ${escapeHtml(
-                              statusLabel(cypResult)
-                          )}
-                      </span>
+                    ${escapeHtml(title)}
                   </h1>
 
-                  <div class="meta-grid">
-
-                      <div class="meta-item">
-                          <span>Repository</span>
-                          <b>
-                              ${escapeHtml(repo)}
-                          </b>
-                      </div>
-
-                      <div class="meta-item">
-                          <span>Branch / Commit</span>
-                          <b>
-                              ${escapeHtml(branch)}
-                              (${escapeHtml(shortCommit)})
-                          </b>
-                      </div>
-
-                      <div class="meta-item">
-                          <span>Pipeline Run</span>
-                          <b>
-                              #${escapeHtml(runNumber)}
-                          </b>
-                      </div>
-
-                      <div class="meta-item">
-                          <span>Exit Code</span>
-                          <b>
-                              ${escapeHtml(cypExit)}
-                          </b>
-                      </div>
-
+                  <div class="subtitle">
+                    ${escapeHtml(repo)}
+                    ·
+                    ${escapeHtml(branch)}
+                    ·
+                    #${escapeHtml(runNumber)}
                   </div>
 
-                  <div class="metrics-cards">
+                </div>
 
-                      ${metricCard(
-                          "Total Tests",
-                          formatNumber(cyp.tests)
-                      )}
-
-                      ${metricCard(
-                          "Failures",
-                          formatNumber(cyp.failures)
-                      )}
-
-                      ${metricCard(
-                          "Errors",
-                          formatNumber(cyp.errors)
-                      )}
-
-                      ${metricCard(
-                          "Skipped",
-                          formatNumber(cyp.skipped)
-                      )}
-
-                      ${metricCard(
-                          "Duration",
-                          `${cyp.time.toFixed(2)} s`
-                      )}
-
-                  </div>
-
-                  <h3>
-                      Execution Console Output
-                  </h3>
-
-                  <pre>
-          ${escapeHtml(cypLog)}
-                  </pre>
-
-                  <div class="footer">
-                      Metrics are extracted from the
-                      Cypress JUnit result files and
-                      console output produced by this
-                      pipeline run.
-                  </div>
+                <div class="badges">
+                  ${badges}
+                </div>
 
               </div>
-          </body>
-          </html>`;
 
-          fs.writeFileSync(
-              "reports/html/cypress-e2e-report.html",
-              cypressHtml
-          );
+              ${content}
 
-          const smokeHtml = `<!DOCTYPE html>
-          <html>
-          <head>
-              <meta charset="utf-8">
-              <meta
-                  name="viewport"
-                  content="width=device-width, initial-scale=1"
-              >
-              <title>k6 Smoke Test Report</title>
-              <style>${sharedStyles}</style>
-          </head>
-
-          <body>
-              <div class="container">
-
-                  <h1>
-                      <span>
-                          k6 Smoke Test Execution
-                      </span>
-
-                      <span
-                          class="badge ${statusClass(smokeResult)}"
-                      >
-                          ${escapeHtml(
-                              statusLabel(smokeResult)
-                          )}
-                      </span>
-                  </h1>
-
-                  <div class="meta-grid">
-
-                      <div class="meta-item">
-                          <span>Repository</span>
-                          <b>
-                              ${escapeHtml(repo)}
-                          </b>
-                      </div>
-
-                      <div class="meta-item">
-                          <span>Branch / Commit</span>
-                          <b>
-                              ${escapeHtml(branch)}
-                              (${escapeHtml(shortCommit)})
-                          </b>
-                      </div>
-
-                      <div class="meta-item">
-                          <span>Pipeline Run</span>
-                          <b>
-                              #${escapeHtml(runNumber)}
-                          </b>
-                      </div>
-
-                      <div class="meta-item">
-                          <span>Exit Code</span>
-                          <b>
-                              ${escapeHtml(smokeExit)}
-                          </b>
-                      </div>
-
-                  </div>
-
-                  <div class="metrics-cards">
-
-                      ${metricCard(
-                          "Total Requests",
-                          smoke.requests
-                      )}
-
-                      ${metricCard(
-                          "Avg Latency",
-                          smoke.avg
-                      )}
-
-                      ${metricCard(
-                          "P95 Latency",
-                          smoke.p95
-                      )}
-
-                      ${metricCard(
-                          "Failed Rate",
-                          smoke.failedRate
-                      )}
-
-                      ${metricCard(
-                          "Iterations",
-                          smoke.iterations
-                      )}
-
-                      ${metricCard(
-                          "Max VUs",
-                          smoke.vusMax
-                      )}
-
-                  </div>
-
-                  <h3>
-                      Raw Summary Metrics JSON
-                  </h3>
-
-                  <pre>
-          ${escapeHtml(smoke.raw)}
-                  </pre>
-
-                  <div class="footer">
-                      Metrics are extracted directly from
-                      the k6 summary-export JSON generated
-                      during this pipeline run.
-                  </div>
-
+              <div class="footer">
+                ${footer}
               </div>
+
+            </main>
+
           </body>
-          </html>`;
+          </html>
+        `;
+      }
 
-          fs.writeFileSync(
-              "reports/html/k6-smoke-report.html",
-              smokeHtml
+      // ========================================================
+      // CYPRESS
+      // ========================================================
+
+      const cypressRoot =
+        "reports/cypress";
+
+      const cypressXmlFiles =
+        findFiles(
+          cypressRoot,
+          (_, name) =>
+            name.endsWith(".xml")
+        );
+
+      let cypTests = null;
+      let cypFailures = null;
+      let cypErrors = null;
+      let cypSkipped = null;
+      let cypTime = null;
+      let cypSuites = 0;
+
+      function attr(tag, name) {
+        const match =
+          tag.match(
+            new RegExp(
+              `\\b${name}=["']([^"']*)["']`,
+              "i"
+            )
           );
 
-          const loadHtml = `<!DOCTYPE html>
-          <html>
-          <head>
-              <meta charset="utf-8">
-              <meta
-                  name="viewport"
-                  content="width=device-width, initial-scale=1"
-              >
-              <title>k6 Load Test Report</title>
-              <style>${sharedStyles}</style>
-          </head>
+        return match
+          ? match[1]
+          : null;
+      }
 
-          <body>
-              <div class="container">
+      for (
+        const xmlFile
+        of cypressXmlFiles
+      ) {
+        const xml =
+          readText(xmlFile);
 
-                  <h1>
-                      <span>
-                          k6 Load Test Execution
-                      </span>
+        const suiteTags =
+          xml.match(
+            /<testsuite\b[^>]*>/gi
+          ) || [];
 
-                      <span
-                          class="badge ${statusClass(loadResult)}"
-                      >
-                          ${escapeHtml(
-                              statusLabel(loadResult)
-                          )}
-                      </span>
-                  </h1>
+        for (
+          const tag
+          of suiteTags
+        ) {
+          cypSuites += 1;
 
-                  <div class="meta-grid">
+          cypTests =
+            (cypTests ?? 0) +
+            Number(
+              attr(tag, "tests") || 0
+            );
 
-                      <div class="meta-item">
-                          <span>Repository</span>
-                          <b>
-                              ${escapeHtml(repo)}
-                          </b>
-                      </div>
+          cypFailures =
+            (cypFailures ?? 0) +
+            Number(
+              attr(tag, "failures") || 0
+            );
 
-                      <div class="meta-item">
-                          <span>Branch / Commit</span>
-                          <b>
-                              ${escapeHtml(branch)}
-                              (${escapeHtml(shortCommit)})
-                          </b>
-                      </div>
+          cypErrors =
+            (cypErrors ?? 0) +
+            Number(
+              attr(tag, "errors") || 0
+            );
 
-                      <div class="meta-item">
-                          <span>Pipeline Run</span>
-                          <b>
-                              #${escapeHtml(runNumber)}
-                          </b>
-                      </div>
+          cypSkipped =
+            (cypSkipped ?? 0) +
+            Number(
+              attr(tag, "skipped") || 0
+            );
 
-                      <div class="meta-item">
-                          <span>Configured Load</span>
-                          <b>
-                              10 VUs / 30 seconds
-                          </b>
-                      </div>
+          cypTime =
+            (cypTime ?? 0) +
+            Number(
+              attr(tag, "time") || 0
+            );
+        }
+      }
 
-                      <div class="meta-item">
-                          <span>Exit Code</span>
-                          <b>
-                              ${escapeHtml(loadExit)}
-                          </b>
-                      </div>
+      if (
+        cypTests === 0 &&
+        cypressXmlFiles.length > 0
+      ) {
+        for (
+          const xmlFile
+          of cypressXmlFiles
+        ) {
+          const xml =
+            readText(xmlFile);
 
-                  </div>
+          cypTests =
+            (cypTests ?? 0) +
+            (
+              xml.match(
+                /<testcase\b/gi
+              ) || []
+            ).length;
 
-                  <div class="metrics-cards">
+          cypFailures =
+            (cypFailures ?? 0) +
+            (
+              xml.match(
+                /<failure\b/gi
+              ) || []
+            ).length;
 
-                      ${metricCard(
-                          "Total Requests",
-                          load.requests
-                      )}
+          cypErrors =
+            (cypErrors ?? 0) +
+            (
+              xml.match(
+                /<error\b/gi
+              ) || []
+            ).length;
 
-                      ${metricCard(
-                          "Avg Latency",
-                          load.avg
-                      )}
+          cypSkipped =
+            (cypSkipped ?? 0) +
+            (
+              xml.match(
+                /<skipped\b/gi
+              ) || []
+            ).length;
+        }
+      }
 
-                      ${metricCard(
-                          "P95 Latency",
-                          load.p95
-                      )}
+      const cypExitFile =
+        firstFile(
+          cypressRoot,
+          ["cypress-exit-code.txt"]
+        );
 
-                      ${metricCard(
-                          "Failed Rate",
-                          load.failedRate
-                      )}
+      const cypLogFile =
+        firstFile(
+          cypressRoot,
+          ["cypress-run.log"]
+        );
 
-                      ${metricCard(
-                          "Iterations",
-                          load.iterations
-                      )}
+      const cypExit =
+        readText(
+          cypExitFile,
+          "N/A"
+        ).trim();
 
-                      ${metricCard(
-                          "Max VUs",
-                          load.vusMax
-                      )}
+      const cypLog =
+        readText(
+          cypLogFile,
+          "No Cypress console log was captured."
+        );
 
-                  </div>
+      const cypResult =
+        env.CYPRESS_RESULT ||
+        "unknown";
 
-                  <h3>
-                      Raw Summary Metrics JSON
-                  </h3>
+      const cypressContent = `
+        <div class="meta">
 
-                  <pre>
-          ${escapeHtml(load.raw)}
-                  </pre>
+          ${meta(
+            "Exit Code",
+            cypExit
+          )}
 
-                  <div class="footer">
-                      Metrics are extracted directly from
-                      the k6 summary JSON generated during
-                      this pipeline run. The configured
-                      10 VUs / 30 seconds is the load profile
-                      used by the workflow; performance values
-                      above are measured results.
-                  </div>
+          ${meta(
+            "JUnit Files",
+            String(
+              cypressXmlFiles.length
+            )
+          )}
 
-              </div>
-          </body>
-          </html>`;
+          ${meta(
+            "Suites",
+            String(cypSuites)
+          )}
 
-          fs.writeFileSync(
-              "reports/html/k6-load-report.html",
-              loadHtml
+          ${meta(
+            "Triggered By",
+            actor
+          )}
+
+        </div>
+
+        <div class="cards">
+
+          ${metric(
+            "Total Tests",
+            formatNumber(cypTests)
+          )}
+
+          ${metric(
+            "Failures",
+            formatNumber(cypFailures),
+            cypFailures > 0
+              ? "bad"
+              : "good"
+          )}
+
+          ${metric(
+            "Errors",
+            formatNumber(cypErrors),
+            cypErrors > 0
+              ? "bad"
+              : "good"
+          )}
+
+          ${metric(
+            "Skipped",
+            formatNumber(cypSkipped)
+          )}
+
+          ${metric(
+            "Duration",
+            cypTime == null
+              ? "N/A"
+              : `${cypTime.toFixed(2)} s`
+          )}
+
+        </div>
+
+        <details>
+
+          <summary>
+            Execution Console Output
+          </summary>
+
+          <pre>
+            ${escapeHtml(cypLog)}
+          </pre>
+
+        </details>
+      `;
+
+      fs.writeFileSync(
+        "reports/html/cypress-e2e-report.html",
+        page(
+          "Cypress E2E Test Execution",
+
+          `
+            <span
+              class="badge ${
+                cypResult === "success"
+                  ? "success"
+                  : "failure"
+              }"
+            >
+              ${escapeHtml(
+                executionLabel(
+                  cypResult
+                )
+              )}
+            </span>
+          `,
+
+          cypressContent,
+
+          "Cypress metrics are read from the JUnit XML files generated by this exact pipeline run. No test counts or durations are hardcoded."
+        )
+      );
+
+      // ========================================================
+      // k6
+      //
+      // IMPORTANT:
+      // k6 summary-export JSON uses:
+      //
+      // metrics.http_reqs.count
+      // metrics.http_req_duration.avg
+      // metrics.http_req_duration["p(95)"]
+      // metrics.http_req_failed.value
+      //
+      // NOT:
+      //
+      // metrics.http_reqs.values.count
+      // metrics.http_req_duration.values.avg
+      // ========================================================
+
+      function readK6Summary(
+        root,
+        filename
+      ) {
+        const file =
+          firstFile(
+            root,
+            [filename]
           );
 
-          const qaSummaryHtml = `<!DOCTYPE html>
-          <html>
-          <head>
-              <meta charset="utf-8">
-              <meta
-                  name="viewport"
-                  content="width=device-width, initial-scale=1"
-              >
-              <title>QA Pipeline Report</title>
-              <style>${sharedStyles}</style>
-          </head>
+        if (!file) {
+          return {
+            file: null,
+            raw:
+              `No ${filename} was captured.`,
+            data: null
+          };
+        }
 
-          <body>
-              <div class="container">
+        const raw =
+          readText(file);
 
-                  <h1>
-                      <span>
-                          QA Pipeline Report
-                      </span>
+        try {
+          return {
+            file,
+            raw,
+            data: JSON.parse(raw)
+          };
+        } catch (error) {
+          return {
+            file,
+            raw,
+            data: null,
+            error: error.message
+          };
+        }
+      }
 
-                      <span
-                          class="badge ${
-                              overallPassed
-                                  ? "success"
-                                  : "failure"
-                          }"
-                      >
-                          ${overallStatus}
-                      </span>
-                  </h1>
+      function k6Metrics(summary) {
+        const metrics =
+          summary?.data?.metrics ||
+          {};
 
-                  <div class="meta-grid">
+        const reqs =
+          metrics.http_reqs ||
+          {};
 
-                      <div class="meta-item">
-                          <span>Repository</span>
-                          <b>
-                              ${escapeHtml(repo)}
-                          </b>
-                      </div>
+        const duration =
+          metrics.http_req_duration ||
+          {};
 
-                      <div class="meta-item">
-                          <span>Branch / Commit</span>
-                          <b>
-                              ${escapeHtml(branch)}
-                              (${escapeHtml(shortCommit)})
-                          </b>
-                      </div>
+        const failed =
+          metrics.http_req_failed ||
+          {};
 
-                      <div class="meta-item">
-                          <span>Pipeline Run</span>
-                          <b>
-                              #${escapeHtml(runNumber)}
-                          </b>
-                      </div>
+        const iterations =
+          metrics.iterations ||
+          {};
 
-                      <div class="meta-item">
-                          <span>Triggered By</span>
-                          <b>
-                              ${escapeHtml(actor)}
-                          </b>
-                      </div>
+        const vus =
+          metrics.vus ||
+          {};
 
-                      <div class="meta-item">
-                          <span>Generated At</span>
-                          <b>
-                              ${escapeHtml(generatedAt)}
-                          </b>
-                      </div>
+        const vusMax =
+          metrics.vus_max ||
+          {};
 
-                      <div class="meta-item">
-                          <span>Run ID</span>
-                          <b>
-                              ${escapeHtml(runId)}
-                          </b>
-                      </div>
+        const checks =
+          metrics.checks ||
+          {};
 
-                  </div>
+        return {
 
-                  <div class="stage-grid">
+          requests:
+            reqs.count,
 
-                      ${stageCard(
-                          "Cypress E2E",
-                          cypResult,
-                          `
-                          <div class="metrics-cards">
+          requestRate:
+            reqs.rate,
 
-                              ${metricCard(
-                                  "Tests",
-                                  formatNumber(cyp.tests)
-                              )}
+          avg:
+            duration.avg,
 
-                              ${metricCard(
-                                  "Failures",
-                                  formatNumber(cyp.failures)
-                              )}
+          p95:
+            duration["p(95)"],
 
-                              ${metricCard(
-                                  "Errors",
-                                  formatNumber(cyp.errors)
-                              )}
+          max:
+            duration.max,
 
-                          </div>
+          min:
+            duration.min,
 
-                          <div class="meta-item">
-                              <span>Exit Code</span>
-                              <b>
-                                  ${escapeHtml(cypExit)}
-                              </b>
-                          </div>
-                          `
-                      )}
+          failedRate:
+            failed.value,
 
-                      ${stageCard(
-                          "k6 Smoke",
-                          smokeResult,
-                          `
-                          <div class="metrics-cards">
+          iterations:
+            iterations.count,
 
-                              ${metricCard(
-                                  "Requests",
-                                  smoke.requests
-                              )}
+          iterationRate:
+            iterations.rate,
 
-                              ${metricCard(
-                                  "Avg",
-                                  smoke.avg
-                              )}
+          vus:
+            vus.value,
 
-                              ${metricCard(
-                                  "P95",
-                                  smoke.p95
-                              )}
+          vusMax:
+            vusMax.value ??
+            vusMax.max,
 
-                              ${metricCard(
-                                  "Failed",
-                                  smoke.failedRate
-                              )}
+          checksPassed:
+            checks.passes,
 
-                          </div>
+          checksFailed:
+            checks.fails,
 
-                          <div class="meta-item">
-                              <span>Exit Code</span>
-                              <b>
-                                  ${escapeHtml(smokeExit)}
-                              </b>
-                          </div>
-                          `
-                      )}
+          checksRate:
+            checks.value
+        };
+      }
 
-                      ${stageCard(
-                          "k6 Load",
-                          loadResult,
-                          `
-                          <div class="metrics-cards">
+      function k6Status(
+        metrics,
+        executionResult
+      ) {
+        if (
+          metrics.checksFailed !==
+            undefined &&
+          Number(
+            metrics.checksFailed
+          ) > 0
+        ) {
+          return {
+            text: "CHECKS FAILED",
+            className: "failure"
+          };
+        }
 
-                              ${metricCard(
-                                  "Requests",
-                                  load.requests
-                              )}
+        if (
+          executionResult ===
+          "success"
+        ) {
+          return {
+            text: "CHECKS PASSED",
+            className: "success"
+          };
+        }
 
-                              ${metricCard(
-                                  "Avg",
-                                  load.avg
-                              )}
+        return {
+          text: "EXECUTION FAILED",
+          className: "failure"
+        };
+      }
 
-                              ${metricCard(
-                                  "P95",
-                                  load.p95
-                              )}
-
-                              ${metricCard(
-                                  "Failed",
-                                  load.failedRate
-                              )}
-
-                          </div>
-
-                          <div class="meta-item">
-                              <span>Exit Code</span>
-                              <b>
-                                  ${escapeHtml(loadExit)}
-                              </b>
-                          </div>
-                          `
-                      )}
-
-                  </div>
-
-                  <div class="footer">
-                      This summary is generated from the
-                      actual artifacts produced by this
-                      GitHub Actions run. No test, latency,
-                      request-count, failure-rate, or
-                      exit-code values are hardcoded.
-                  </div>
-
-              </div>
-          </body>
-          </html>`;
-
-          fs.writeFileSync(
-              "reports/html/qa-summary.html",
-              qaSummaryHtml
+      function k6Page(
+        title,
+        root,
+        summaryFile,
+        executionResult,
+        profile
+      ) {
+        const summary =
+          readK6Summary(
+            root,
+            summaryFile
           );
 
-          const emailBody = `
-          QA PIPELINE REPORT
-          ==================
+        const m =
+          k6Metrics(summary);
 
-          Overall Status : ${overallStatus}
-          Repository     : ${repo}
-          Branch         : ${branch}
-          Commit         : ${shortCommit}
-          Pipeline Run   : #${runNumber}
-          Run ID         : ${runId}
-          Triggered By   : ${actor}
-          Generated At   : ${generatedAt}
-
-          CYPRESS E2E
-          -----------
-          Status         : ${statusLabel(cypResult)}
-          Exit Code      : ${cypExit}
-          Total Tests    : ${formatNumber(cyp.tests)}
-          Failures       : ${formatNumber(cyp.failures)}
-          Errors         : ${formatNumber(cyp.errors)}
-          Skipped        : ${formatNumber(cyp.skipped)}
-          Duration       : ${cyp.time.toFixed(2)} s
-
-          k6 SMOKE
-          --------
-          Status         : ${statusLabel(smokeResult)}
-          Exit Code      : ${smokeExit}
-          Total Requests : ${smoke.requests}
-          Avg Latency    : ${smoke.avg}
-          P95 Latency    : ${smoke.p95}
-          Failed Rate    : ${smoke.failedRate}
-          Iterations     : ${smoke.iterations}
-          Max VUs        : ${smoke.vusMax}
-
-          k6 LOAD
-          -------
-          Status         : ${statusLabel(loadResult)}
-          Exit Code      : ${loadExit}
-          Total Requests : ${load.requests}
-          Avg Latency    : ${load.avg}
-          P95 Latency    : ${load.p95}
-          Failed Rate    : ${load.failedRate}
-          Iterations     : ${load.iterations}
-          Max VUs        : ${load.vusMax}
-          Load Profile   : 10 VUs / 30 seconds
-
-          The attached HTML reports contain the detailed
-          UI view and raw execution data.
-
-          All test and performance metrics above are
-          extracted from artifacts generated by this
-          pipeline run.
-          `;
-
-          fs.writeFileSync(
-              "reports/email-body.txt",
-              emailBody.trim() + "\n"
+        const status =
+          k6Status(
+            m,
+            executionResult
           );
 
-          console.log("==========================================");
-          console.log("QA REPORT GENERATION COMPLETE");
-          console.log("==========================================");
-          console.log(`Overall status: ${overallStatus}`);
-          console.log(`Cypress: ${statusLabel(cypResult)}`);
-          console.log(`k6 Smoke: ${statusLabel(smokeResult)}`);
-          console.log(`k6 Load: ${statusLabel(loadResult)}`);
-          console.log(`Cypress tests: ${cyp.tests}`);
-          console.log(`k6 smoke requests: ${smoke.requests}`);
-          console.log(`k6 load requests: ${load.requests}`);
-          console.log(`Generated at: ${generatedAt}`);
-          NODE
+        const exitFile =
+          firstFile(
+            root,
+            summaryFile ===
+              "summary.json"
+              ? ["k6-exit-code.txt"]
+              : ["smoke-exit-code.txt"]
+          );
 
-      # ==========================================================
-      # SEND EMAIL NOTIFICATION WITH REPORTS
-      # ==========================================================
+        const consoleFile =
+          firstFile(
+            root,
+            summaryFile ===
+              "summary.json"
+              ? ["k6-console.log"]
+              : ["smoke-console.log"]
+          );
 
-      - name: Send QA Report Email
-        if: always()
-        uses: dawidd6/action-send-mail@v3
-        with:
-          server_address: smtp.gmail.com
-          server_port: 465
-          secure: true
-          username: ${{ secrets.EMAIL_USER }}
-          password: ${{ secrets.EMAIL_PASS }}
-          from: ${{ secrets.EMAIL_USER }}
-          subject: "QA Pipeline Report [${{ github.ref_name }}] - Run #${{ github.run_number }} | Cypress=${{ needs.cypress-e2e.result }} | Smoke=${{ needs.k6-smoke-test.result }} | Load=${{ needs.k6-load-test.result }}"
-          to: ${{ secrets.QA_EMAIL_TO }}
-          cc: ${{ secrets.QA_EMAIL_CC }}
-          body: file://reports/email-body.txt
-          html_body: file://reports/html/qa-summary.html
-          attachments: |
-            reports/html/cypress-e2e-report.html
-            reports/html/k6-smoke-report.html
-            reports/html/k6-load-report.html
+        const exitCode =
+          readText(
+            exitFile,
+            "N/A"
+          ).trim();
+
+        const consoleLog =
+          readText(
+            consoleFile,
+            "No k6 console log was captured."
+          );
+
+        const content = `
+          <div class="meta">
+
+            ${meta(
+              "Exit Code",
+              exitCode
+            )}
+
+            ${meta(
+              "Requests / sec",
+              m.requestRate == null
+                ? "N/A"
+                : m.requestRate.toFixed(2)
+            )}
+
+            ${meta(
+              "Max VUs",
+              formatNumber(
+                m.vusMax
+              )
+            )}
+
+            ${meta(
+              "Load Profile",
+              profile
+            )}
+
+          </div>
+
+          <div class="cards">
+
+            ${metric(
+              "Total Requests",
+              formatNumber(
+                m.requests
+              )
+            )}
+
+            ${metric(
+              "Avg Latency",
+              formatMs(m.avg)
+            )}
+
+            ${metric(
+              "P95 Latency",
+              formatMs(m.p95)
+            )}
+
+            ${metric(
+              "Max Latency",
+              formatMs(m.max)
+            )}
+
+            ${metric(
+              "HTTP Failed Rate",
+              formatPercent(
+                m.failedRate
+              ),
+              Number(
+                m.failedRate
+              ) > 0
+                ? "bad"
+                : "good"
+            )}
+
+            ${metric(
+              "Iterations",
+              formatNumber(
+                m.iterations
+              )
+            )}
+
+            ${metric(
+              "Checks Passed",
+              formatNumber(
+                m.checksPassed
+              ),
+              "good"
+            )}
+
+            ${metric(
+              "Checks Failed",
+              formatNumber(
+                m.checksFailed
+              ),
+              Number(
+                m.checksFailed
+              ) > 0
+                ? "bad"
+                : "good"
+            )}
+
+          </div>
+
+          <div class="meta">
+
+            ${meta(
+              "Check Pass Rate",
+              formatPercent(
+                m.checksRate
+              )
+            )}
+
+            ${meta(
+              "Request Rate",
+              m.requestRate == null
+                ? "N/A"
+                : `${m.requestRate.toFixed(2)} req/s`
+            )}
+
+            ${meta(
+              "VU Count",
+              formatNumber(
+                m.vus
+              )
+            )}
+
+            ${meta(
+              "Summary Source",
+              summary.file ||
+                "N/A"
+            )}
+
+          </div>
+
+          <details>
+
+            <summary>
+              Raw k6 Summary JSON
+            </summary>
+
+            <pre>
+              ${escapeHtml(
+                summary.raw
+              )}
+            </pre>
+
+          </details>
+
+          <details>
+
+            <summary>
+              k6 Console Output
+            </summary>
+
+            <pre>
+              ${escapeHtml(
+                consoleLog
+              )}
+            </pre>
+
+          </details>
+        `;
+
+        return page(
+          title,
+
+          `
+            <span
+              class="badge ${status.className}"
+            >
+              ${status.text}
+            </span>
+
+            <span
+              class="badge neutral"
+            >
+              ${escapeHtml(
+                executionLabel(
+                  executionResult
+                )
+              )}
+            </span>
+          `,
+
+          content,
+
+          "k6 values are read directly from the summary-export JSON generated by this exact run. The execution badge reflects the process exit result; the check badge reflects actual k6 check results."
+        );
+      }
+
+      fs.writeFileSync(
+        "reports/html/k6-smoke-report.html",
+        k6Page(
+          "k6 Smoke Test Execution",
+          "reports/k6-smoke",
+          "smoke-summary.json",
+          env.K6_SMOKE_RESULT ||
+            "unknown",
+          "Smoke profile from tests/load.js"
+        )
+      );
+
+      fs.writeFileSync(
+        "reports/html/k6-load-report.html",
+        k6Page(
+          "k6 Load Test Execution",
+          "reports/k6-load",
+          "summary.json",
+          env.K6_LOAD_RESULT ||
+            "unknown",
+          "10 VUs / 30 seconds"
+        )
+      );
+
+      console.log(
+        "=========================================="
+      );
+
+      console.log(
+        "QA REPORT DATA EXTRACTION"
+      );
+
+      console.log(
+        "=========================================="
+      );
+
+      console.log(
+        `Cypress XML files found: ${cypressXmlFiles.length}`
+      );
+
+      console.log(
+        `Cypress tests: ${cypTests}`
+      );
+
+      console.log(
+        `Cypress failures: ${cypFailures}`
+      );
+
+      console.log(
+        `Cypress errors: ${cypErrors}`
+      );
+
+      for (
+        const [
+          name,
+          root,
+          file
+        ]
+        of [
+          [
+            "Smoke",
+            "reports/k6-smoke",
+            "smoke-summary.json"
+          ],
+          [
+            "Load",
+            "reports/k6-load",
+            "summary.json"
+          ]
+        ]
+      ) {
+        const s =
+          readK6Summary(
+            root,
+            file
+          );
+
+        const m =
+          k6Metrics(s);
+
+        console.log(
+          `${name} summary: ${s.file || "NOT FOUND"}`
+        );
+
+        console.log(
+          `${name} requests: ${m.requests}`
+        );
+
+        console.log(
+          `${name} avg: ${m.avg}`
+        );
+
+        console.log(
+          `${name} p95: ${m.p95}`
+        );
+
+        console.log(
+          `${name} failed rate: ${m.failedRate}`
+        );
+
+        console.log(
+          `${name} checks failed: ${m.checksFailed}`
+        );
+      }
+
+      NODE
+
+  # ==========================================================
+  # SEND EMAIL NOTIFICATION WITH REPORTS
+  # ==========================================================
+
+  - name: Send QA Report Email
+    if: always()
+    uses: dawidd6/action-send-mail@v3
+    with:
+      server_address: smtp.gmail.com
+      server_port: 465
+      secure: true
+      username: ${{ secrets.EMAIL_USER }}
+      password: ${{ secrets.EMAIL_PASS }}
+      from: ${{ secrets.EMAIL_USER }}
+      subject: "QA Pipeline Report [${{ github.ref_name }}] - Run #${{ github.run_number }} (${{ job.status }})"
+      to: ${{ secrets.QA_EMAIL_TO }}
+      cc: ${{ secrets.QA_EMAIL_CC }}
+      body: |
+        Hi,
+
+        The QA Pipeline for repository ${{ github.repository }} has finished execution.
+
+        Branch: ${{ github.ref_name }}
+        Commit: ${{ github.sha }}
+        Pipeline Run: #${{ github.run_number }}
+        Status: ${{ job.status }}
+
+        The attached HTML reports contain the actual metrics extracted from the Cypress JUnit and k6 summary artifacts generated by this pipeline run.
+
+        Regards,
+        QA Automation Pipeline
+      attachments: |
+        reports/html/cypress-e2e-report.html
+        reports/html/k6-smoke-report.html
+        reports/html/k6-load-report.html
+```
