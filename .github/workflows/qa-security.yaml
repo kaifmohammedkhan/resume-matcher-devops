@@ -826,12 +826,14 @@ jobs:
           mkdir -p reports/html
 
           # -----------------------------------------------------------------
-          # 1. CYPRESS HTML REPORT GENERATOR (LOG-DRIVEN)
+          # 1. CYPRESS HTML REPORT GENERATOR
           # -----------------------------------------------------------------
           CYP_LOG="reports/cypress/cypress-run.log"
           CYP_EXIT_CODE=$(cat reports/cypress/cypress-exit-code.txt 2>/dev/null || echo "Unknown")
+          CYP_RES="${{ env.CYPRESS_RESULT }}"
+          CYP_LOG_CONTENT=$(cat "$CYP_LOG" 2>/dev/null || echo "No Cypress log file captured.")
           
-          cat << 'EOF' > reports/html/cypress-e2e-report.html
+          cat << EOF > reports/html/cypress-e2e-report.html
           <!DOCTYPE html>
           <html>
           <head>
@@ -852,26 +854,27 @@ jobs:
               <div class="container">
                   <h1>
                       Cypress E2E Test Execution
-                      <span class="badge ${{ env.CYPRESS_RESULT == 'success' && 'success' || 'failure' }}">${{ env.CYPRESS_RESULT }}</span>
+                      <span class="badge $CYP_RES">$CYP_RES</span>
                   </h1>
                   <div class="meta-grid">
                       <div class="meta-item"><span>Repository</span><b>${{ env.REPOSITORY }}</b></div>
                       <div class="meta-item"><span>Branch / Commit</span><b>${{ env.BRANCH }} (${{ env.COMMIT }})</b></div>
                       <div class="meta-item"><span>Pipeline Run #</span><b>#${{ env.RUN_NUMBER }}</b></div>
-                      <div class="meta-item"><span>Exit Code</span><b>${{ CYP_EXIT_CODE }}</b></div>
+                      <div class="meta-item"><span>Exit Code</span><b>$CYP_EXIT_CODE</b></div>
                   </div>
                   <h3>Execution Logs / Output:</h3>
-                  <pre><code>$(cat "$CYP_LOG" 2>/dev/null || echo "No Cypress log file captured.")</code></pre>
+                  <pre><code>$CYP_LOG_CONTENT</code></pre>
               </div>
           </body>
           </html>
           EOF
 
           # -----------------------------------------------------------------
-          # 2. k6 SMOKE HTML REPORT GENERATOR (LOG-DRIVEN)
+          # 2. k6 SMOKE HTML REPORT GENERATOR
           # -----------------------------------------------------------------
           SMOKE_SUMMARY="reports/k6-smoke/smoke-summary.json"
           SMOKE_EXIT=$(cat reports/k6-smoke/smoke-exit-code.txt 2>/dev/null || echo "Unknown")
+          SMOKE_RES="${{ env.K6_SMOKE_RESULT }}"
           
           SMOKE_METRICS="Check reports artifact JSON for deep metrics breakdown."
           if [ -f "$SMOKE_SUMMARY" ]; then
@@ -899,11 +902,11 @@ jobs:
               <div class="container">
                   <h1>
                       k6 Smoke Test Execution
-                      <span class="badge ${{ env.K6_SMOKE_RESULT == 'success' && 'success' || 'failure' }}">${{ env.K6_SMOKE_RESULT }}</span>
+                      <span class="badge $SMOKE_RES">$SMOKE_RES</span>
                   </h1>
                   <div class="meta-grid">
                       <div class="meta-item"><span>Pipeline Run #</span><b>#${{ env.RUN_NUMBER }}</b></div>
-                      <div class="meta-item"><span>Exit Code</span><b>${{ SMOKE_EXIT }}</b></div>
+                      <div class="meta-item"><span>Exit Code</span><b>$SMOKE_EXIT</b></div>
                   </div>
                   <h3>Raw Summary Metrics JSON:</h3>
                   <pre><code>$SMOKE_METRICS</code></pre>
@@ -913,10 +916,11 @@ jobs:
           EOF
 
           # -----------------------------------------------------------------
-          # 3. k6 LOAD HTML REPORT GENERATOR (LOG-DRIVEN)
+          # 3. k6 LOAD HTML REPORT GENERATOR
           # -----------------------------------------------------------------
           LOAD_SUMMARY="reports/k6-load/summary.json"
           LOAD_EXIT=$(cat reports/k6-load/k6-exit-code.txt 2>/dev/null || echo "Unknown")
+          LOAD_RES="${{ env.K6_LOAD_RESULT }}"
           
           LOAD_METRICS="Check reports artifact JSON for deep metrics breakdown."
           if [ -f "$LOAD_SUMMARY" ]; then
@@ -944,11 +948,11 @@ jobs:
               <div class="container">
                   <h1>
                       k6 Load Test Execution (10 VUs / 30s)
-                      <span class="badge ${{ env.K6_LOAD_RESULT == 'success' && 'success' || 'failure' }}">${{ env.K6_LOAD_RESULT }}</span>
+                      <span class="badge $LOAD_RES">$LOAD_RES</span>
                   </h1>
                   <div class="meta-grid">
                       <div class="meta-item"><span>Pipeline Run #</span><b>#${{ env.RUN_NUMBER }}</b></div>
-                      <div class="meta-item"><span>Exit Code</span><b>${{ LOAD_EXIT }}</b></div>
+                      <div class="meta-item"><span>Exit Code</span><b>$LOAD_EXIT</b></div>
                   </div>
                   <h3>Raw Summary Metrics JSON:</h3>
                   <pre><code>$LOAD_METRICS</code></pre>
