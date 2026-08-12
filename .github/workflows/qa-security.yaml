@@ -821,312 +821,1245 @@ jobs:
           RUN_NUMBER: ${{ github.run_number }}
           RUN_ID: ${{ github.run_id }}
           ACTOR: ${{ github.actor }}
+          SERVER_URL: ${{ github.server_url }}
         run: |
           set -e
           mkdir -p reports/html
 
-          node -e '
+          node <<'NODE'
           const fs = require("fs");
           const path = require("path");
 
           const env = process.env;
+
           const repo = env.REPOSITORY || "N/A";
           const branch = env.BRANCH || "N/A";
           const commit = env.COMMIT || "N/A";
+          const shortCommit = commit.substring(0, 7);
           const runNumber = env.RUN_NUMBER || "N/A";
+          const runId = env.RUN_ID || "N/A";
+          const actor = env.ACTOR || "N/A";
+          const serverUrl = env.SERVER_URL || "https://github.com";
 
-          function escapeHtml(str) {
-              if (typeof str !== "string") str = JSON.stringify(str, null, 2);
-              return str.replaceAll("&", "&amp;")
-                        .replaceAll("<", "&lt;")
-                        .replaceAll(">", "&gt;")
-                        .replaceAll("\"", "&quot;")
-                        .replaceAll("\x27", "&#39;");
+          function readFile(file, fallback = "") {
+              try {
+                  return fs.existsSync(file)
+                      ? fs.readFileSync(file, "utf8")
+                      : fallback;
+              } catch {
+                  return fallback;
+              }
           }
+
+          function escapeHtml(value) {
+              const str = String(value ?? "");
+
+              return str
+                  .replaceAll("&", "&amp;")
+                  .replaceAll("<", "&lt;")
+                  .replaceAll(">", "&gt;")
+                  .replaceAll('"', "&quot;")
+                  .replaceAll("'", "&#39;");
+          }
+
+          function formatNumber(value) {
+              if (
+                  value === undefined ||
+                  value === null ||
+                  Number.isNaN(Number(value))
+              ) {
+                  return "N/A";
+              }
+
+              return Number(value).toLocaleString("en-US");
+          }
+
+          function formatMs(value) {
+              if (
+                  value === undefined ||
+                  value === null ||
+                  Number.isNaN(Number(value))
+              ) {
+                  return "N/A";
+              }
+
+              return `${Number(value).toFixed(2)} ms`;
+          }
+
+          function formatPercent(value) {
+              if (
+                  value === undefined ||
+                  value === null ||
+                  Number.isNaN(Number(value))
+              ) {
+                  return "N/A";
+              }
+
+              return `${(Number(value) * 100).toFixed(2)}%`;
+          }
+
+          function statusLabel(result) {
+              const normalized = String(result || "unknown").toLowerCase();
+
+              if (normalized === "success") return "PASSED";
+              if (normalized === "failure") return "FAILED";
+              if (normalized === "skipped") return "SKIPPED";
+
+              return normalized.toUpperCase();
+          }
+
+          function statusClass(result) {
+              const normalized = String(result || "unknown").toLowerCase();
+
+              if (normalized === "success") return "success";
+              if (normalized === "failure") return "failure";
+              if (normalized === "skipped") return "skipped";
+
+              return "unknown";
+          }
+
+          function getK6Metrics(summaryPath) {
+              const raw = readFile(summaryPath, "");
+
+              const result = {
+                  raw: raw || "No k6 summary file was captured.",
+                  requests: "N/A",
+                  avg: "N/A",
+                  p95: "N/A",
+                  failedRate: "N/A",
+                  iterations: "N/A",
+                  vus: "N/A",
+                  vusMax: "N/A",
+                  duration: "N/A"
+              };
+
+              if (!raw) {
+                  return result;
+              }
+
+              try {
+                  const data = JSON.parse(raw);
+                  const metrics = data.metrics || {};
+
+                  if (metrics.http_reqs?.values?.count !== undefined) {
+                      result.requests =
+                          formatNumber(metrics.http_reqs.values.count);
+                  }
+
+                  if (metrics.http_req_duration?.values) {
+                      result.avg =
+                          formatMs(metrics.http_req_duration.values.avg);
+
+                      result.p95 =
+                          formatMs(
+                              metrics.http_req_duration.values["p(95)"]
+                          );
+                  }
+
+                  if (
+                      metrics.http_req_failed?.values?.rate !== undefined
+                  ) {
+                      result.failedRate =
+                          formatPercent(
+                              metrics.http_req_failed.values.rate
+                          );
+                  }
+
+                  if (metrics.iterations?.values?.count !== undefined) {
+                      result.iterations =
+                          formatNumber(
+                              metrics.iterations.values.count
+                          );
+                  }
+
+                  if (metrics.vus?.values?.max !== undefined) {
+                      result.vusMax =
+                          formatNumber(metrics.vus.values.max);
+                  } else if (
+                      metrics.vus?.values?.value !== undefined
+                  ) {
+                      result.vus =
+                          formatNumber(metrics.vus.values.value);
+                  }
+
+                  if (
+                      metrics.vus_max?.values?.value !== undefined
+                  ) {
+                      result.vusMax =
+                          formatNumber(
+                              metrics.vus_max.values.value
+                          );
+                  }
+
+                  if (data.state?.testRunDuration !== undefined) {
+                      result.duration =
+                          `${(
+                              Number(data.state.testRunDuration) /
+                              1000000000
+                          ).toFixed(2)} s`;
+                  }
+
+                  return result;
+              } catch (error) {
+                  result.raw =
+                      `${raw}\n\nSummary parsing error: ${error.message}`;
+
+                  return result;
+              }
+          }
+
+          function getCypressMetrics() {
+              const metrics = {
+                  tests: 0,
+                  failures: 0,
+                  errors: 0,
+                  skipped: 0,
+                  time: 0,
+                  suites: 0,
+                  found: false
+              };
+
+              const directory = "reports/cypress";
+
+              if (!fs.existsSync(directory)) {
+                  return metrics;
+              }
+
+              const xmlFiles =
+                  fs.readdirSync(directory)
+                      .filter(file => file.endsWith(".xml"));
+
+              for (const file of xmlFiles) {
+                  const xml =
+                      readFile(
+                          path.join(directory, file),
+                          ""
+                      );
+
+                  if (!xml) {
+                      continue;
+                  }
+
+                  metrics.found = true;
+
+                  const suiteTags =
+                      xml.match(
+                          /<testsuite\b[^>]*>/g
+                      ) || [];
+
+                  for (const tag of suiteTags) {
+                      const tests =
+                          tag.match(
+                              /\btests="([^"]*)"/
+                          );
+
+                      const failures =
+                          tag.match(
+                              /\bfailures="([^"]*)"/
+                          );
+
+                      const errors =
+                          tag.match(
+                              /\berrors="([^"]*)"/
+                          );
+
+                      const skipped =
+                          tag.match(
+                              /\bskipped="([^"]*)"/
+                          );
+
+                      const time =
+                          tag.match(
+                              /\btime="([^"]*)"/
+                          );
+
+                      if (
+                          tests ||
+                          failures ||
+                          errors ||
+                          skipped ||
+                          time
+                      ) {
+                          metrics.suites += 1;
+
+                          metrics.tests +=
+                              Number(
+                                  tests?.[1] || 0
+                              );
+
+                          metrics.failures +=
+                              Number(
+                                  failures?.[1] || 0
+                              );
+
+                          metrics.errors +=
+                              Number(
+                                  errors?.[1] || 0
+                              );
+
+                          metrics.skipped +=
+                              Number(
+                                  skipped?.[1] || 0
+                              );
+
+                          metrics.time +=
+                              Number(
+                                  time?.[1] || 0
+                              );
+                      }
+                  }
+              }
+
+              return metrics;
+          }
+
+          const cypResult =
+              env.CYPRESS_RESULT || "unknown";
+
+          const smokeResult =
+              env.K6_SMOKE_RESULT || "unknown";
+
+          const loadResult =
+              env.K6_LOAD_RESULT || "unknown";
+
+          const cypExit =
+              readFile(
+                  "reports/cypress/cypress-exit-code.txt",
+                  "N/A"
+              ).trim();
+
+          const cypLog =
+              readFile(
+                  "reports/cypress/cypress-run.log",
+                  "No Cypress console log was captured."
+              );
+
+          const cyp =
+              getCypressMetrics();
+
+          const smokeExit =
+              readFile(
+                  "reports/k6-smoke/smoke-exit-code.txt",
+                  "N/A"
+              ).trim();
+
+          const smoke =
+              getK6Metrics(
+                  "reports/k6-smoke/smoke-summary.json"
+              );
+
+          const loadExit =
+              readFile(
+                  "reports/k6-load/k6-exit-code.txt",
+                  "N/A"
+              ).trim();
+
+          const load =
+              getK6Metrics(
+                  "reports/k6-load/summary.json"
+              );
+
+          const overallPassed =
+              cypResult === "success" &&
+              smokeResult === "success" &&
+              loadResult === "success";
+
+          const overallStatus =
+              overallPassed
+                  ? "PASSED"
+                  : "FAILED";
+
+          const generatedAt =
+              new Date().toISOString();
 
           const sharedStyles = `
               :root {
                   --bg-main: #0f172a;
                   --bg-card: #1e293b;
-                  --bg-code: #0b0f19;
+                  --bg-code: #020617;
                   --border-color: #334155;
                   --text-main: #f8fafc;
                   --text-muted: #94a3b8;
                   --accent: #38bdf8;
+                  --success: #34d399;
+                  --failure: #f87171;
               }
+
+              * {
+                  box-sizing: border-box;
+              }
+
               body {
-                  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+                  font-family:
+                      -apple-system,
+                      BlinkMacSystemFont,
+                      "Segoe UI",
+                      Roboto,
+                      Arial,
+                      sans-serif;
+
                   background: var(--bg-main);
                   color: var(--text-main);
-                  padding: 2rem;
+                  padding: 24px;
                   margin: 0;
+                  line-height: 1.5;
               }
+
               .container {
-                  max-width: 960px;
+                  max-width: 1100px;
                   margin: auto;
                   background: var(--bg-card);
-                  padding: 2rem;
-                  border-radius: 12px;
-                  box-shadow: 0 10px 25px -5px rgba(0,0,0,0.5);
+                  padding: 28px;
+                  border-radius: 16px;
+                  border: 1px solid var(--border-color);
+                  box-shadow:
+                      0 20px 45px rgba(0,0,0,0.35);
               }
+
               h1 {
-                  font-size: 1.75rem;
-                  border-bottom: 2px solid var(--border-color);
-                  padding-bottom: 0.75rem;
-                  margin-top: 0;
+                  margin: 0;
+                  font-size: 1.65rem;
                   display: flex;
                   justify-content: space-between;
                   align-items: center;
+                  gap: 16px;
               }
-              .badge {
-                  padding: 0.35rem 1rem;
-                  border-radius: 9999px;
-                  font-size: 0.875rem;
-                  font-weight: 700;
+
+              h3 {
+                  margin-top: 26px;
+                  color: var(--text-muted);
+                  font-size: 0.82rem;
                   text-transform: uppercase;
-                  letter-spacing: 0.05em;
+                  letter-spacing: 0.08em;
               }
-              .success { background: #065f46; color: #6ee7b7; border: 1px solid #059669; }
-              .failure { background: #991b1b; color: #fca5a5; border: 1px solid #dc2626; }
-              .skipped { background: #475569; color: #cbd5e1; border: 1px solid #64748b; }
-              
-              .meta-grid {
+
+              .badge {
+                  display: inline-block;
+                  padding: 6px 12px;
+                  border-radius: 999px;
+                  font-size: 0.78rem;
+                  font-weight: 800;
+                  letter-spacing: 0.06em;
+              }
+
+              .success {
+                  background:
+                      rgba(16,185,129,0.15);
+
+                  color: var(--success);
+
+                  border:
+                      1px solid
+                      rgba(52,211,153,0.35);
+              }
+
+              .failure {
+                  background:
+                      rgba(239,68,68,0.15);
+
+                  color: var(--failure);
+
+                  border:
+                      1px solid
+                      rgba(248,113,113,0.35);
+              }
+
+              .skipped,
+              .unknown {
+                  background:
+                      rgba(148,163,184,0.12);
+
+                  color: var(--text-muted);
+
+                  border:
+                      1px solid
+                      var(--border-color);
+              }
+
+              .meta-grid,
+              .metrics-cards,
+              .stage-grid {
                   display: grid;
-                  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                  gap: 1rem;
-                  margin: 1.5rem 0;
+                  gap: 12px;
+              }
+
+              .meta-grid {
+                  grid-template-columns:
+                      repeat(
+                          auto-fit,
+                          minmax(210px, 1fr)
+                      );
+
+                  margin: 22px 0;
+                  padding: 16px;
                   background: var(--bg-main);
-                  padding: 1rem;
-                  border-radius: 8px;
+                  border-radius: 10px;
                   border: 1px solid var(--border-color);
               }
-              .meta-item span {
-                  color: var(--text-muted);
+
+              .meta-item span,
+              .metric-card .lbl {
                   display: block;
-                  font-size: 0.75rem;
+                  color: var(--text-muted);
+                  font-size: 0.72rem;
                   text-transform: uppercase;
-                  letter-spacing: 0.05em;
-                  margin-bottom: 0.25rem;
+                  letter-spacing: 0.06em;
               }
+
               .meta-item b {
-                  font-size: 1rem;
+                  display: block;
+                  margin-top: 4px;
+                  word-break: break-word;
               }
+
+              .stage-grid {
+                  grid-template-columns:
+                      repeat(
+                          auto-fit,
+                          minmax(280px, 1fr)
+                      );
+
+                  margin: 22px 0;
+              }
+
+              .stage-card {
+                  background: var(--bg-main);
+                  border: 1px solid var(--border-color);
+                  border-radius: 12px;
+                  padding: 18px;
+              }
+
+              .stage-title {
+                  display: flex;
+                  align-items: center;
+                  justify-content: space-between;
+                  gap: 10px;
+                  margin-bottom: 14px;
+                  font-weight: 800;
+              }
+
               .metrics-cards {
-                  display: grid;
-                  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
-                  gap: 1rem;
-                  margin: 1.5rem 0;
+                  grid-template-columns:
+                      repeat(
+                          auto-fit,
+                          minmax(150px, 1fr)
+                      );
+
+                  margin: 18px 0;
               }
+
               .metric-card {
                   background: var(--bg-main);
                   border: 1px solid var(--border-color);
-                  border-radius: 8px;
-                  padding: 1rem;
-                  text-align: center;
+                  border-radius: 10px;
+                  padding: 14px;
               }
+
               .metric-card .val {
-                  font-size: 1.5rem;
-                  font-weight: bold;
+                  margin-top: 5px;
+                  font-size: 1.35rem;
+                  font-weight: 800;
                   color: var(--accent);
-                  margin-top: 0.25rem;
               }
-              .metric-card .lbl {
-                  font-size: 0.75rem;
-                  color: var(--text-muted);
-                  text-transform: uppercase;
-              }
-              h3 {
-                  margin-top: 2rem;
-                  font-size: 1.1rem;
-                  color: var(--text-muted);
-                  text-transform: uppercase;
-                  letter-spacing: 0.05em;
-              }
+
               pre {
                   background: var(--bg-code);
-                  color: var(--accent);
-                  padding: 1rem;
-                  border-radius: 6px;
+                  color: #cbd5e1;
+                  padding: 16px;
+                  border-radius: 10px;
                   border: 1px solid var(--border-color);
                   overflow-x: auto;
-                  font-size: 0.85rem;
-                  max-height: 350px;
+                  font-size: 0.82rem;
+                  white-space: pre-wrap;
+                  word-break: break-word;
+                  max-height: 480px;
+              }
+
+              .footer {
+                  margin-top: 28px;
+                  padding-top: 16px;
+                  border-top: 1px solid var(--border-color);
+                  color: var(--text-muted);
+                  font-size: 0.78rem;
               }
           `;
 
-          // ==========================================
-          // 1. GENERATE CYPRESS REPORT
-          // ==========================================
-          const cypRes = env.CYPRESS_RESULT || "UNKNOWN";
-          const cypBadgeClass = cypRes === "success" ? "success" : "failure";
-          const cypExitCode = fs.existsSync("reports/cypress/cypress-exit-code.txt") 
-              ? fs.readFileSync("reports/cypress/cypress-exit-code.txt", "utf8").trim() : "Unknown";
-          const cypLog = fs.existsSync("reports/cypress/cypress-run.log") 
-              ? fs.readFileSync("reports/cypress/cypress-run.log", "utf8") : "No Cypress log file captured.";
+          function metricCard(label, value) {
+              return `
+                  <div class="metric-card">
+                      <div class="lbl">
+                          ${escapeHtml(label)}
+                      </div>
 
-          let cypTests = "N/A", cypFailures = "N/A", cypErrors = "N/A", cypTime = "N/A";
-          const junitDir = "reports/cypress";
-          if (fs.existsSync(junitDir)) {
-              const files = fs.readdirSync(junitDir).filter(f => f.endsWith(".xml"));
-              if (files.length > 0) {
-                  const xmlContent = fs.readFileSync(path.join(junitDir, files[0]), "utf8");
-                  const matchTestsuite = xmlContent.match(/<testsuite[^>]*tests="([^"]*)"[^>]*failures="([^"]*)"[^>]*errors="([^"]*)"[^>]*time="([^"]*)"/);
-                  if (matchTestsuite) {
-                      cypTests = matchTestsuite[1];
-                      cypFailures = matchTestsuite[2];
-                      cypErrors = matchTestsuite[3];
-                      cypTime = matchTestsuite[4] + "s";
-                  }
-              }
+                      <div class="val">
+                          ${escapeHtml(value)}
+                      </div>
+                  </div>
+              `;
           }
 
-          const cypHtml = `<!DOCTYPE html>
+          function stageCard(title, result, details) {
+              return `
+                  <div class="stage-card">
+
+                      <div class="stage-title">
+                          <span>
+                              ${escapeHtml(title)}
+                          </span>
+
+                          <span
+                              class="badge ${statusClass(result)}"
+                          >
+                              ${escapeHtml(
+                                  statusLabel(result)
+                              )}
+                          </span>
+                      </div>
+
+                      ${details}
+                  </div>
+              `;
+          }
+
+          const cypressHtml = `<!DOCTYPE html>
           <html>
           <head>
+              <meta charset="utf-8">
+              <meta
+                  name="viewport"
+                  content="width=device-width, initial-scale=1"
+              >
               <title>Cypress E2E Test Report</title>
-              <style>\${sharedStyles}</style>
+              <style>${sharedStyles}</style>
           </head>
+
           <body>
               <div class="container">
+
                   <h1>
-                      Cypress E2E Test Execution
-                      <span class="badge \${cypBadgeClass}">\${cypRes}</span>
+                      <span>
+                          Cypress E2E Test Execution
+                      </span>
+
+                      <span
+                          class="badge ${statusClass(cypResult)}"
+                      >
+                          ${escapeHtml(
+                              statusLabel(cypResult)
+                          )}
+                      </span>
                   </h1>
+
                   <div class="meta-grid">
-                      <div class="meta-item"><span>Repository</span><b>\${repo}</b></div>
-                      <div class="meta-item"><span>Branch / Commit</span><b>\${branch} (\${commit.substring(0,7)})</b></div>
-                      <div class="meta-item"><span>Pipeline Run #</span><b>#\${runNumber}</b></div>
-                      <div class="meta-item"><span>Exit Code</span><b>\${cypExitCode}</b></div>
+
+                      <div class="meta-item">
+                          <span>Repository</span>
+                          <b>
+                              ${escapeHtml(repo)}
+                          </b>
+                      </div>
+
+                      <div class="meta-item">
+                          <span>Branch / Commit</span>
+                          <b>
+                              ${escapeHtml(branch)}
+                              (${escapeHtml(shortCommit)})
+                          </b>
+                      </div>
+
+                      <div class="meta-item">
+                          <span>Pipeline Run</span>
+                          <b>
+                              #${escapeHtml(runNumber)}
+                          </b>
+                      </div>
+
+                      <div class="meta-item">
+                          <span>Exit Code</span>
+                          <b>
+                              ${escapeHtml(cypExit)}
+                          </b>
+                      </div>
+
                   </div>
+
                   <div class="metrics-cards">
-                      <div class="metric-card"><div class="lbl">Total Tests</div><div class="val">\${cypTests}</div></div>
-                      <div class="metric-card"><div class="lbl">Failures</div><div class="val" style="color: \${cypFailures > 0 ? '#fca5a5' : '#6ee7b7'}">\${cypFailures}</div></div>
-                      <div class="metric-card"><div class="lbl">Errors</div><div class="val">\${cypErrors}</div></div>
-                      <div class="metric-card"><div class="lbl">Duration</div><div class="val">\${cypTime}</div></div>
+
+                      ${metricCard(
+                          "Total Tests",
+                          formatNumber(cyp.tests)
+                      )}
+
+                      ${metricCard(
+                          "Failures",
+                          formatNumber(cyp.failures)
+                      )}
+
+                      ${metricCard(
+                          "Errors",
+                          formatNumber(cyp.errors)
+                      )}
+
+                      ${metricCard(
+                          "Skipped",
+                          formatNumber(cyp.skipped)
+                      )}
+
+                      ${metricCard(
+                          "Duration",
+                          `${cyp.time.toFixed(2)} s`
+                      )}
+
                   </div>
-                  <h3>Execution Console Output:</h3>
-                  <pre><code>\${escapeHtml(cypLog)}</code></pre>
+
+                  <h3>
+                      Execution Console Output
+                  </h3>
+
+                  <pre>
+          ${escapeHtml(cypLog)}
+                  </pre>
+
+                  <div class="footer">
+                      Metrics are extracted from the
+                      Cypress JUnit result files and
+                      console output produced by this
+                      pipeline run.
+                  </div>
+
               </div>
           </body>
           </html>`;
-          fs.writeFileSync("reports/html/cypress-e2e-report.html", cypHtml);
 
-          // ==========================================
-          // 2. GENERATE k6 SMOKE REPORT
-          // ==========================================
-          const smokeRes = env.K6_SMOKE_RESULT || "UNKNOWN";
-          const smokeBadgeClass = smokeRes === "success" ? "success" : "failure";
-          const smokeExit = fs.existsSync("reports/k6-smoke/smoke-exit-code.txt")
-              ? fs.readFileSync("reports/k6-smoke/smoke-exit-code.txt", "utf8").trim() : "Unknown";
-          const smokeSummaryPath = "reports/k6-smoke/smoke-summary.json";
-
-          let smokeReqs = "N/A", smokeAvg = "N/A", smokeP95 = "N/A", smokeFailedRate = "N/A";
-          let smokeJsonStr = "No k6 smoke summary metrics found.";
-          if (fs.existsSync(smokeSummaryPath)) {
-              const raw = fs.readFileSync(smokeSummaryPath, "utf8");
-              smokeJsonStr = raw;
-              try {
-                  const data = JSON.parse(raw);
-                  if (data.metrics) {
-                      if (data.metrics.http_reqs) smokeReqs = data.metrics.http_reqs.values.count;
-                      if (data.metrics.http_req_duration) {
-                          smokeAvg = (data.metrics.http_req_duration.values.avg || 0).toFixed(2) + "ms";
-                          smokeP95 = (data.metrics.http_req_duration.values["p(95)"] || 0).toFixed(2) + "ms";
-                      }
-                      if (data.metrics.http_req_failed) {
-                          smokeFailedRate = ((data.metrics.http_req_failed.values.rate || 0) * 100).toFixed(2) + "%";
-                      }
-                  }
-              } catch(e) {}
-          }
+          fs.writeFileSync(
+              "reports/html/cypress-e2e-report.html",
+              cypressHtml
+          );
 
           const smokeHtml = `<!DOCTYPE html>
           <html>
           <head>
+              <meta charset="utf-8">
+              <meta
+                  name="viewport"
+                  content="width=device-width, initial-scale=1"
+              >
               <title>k6 Smoke Test Report</title>
-              <style>\${sharedStyles}</style>
+              <style>${sharedStyles}</style>
           </head>
+
           <body>
               <div class="container">
+
                   <h1>
-                      k6 Smoke Test Execution
-                      <span class="badge \${smokeBadgeClass}">\${smokeRes}</span>
+                      <span>
+                          k6 Smoke Test Execution
+                      </span>
+
+                      <span
+                          class="badge ${statusClass(smokeResult)}"
+                      >
+                          ${escapeHtml(
+                              statusLabel(smokeResult)
+                          )}
+                      </span>
                   </h1>
+
                   <div class="meta-grid">
-                      <div class="meta-item"><span>Pipeline Run #</span><b>#\${runNumber}</b></div>
-                      <div class="meta-item"><span>Exit Code</span><b>\${smokeExit}</b></div>
+
+                      <div class="meta-item">
+                          <span>Repository</span>
+                          <b>
+                              ${escapeHtml(repo)}
+                          </b>
+                      </div>
+
+                      <div class="meta-item">
+                          <span>Branch / Commit</span>
+                          <b>
+                              ${escapeHtml(branch)}
+                              (${escapeHtml(shortCommit)})
+                          </b>
+                      </div>
+
+                      <div class="meta-item">
+                          <span>Pipeline Run</span>
+                          <b>
+                              #${escapeHtml(runNumber)}
+                          </b>
+                      </div>
+
+                      <div class="meta-item">
+                          <span>Exit Code</span>
+                          <b>
+                              ${escapeHtml(smokeExit)}
+                          </b>
+                      </div>
+
                   </div>
+
                   <div class="metrics-cards">
-                      <div class="metric-card"><div class="lbl">Total Requests</div><div class="val">\${smokeReqs}</div></div>
-                      <div class="metric-card"><div class="lbl">Avg Latency</div><div class="val">\${smokeAvg}</div></div>
-                      <div class="metric-card"><div class="lbl">P95 Latency</div><div class="val">\${smokeP95}</div></div>
-                      <div class="metric-card"><div class="lbl">Failed Rate</div><div class="val">\${smokeFailedRate}</div></div>
+
+                      ${metricCard(
+                          "Total Requests",
+                          smoke.requests
+                      )}
+
+                      ${metricCard(
+                          "Avg Latency",
+                          smoke.avg
+                      )}
+
+                      ${metricCard(
+                          "P95 Latency",
+                          smoke.p95
+                      )}
+
+                      ${metricCard(
+                          "Failed Rate",
+                          smoke.failedRate
+                      )}
+
+                      ${metricCard(
+                          "Iterations",
+                          smoke.iterations
+                      )}
+
+                      ${metricCard(
+                          "Max VUs",
+                          smoke.vusMax
+                      )}
+
                   </div>
-                  <h3>Raw Summary Metrics JSON:</h3>
-                  <pre><code>\${escapeHtml(smokeJsonStr)}</code></pre>
+
+                  <h3>
+                      Raw Summary Metrics JSON
+                  </h3>
+
+                  <pre>
+          ${escapeHtml(smoke.raw)}
+                  </pre>
+
+                  <div class="footer">
+                      Metrics are extracted directly from
+                      the k6 summary-export JSON generated
+                      during this pipeline run.
+                  </div>
+
               </div>
           </body>
           </html>`;
-          fs.writeFileSync("reports/html/k6-smoke-report.html", smokeHtml);
 
-          // ==========================================
-          // 3. GENERATE k6 LOAD REPORT
-          // ==========================================
-          const loadRes = env.K6_LOAD_RESULT || "UNKNOWN";
-          const loadBadgeClass = loadRes === "success" ? "success" : "failure";
-          const loadExit = fs.existsSync("reports/k6-load/k6-exit-code.txt")
-              ? fs.readFileSync("reports/k6-load/k6-exit-code.txt", "utf8").trim() : "Unknown";
-          const loadSummaryPath = "reports/k6-load/summary.json";
-
-          let loadReqs = "N/A", loadAvg = "N/A", loadP95 = "N/A", loadFailedRate = "N/A";
-          let loadJsonStr = "No k6 load summary metrics found.";
-          if (fs.existsSync(loadSummaryPath)) {
-              const raw = fs.readFileSync(loadSummaryPath, "utf8");
-              loadJsonStr = raw;
-              try {
-                  const data = JSON.parse(raw);
-                  if (data.metrics) {
-                      if (data.metrics.http_reqs) loadReqs = data.metrics.http_reqs.values.count;
-                      if (data.metrics.http_req_duration) {
-                          loadAvg = (data.metrics.http_req_duration.values.avg || 0).toFixed(2) + "ms";
-                          loadP95 = (data.metrics.http_req_duration.values["p(95)"] || 0).toFixed(2) + "ms";
-                      }
-                      if (data.metrics.http_req_failed) {
-                          loadFailedRate = ((data.metrics.http_req_failed.values.rate || 0) * 100).toFixed(2) + "%";
-                      }
-                  }
-              } catch(e) {}
-          }
+          fs.writeFileSync(
+              "reports/html/k6-smoke-report.html",
+              smokeHtml
+          );
 
           const loadHtml = `<!DOCTYPE html>
           <html>
           <head>
+              <meta charset="utf-8">
+              <meta
+                  name="viewport"
+                  content="width=device-width, initial-scale=1"
+              >
               <title>k6 Load Test Report</title>
-              <style>\${sharedStyles}</style>
+              <style>${sharedStyles}</style>
           </head>
+
           <body>
               <div class="container">
+
                   <h1>
-                      k6 Load Test Execution (10 VUs / 30s)
-                      <span class="badge \${loadBadgeClass}">\${loadRes}</span>
+                      <span>
+                          k6 Load Test Execution
+                      </span>
+
+                      <span
+                          class="badge ${statusClass(loadResult)}"
+                      >
+                          ${escapeHtml(
+                              statusLabel(loadResult)
+                          )}
+                      </span>
                   </h1>
+
                   <div class="meta-grid">
-                      <div class="meta-item"><span>Pipeline Run #</span><b>#\${runNumber}</b></div>
-                      <div class="meta-item"><span>Exit Code</span><b>\${loadExit}</b></div>
+
+                      <div class="meta-item">
+                          <span>Repository</span>
+                          <b>
+                              ${escapeHtml(repo)}
+                          </b>
+                      </div>
+
+                      <div class="meta-item">
+                          <span>Branch / Commit</span>
+                          <b>
+                              ${escapeHtml(branch)}
+                              (${escapeHtml(shortCommit)})
+                          </b>
+                      </div>
+
+                      <div class="meta-item">
+                          <span>Pipeline Run</span>
+                          <b>
+                              #${escapeHtml(runNumber)}
+                          </b>
+                      </div>
+
+                      <div class="meta-item">
+                          <span>Configured Load</span>
+                          <b>
+                              10 VUs / 30 seconds
+                          </b>
+                      </div>
+
+                      <div class="meta-item">
+                          <span>Exit Code</span>
+                          <b>
+                              ${escapeHtml(loadExit)}
+                          </b>
+                      </div>
+
                   </div>
+
                   <div class="metrics-cards">
-                      <div class="metric-card"><div class="lbl">Total Requests</div><div class="val">\${loadReqs}</div></div>
-                      <div class="metric-card"><div class="lbl">Avg Latency</div><div class="val">\${loadAvg}</div></div>
-                      <div class="metric-card"><div class="lbl">P95 Latency</div><div class="val">\${loadP95}</div></div>
-                      <div class="metric-card"><div class="lbl">Failed Rate</div><div class="val">\${loadFailedRate}</div></div>
+
+                      ${metricCard(
+                          "Total Requests",
+                          load.requests
+                      )}
+
+                      ${metricCard(
+                          "Avg Latency",
+                          load.avg
+                      )}
+
+                      ${metricCard(
+                          "P95 Latency",
+                          load.p95
+                      )}
+
+                      ${metricCard(
+                          "Failed Rate",
+                          load.failedRate
+                      )}
+
+                      ${metricCard(
+                          "Iterations",
+                          load.iterations
+                      )}
+
+                      ${metricCard(
+                          "Max VUs",
+                          load.vusMax
+                      )}
+
                   </div>
-                  <h3>Raw Summary Metrics JSON:</h3>
-                  <pre><code>\${escapeHtml(loadJsonStr)}</code></pre>
+
+                  <h3>
+                      Raw Summary Metrics JSON
+                  </h3>
+
+                  <pre>
+          ${escapeHtml(load.raw)}
+                  </pre>
+
+                  <div class="footer">
+                      Metrics are extracted directly from
+                      the k6 summary JSON generated during
+                      this pipeline run. The configured
+                      10 VUs / 30 seconds is the load profile
+                      used by the workflow; performance values
+                      above are measured results.
+                  </div>
+
               </div>
           </body>
           </html>`;
-          fs.writeFileSync("reports/html/k6-load-report.html", loadHtml);
-          '
+
+          fs.writeFileSync(
+              "reports/html/k6-load-report.html",
+              loadHtml
+          );
+
+          const qaSummaryHtml = `<!DOCTYPE html>
+          <html>
+          <head>
+              <meta charset="utf-8">
+              <meta
+                  name="viewport"
+                  content="width=device-width, initial-scale=1"
+              >
+              <title>QA Pipeline Report</title>
+              <style>${sharedStyles}</style>
+          </head>
+
+          <body>
+              <div class="container">
+
+                  <h1>
+                      <span>
+                          QA Pipeline Report
+                      </span>
+
+                      <span
+                          class="badge ${
+                              overallPassed
+                                  ? "success"
+                                  : "failure"
+                          }"
+                      >
+                          ${overallStatus}
+                      </span>
+                  </h1>
+
+                  <div class="meta-grid">
+
+                      <div class="meta-item">
+                          <span>Repository</span>
+                          <b>
+                              ${escapeHtml(repo)}
+                          </b>
+                      </div>
+
+                      <div class="meta-item">
+                          <span>Branch / Commit</span>
+                          <b>
+                              ${escapeHtml(branch)}
+                              (${escapeHtml(shortCommit)})
+                          </b>
+                      </div>
+
+                      <div class="meta-item">
+                          <span>Pipeline Run</span>
+                          <b>
+                              #${escapeHtml(runNumber)}
+                          </b>
+                      </div>
+
+                      <div class="meta-item">
+                          <span>Triggered By</span>
+                          <b>
+                              ${escapeHtml(actor)}
+                          </b>
+                      </div>
+
+                      <div class="meta-item">
+                          <span>Generated At</span>
+                          <b>
+                              ${escapeHtml(generatedAt)}
+                          </b>
+                      </div>
+
+                      <div class="meta-item">
+                          <span>Run ID</span>
+                          <b>
+                              ${escapeHtml(runId)}
+                          </b>
+                      </div>
+
+                  </div>
+
+                  <div class="stage-grid">
+
+                      ${stageCard(
+                          "Cypress E2E",
+                          cypResult,
+                          `
+                          <div class="metrics-cards">
+
+                              ${metricCard(
+                                  "Tests",
+                                  formatNumber(cyp.tests)
+                              )}
+
+                              ${metricCard(
+                                  "Failures",
+                                  formatNumber(cyp.failures)
+                              )}
+
+                              ${metricCard(
+                                  "Errors",
+                                  formatNumber(cyp.errors)
+                              )}
+
+                          </div>
+
+                          <div class="meta-item">
+                              <span>Exit Code</span>
+                              <b>
+                                  ${escapeHtml(cypExit)}
+                              </b>
+                          </div>
+                          `
+                      )}
+
+                      ${stageCard(
+                          "k6 Smoke",
+                          smokeResult,
+                          `
+                          <div class="metrics-cards">
+
+                              ${metricCard(
+                                  "Requests",
+                                  smoke.requests
+                              )}
+
+                              ${metricCard(
+                                  "Avg",
+                                  smoke.avg
+                              )}
+
+                              ${metricCard(
+                                  "P95",
+                                  smoke.p95
+                              )}
+
+                              ${metricCard(
+                                  "Failed",
+                                  smoke.failedRate
+                              )}
+
+                          </div>
+
+                          <div class="meta-item">
+                              <span>Exit Code</span>
+                              <b>
+                                  ${escapeHtml(smokeExit)}
+                              </b>
+                          </div>
+                          `
+                      )}
+
+                      ${stageCard(
+                          "k6 Load",
+                          loadResult,
+                          `
+                          <div class="metrics-cards">
+
+                              ${metricCard(
+                                  "Requests",
+                                  load.requests
+                              )}
+
+                              ${metricCard(
+                                  "Avg",
+                                  load.avg
+                              )}
+
+                              ${metricCard(
+                                  "P95",
+                                  load.p95
+                              )}
+
+                              ${metricCard(
+                                  "Failed",
+                                  load.failedRate
+                              )}
+
+                          </div>
+
+                          <div class="meta-item">
+                              <span>Exit Code</span>
+                              <b>
+                                  ${escapeHtml(loadExit)}
+                              </b>
+                          </div>
+                          `
+                      )}
+
+                  </div>
+
+                  <div class="footer">
+                      This summary is generated from the
+                      actual artifacts produced by this
+                      GitHub Actions run. No test, latency,
+                      request-count, failure-rate, or
+                      exit-code values are hardcoded.
+                  </div>
+
+              </div>
+          </body>
+          </html>`;
+
+          fs.writeFileSync(
+              "reports/html/qa-summary.html",
+              qaSummaryHtml
+          );
+
+          const emailBody = `
+          QA PIPELINE REPORT
+          ==================
+
+          Overall Status : ${overallStatus}
+          Repository     : ${repo}
+          Branch         : ${branch}
+          Commit         : ${shortCommit}
+          Pipeline Run   : #${runNumber}
+          Run ID         : ${runId}
+          Triggered By   : ${actor}
+          Generated At   : ${generatedAt}
+
+          CYPRESS E2E
+          -----------
+          Status         : ${statusLabel(cypResult)}
+          Exit Code      : ${cypExit}
+          Total Tests    : ${formatNumber(cyp.tests)}
+          Failures       : ${formatNumber(cyp.failures)}
+          Errors         : ${formatNumber(cyp.errors)}
+          Skipped        : ${formatNumber(cyp.skipped)}
+          Duration       : ${cyp.time.toFixed(2)} s
+
+          k6 SMOKE
+          --------
+          Status         : ${statusLabel(smokeResult)}
+          Exit Code      : ${smokeExit}
+          Total Requests : ${smoke.requests}
+          Avg Latency    : ${smoke.avg}
+          P95 Latency    : ${smoke.p95}
+          Failed Rate    : ${smoke.failedRate}
+          Iterations     : ${smoke.iterations}
+          Max VUs        : ${smoke.vusMax}
+
+          k6 LOAD
+          -------
+          Status         : ${statusLabel(loadResult)}
+          Exit Code      : ${loadExit}
+          Total Requests : ${load.requests}
+          Avg Latency    : ${load.avg}
+          P95 Latency    : ${load.p95}
+          Failed Rate    : ${load.failedRate}
+          Iterations     : ${load.iterations}
+          Max VUs        : ${load.vusMax}
+          Load Profile   : 10 VUs / 30 seconds
+
+          The attached HTML reports contain the detailed
+          UI view and raw execution data.
+
+          All test and performance metrics above are
+          extracted from artifacts generated by this
+          pipeline run.
+          `;
+
+          fs.writeFileSync(
+              "reports/email-body.txt",
+              emailBody.trim() + "\n"
+          );
+
+          console.log("==========================================");
+          console.log("QA REPORT GENERATION COMPLETE");
+          console.log("==========================================");
+          console.log(`Overall status: ${overallStatus}`);
+          console.log(`Cypress: ${statusLabel(cypResult)}`);
+          console.log(`k6 Smoke: ${statusLabel(smokeResult)}`);
+          console.log(`k6 Load: ${statusLabel(loadResult)}`);
+          console.log(`Cypress tests: ${cyp.tests}`);
+          console.log(`k6 smoke requests: ${smoke.requests}`);
+          console.log(`k6 load requests: ${load.requests}`);
+          console.log(`Generated at: ${generatedAt}`);
+          NODE
 
       # ==========================================================
       # SEND EMAIL NOTIFICATION WITH REPORTS
@@ -1142,21 +2075,12 @@ jobs:
           username: ${{ secrets.EMAIL_USER }}
           password: ${{ secrets.EMAIL_PASS }}
           from: ${{ secrets.EMAIL_USER }}
-          subject: "QA Pipeline Report [${{ github.ref_name }}] - Run #${{ github.run_number }} (${{ job.status }})"
+          subject: "QA Pipeline Report [${{ github.ref_name }}] - Run #${{ github.run_number }} | Cypress=${{ needs.cypress-e2e.result }} | Smoke=${{ needs.k6-smoke-test.result }} | Load=${{ needs.k6-load-test.result }}"
           to: ${{ secrets.QA_EMAIL_TO }}
           cc: ${{ secrets.QA_EMAIL_CC }}
-          body: |
-            Hi,
-
-            The QA Pipeline for repository ${{ github.repository }} has finished execution.
-            
-            - Branch: ${{ github.ref_name }}
-            - Commit: ${{ github.sha }}
-            - Status: ${{ job.status }}
-
-            Please find the attached UI-worthy HTML test reports for Cypress E2E, k6 Smoke, and k6 Load tests containing live extracted performance and execution metrics.
-
-            Regards,
-            QA Automation Pipeline
+          body: file://reports/email-body.txt
+          html_body: file://reports/html/qa-summary.html
           attachments: |
-            reports/html/*.html
+            reports/html/cypress-e2e-report.html
+            reports/html/k6-smoke-report.html
+            reports/html/k6-load-report.html
