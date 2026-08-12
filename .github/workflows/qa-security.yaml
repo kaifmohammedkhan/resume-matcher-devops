@@ -68,6 +68,7 @@ jobs:
           wait-on-timeout: 120
         env:
           PORT: 3000
+          DB_HOST: localhost
 
       - name: Upload Cypress Report
         if: always()
@@ -132,6 +133,7 @@ jobs:
       - name: Start Application
         env:
           PORT: 3000
+          DB_HOST: localhost
           WIREMOCK_URL: http://127.0.0.1:8080
         run: |
           mkdir -p results
@@ -224,6 +226,7 @@ jobs:
       - name: Start Application
         env:
           PORT: 3000
+          DB_HOST: localhost
           WIREMOCK_URL: http://127.0.0.1:8080
           RATE_LIMIT_MAX: "10000"
         run: |
