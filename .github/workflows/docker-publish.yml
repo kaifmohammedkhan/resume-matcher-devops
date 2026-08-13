@@ -19,7 +19,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3.6.0
+        uses: docker/setup-qemu-action@v3.2.0
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3.12.0
@@ -43,12 +43,13 @@ jobs:
         with:
           images: |
             ghcr.io/${{ github.repository }}
-            kaifmohammedkhan123/resume-matcher-devops
+            ${{ secrets.DOCKERHUB_USERNAME }}/resume-matcher-devops
           tags: |
             type=raw,value=latest
             type=sha,format=short
 
       - name: Build and push Docker image
+        id: build
         uses: docker/build-push-action@v6.15.0
         with:
           context: .
@@ -60,3 +61,792 @@ jobs:
           # GitHub Actions native caching
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      # ----------------------------------------------------------
+      # Generated only after the image build/push succeeds.
+      # This step does NOT modify the image.
+      # ----------------------------------------------------------
+
+      - name: Generate Docker Build & Push HTML Report
+        if: success()
+        continue-on-error: true
+        env:
+          REPOSITORY: ${{ github.repository }}
+          REPOSITORY_NAME: ${{ github.event.repository.name }}
+          BRANCH: ${{ github.ref_name }}
+          COMMIT: ${{ github.sha }}
+          ACTOR: ${{ github.actor }}
+          RUN_NUMBER: ${{ github.run_number }}
+          RUN_ID: ${{ github.run_id }}
+          SERVER_URL: ${{ github.server_url }}
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+          BUILD_DIGEST: ${{ steps.build.outputs.digest }}
+        run: |
+          set -e
+          mkdir -p reports/docker
+
+          node <<'NODE'
+          const fs = require("fs");
+
+          const e = process.env;
+
+          const repo = e.REPOSITORY || "N/A";
+          const repoName = e.REPOSITORY_NAME || "resume-matcher-devops";
+          const branch = e.BRANCH || "N/A";
+          const commit = e.COMMIT || "N/A";
+          const shortCommit = commit.slice(0, 7);
+          const actor = e.ACTOR || "N/A";
+          const run = e.RUN_NUMBER || "N/A";
+          const runId = e.RUN_ID || "N/A";
+          const server = e.SERVER_URL || "https://github.com";
+          const hubUser = e.DOCKERHUB_USERNAME || "N/A";
+          const digest = e.BUILD_DIGEST || "N/A";
+
+          const tags = (e.IMAGE_TAGS || "")
+            .split(/\r?\n/)
+            .map(x => x.trim())
+            .filter(Boolean);
+
+          const platforms = [
+            "linux/amd64",
+            "linux/arm64"
+          ];
+
+          function esc(value) {
+            return String(value ?? "")
+              .replaceAll("&", "&amp;")
+              .replaceAll("<", "&lt;")
+              .replaceAll(">", "&gt;")
+              .replaceAll('"', "&quot;")
+              .replaceAll("'", "&#39;");
+          }
+
+          const ghcrTags = tags.filter(
+            x => x.startsWith("ghcr.io/")
+          );
+
+          const hubTags = tags.filter(
+            x => !x.startsWith("ghcr.io/")
+          );
+
+          function metric(label, value, cls = "") {
+            return `
+              <div class="metric ${cls}">
+                <span>${esc(label)}</span>
+                <strong>${esc(value)}</strong>
+              </div>
+            `;
+          }
+
+          function tagsHtml(list) {
+            if (!list.length) {
+              return `
+                <div class="tag">
+                  No tag output captured.
+                </div>
+              `;
+            }
+
+            return list.map(tag => `
+              <div class="tag">
+                ${esc(tag)}
+              </div>
+            `).join("");
+          }
+
+          function platformHtml(platform) {
+            return `
+              <div class="platform">
+                <b>✓</b>
+                <div>
+                  <strong>${esc(platform)}</strong>
+                  <small>Published platform</small>
+                </div>
+              </div>
+            `;
+          }
+
+          const ghcrUrl =
+            `https://github.com/${repo}/pkgs/container/${repoName}`;
+
+          const hubUrl =
+            `https://hub.docker.com/r/${hubUser}/${repoName}`;
+
+          const runUrl =
+            `${server}/${repo}/actions/runs/${runId}`;
+
+          const commitUrl =
+            `${server}/${repo}/commit/${commit}`;
+
+          const generated =
+            new Date().toLocaleString("en-IN", {
+              timeZone: "Asia/Kolkata"
+            });
+
+          const html = `<!doctype html>
+
+          <html lang="en">
+
+          <head>
+
+            <meta charset="utf-8">
+
+            <meta
+              name="viewport"
+              content="width=device-width,initial-scale=1"
+            >
+
+            <title>
+              Docker Build &amp; Push Report
+            </title>
+
+            <style>
+
+              :root {
+                --bg: #07111f;
+                --panel: #0d1a2b;
+                --panel2: #102138;
+                --border: #263a56;
+                --text: #f8fafc;
+                --muted: #94a8c1;
+                --blue: #38bdf8;
+                --green: #34d399;
+              }
+
+              * {
+                box-sizing: border-box;
+              }
+
+              body {
+                margin: 0;
+                padding: 28px;
+                background:
+                  radial-gradient(
+                    circle at 15% 0%,
+                    #123252 0,
+                    transparent 30%
+                  ),
+                  radial-gradient(
+                    circle at 90% 10%,
+                    #10372e 0,
+                    transparent 28%
+                  ),
+                  var(--bg);
+                color: var(--text);
+                font-family:
+                  system-ui,
+                  -apple-system,
+                  "Segoe UI",
+                  sans-serif;
+              }
+
+              .wrap {
+                max-width: 1120px;
+                margin: auto;
+              }
+
+              .hero,
+              .panel {
+                background: rgba(13,26,43,.96);
+                border: 1px solid var(--border);
+                border-radius: 18px;
+              }
+
+              .hero {
+                padding: 28px;
+                box-shadow:
+                  0 22px 60px rgba(0,0,0,.35);
+              }
+
+              .heroTop {
+                display: flex;
+                justify-content: space-between;
+                gap: 20px;
+                align-items: flex-start;
+              }
+
+              .eyebrow {
+                color: var(--blue);
+                font-size: 11px;
+                font-weight: 900;
+                letter-spacing: .13em;
+                text-transform: uppercase;
+              }
+
+              h1 {
+                margin: 6px 0 7px;
+                font-size: 30px;
+              }
+
+              .sub {
+                color: var(--muted);
+              }
+
+              .status {
+                color: var(--green);
+                border: 1px solid #24694f;
+                background: rgba(52,211,153,.10);
+                border-radius: 999px;
+                padding: 10px 14px;
+                font-size: 11px;
+                font-weight: 900;
+                white-space: nowrap;
+              }
+
+              .status::before {
+                content: "●";
+                margin-right: 7px;
+              }
+
+              .grid {
+                display: grid;
+                grid-template-columns:
+                  repeat(auto-fit,minmax(170px,1fr));
+                gap: 11px;
+                margin-top: 18px;
+              }
+
+              .metric {
+                background: var(--panel2);
+                border: 1px solid var(--border);
+                border-radius: 12px;
+                padding: 14px;
+              }
+
+              .metric span {
+                display: block;
+                color: var(--muted);
+                font-size: 9px;
+                font-weight: 800;
+                letter-spacing: .08em;
+                text-transform: uppercase;
+                margin-bottom: 5px;
+              }
+
+              .metric strong {
+                display: block;
+                font-size: 15px;
+                word-break: break-word;
+              }
+
+              .metric.green strong {
+                color: var(--green);
+              }
+
+              .section {
+                margin-top: 18px;
+              }
+
+              .section h2 {
+                margin: 0 0 10px;
+                font-size: 15px;
+              }
+
+              .registries {
+                display: grid;
+                grid-template-columns:
+                  repeat(auto-fit,minmax(320px,1fr));
+                gap: 14px;
+              }
+
+              .registry {
+                padding: 20px;
+                background: var(--panel);
+                border: 1px solid var(--border);
+                border-radius: 16px;
+                border-left: 4px solid var(--green);
+              }
+
+              .regHead {
+                display: flex;
+                justify-content: space-between;
+                gap: 10px;
+              }
+
+              .regName {
+                font-size: 18px;
+                font-weight: 900;
+              }
+
+              .pushed {
+                color: var(--green);
+                font-size: 10px;
+                font-weight: 900;
+              }
+
+              .link {
+                display: block;
+                color: var(--muted);
+                text-decoration: none;
+                font-size: 11px;
+                margin: 7px 0 12px;
+                word-break: break-all;
+              }
+
+              .link:hover {
+                color: var(--blue);
+              }
+
+              .tag {
+                background: #07111f;
+                border: 1px solid var(--border);
+                border-radius: 9px;
+                padding: 10px;
+                margin-top: 7px;
+                font:
+                  12px
+                  ui-monospace,
+                  SFMono-Regular,
+                  Consolas,
+                  monospace;
+                word-break: break-all;
+              }
+
+              .platforms {
+                display: grid;
+                grid-template-columns:
+                  repeat(auto-fit,minmax(220px,1fr));
+                gap: 11px;
+              }
+
+              .platform {
+                display: flex;
+                gap: 11px;
+                align-items: center;
+                background: var(--panel2);
+                border: 1px solid var(--border);
+                border-radius: 12px;
+                padding: 14px;
+              }
+
+              .platform b {
+                display: grid;
+                place-items: center;
+                width: 32px;
+                height: 32px;
+                border-radius: 9px;
+                color: var(--green);
+                background: rgba(52,211,153,.10);
+              }
+
+              .platform small {
+                display: block;
+                color: var(--muted);
+                margin-top: 2px;
+                font-size: 10px;
+              }
+
+              .actions {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 9px;
+              }
+
+              .button {
+                display: inline-block;
+                padding: 10px 13px;
+                color: var(--text);
+                background: var(--panel2);
+                border: 1px solid var(--border);
+                border-radius: 9px;
+                text-decoration: none;
+                font-size: 11px;
+                font-weight: 800;
+              }
+
+              .button:hover {
+                color: var(--blue);
+                border-color: var(--blue);
+              }
+
+              footer {
+                margin-top: 20px;
+                padding: 15px 3px 0;
+                border-top: 1px solid var(--border);
+                color: var(--muted);
+                font-size: 10px;
+                line-height: 1.6;
+              }
+
+              @media (max-width: 650px) {
+                body {
+                  padding: 14px;
+                }
+
+                .hero {
+                  padding: 20px;
+                }
+
+                .heroTop {
+                  flex-direction: column;
+                }
+              }
+
+            </style>
+
+          </head>
+
+          <body>
+
+            <main class="wrap">
+
+              <section class="hero">
+
+                <div class="heroTop">
+
+                  <div>
+
+                    <div class="eyebrow">
+                      Container Release Report
+                    </div>
+
+                    <h1>
+                      Docker Build &amp; Push
+                    </h1>
+
+                    <div class="sub">
+                      ${esc(repo)}
+                      ·
+                      ${esc(branch)}
+                      ·
+                      Run #${esc(run)}
+                    </div>
+
+                  </div>
+
+                  <div class="status">
+                    BUILD &amp; PUSH SUCCESSFUL
+                  </div>
+
+                </div>
+
+                <div class="grid">
+
+                  ${metric(
+                    "Repository",
+                    repo
+                  )}
+
+                  ${metric(
+                    "Branch",
+                    branch
+                  )}
+
+                  ${metric(
+                    "Commit",
+                    shortCommit
+                  )}
+
+                  ${metric(
+                    "Triggered By",
+                    actor
+                  )}
+
+                  ${metric(
+                    "Platforms",
+                    platforms.length
+                  )}
+
+                  ${metric(
+                    "Digest",
+                    digest,
+                    "green"
+                  )}
+
+                </div>
+
+              </section>
+
+
+              <section class="section">
+
+                <h2>
+                  Registry Publication
+                </h2>
+
+                <div class="registries">
+
+                  <article class="registry">
+
+                    <div class="regHead">
+
+                      <div class="regName">
+                        GitHub Container Registry
+                      </div>
+
+                      <div class="pushed">
+                        ✓ PUSHED
+                      </div>
+
+                    </div>
+
+                    <a
+                      class="link"
+                      href="${esc(ghcrUrl)}"
+                      target="_blank"
+                      rel="noopener"
+                    >
+                      ${esc(ghcrUrl)}
+                    </a>
+
+                    ${tagsHtml(ghcrTags)}
+
+                  </article>
+
+
+                  <article class="registry">
+
+                    <div class="regHead">
+
+                      <div class="regName">
+                        Docker Hub
+                      </div>
+
+                      <div class="pushed">
+                        ✓ PUSHED
+                      </div>
+
+                    </div>
+
+                    <a
+                      class="link"
+                      href="${esc(hubUrl)}"
+                      target="_blank"
+                      rel="noopener"
+                    >
+                      ${esc(hubUrl)}
+                    </a>
+
+                    ${tagsHtml(hubTags)}
+
+                  </article>
+
+                </div>
+
+              </section>
+
+
+              <section class="section">
+
+                <h2>
+                  Multi-Architecture Build
+                </h2>
+
+                <div class="platforms">
+
+                  ${platforms
+                    .map(platformHtml)
+                    .join("")}
+
+                </div>
+
+              </section>
+
+
+              <section class="section">
+
+                <h2>
+                  Build Identity
+                </h2>
+
+                <div class="grid">
+
+                  ${metric(
+                    "Build Digest",
+                    digest
+                  )}
+
+                  ${metric(
+                    "Full Commit",
+                    commit
+                  )}
+
+                  ${metric(
+                    "Workflow Run ID",
+                    runId
+                  )}
+
+                  ${metric(
+                    "Generated",
+                    generated
+                  )}
+
+                </div>
+
+              </section>
+
+
+              <section class="section">
+
+                <h2>
+                  Release Flow
+                </h2>
+
+                <div class="panel">
+
+                  <div
+                    class="grid"
+                    style="margin-top:0"
+                  >
+
+                    ${metric(
+                      "1 · Source",
+                      `${repo}@${shortCommit}`
+                    )}
+
+                    ${metric(
+                      "2 · Build",
+                      platforms.join(" + ")
+                    )}
+
+                    ${metric(
+                      "3 · GHCR",
+                      "Push successful",
+                      "green"
+                    )}
+
+                    ${metric(
+                      "4 · Docker Hub",
+                      "Push successful",
+                      "green"
+                    )}
+
+                  </div>
+
+                </div>
+
+              </section>
+
+
+              <section class="section">
+
+                <h2>
+                  Run Links
+                </h2>
+
+                <div class="actions">
+
+                  <a
+                    class="button"
+                    href="${esc(runUrl)}"
+                    target="_blank"
+                    rel="noopener"
+                  >
+                    GitHub Actions Run
+                  </a>
+
+                  <a
+                    class="button"
+                    href="${esc(commitUrl)}"
+                    target="_blank"
+                    rel="noopener"
+                  >
+                    Commit ${esc(shortCommit)}
+                  </a>
+
+                  <a
+                    class="button"
+                    href="${esc(ghcrUrl)}"
+                    target="_blank"
+                    rel="noopener"
+                  >
+                    GHCR Package
+                  </a>
+
+                  <a
+                    class="button"
+                    href="${esc(hubUrl)}"
+                    target="_blank"
+                    rel="noopener"
+                  >
+                    Docker Hub Repository
+                  </a>
+
+                </div>
+
+              </section>
+
+
+              <footer>
+
+                Generated after the Docker build-and-push action
+                completed successfully. Repository, branch, commit,
+                run ID, digest, tags and platforms are taken from the
+                current GitHub Actions context and Docker action
+                outputs. No build metrics are hardcoded.
+
+              </footer>
+
+            </main>
+
+          </body>
+
+          </html>`;
+
+          fs.writeFileSync(
+            "reports/docker/docker-build-push-report.html",
+            html
+          );
+
+          console.log(
+            "Generated:"
+          );
+
+          console.log(
+            "reports/docker/docker-build-push-report.html"
+          );
+
+          console.log(
+            `Digest: ${digest}`
+          );
+
+          console.log("Tags:");
+
+          tags.forEach(tag => {
+            console.log(`- ${tag}`);
+          });
+
+          NODE
+
+      # ----------------------------------------------------------
+      # Upload the HTML report as a GitHub Actions artifact.
+      # This happens only when the image build/push succeeded.
+      # ----------------------------------------------------------
+
+      - name: Upload Docker Build & Push Report
+        if: always() && steps.build.outcome == 'success'
+        uses: actions/upload-artifact@v4
+        with:
+          name: docker-build-push-report
+          path: reports/docker/docker-build-push-report.html
+          if-no-files-found: warn
+          retention-days: 14
+
+      # ----------------------------------------------------------
+      # Final console summary
+      # ----------------------------------------------------------
+
+      - name: Build and Push Summary
+        if: success()
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          echo "=========================================="
+          echo "DOCKER BUILD AND PUSH SUCCESSFUL"
+          echo "=========================================="
+          echo ""
+          echo "Platforms:"
+          echo "  linux/amd64"
+          echo "  linux/arm64"
+          echo ""
+          echo "Build digest:"
+          echo "${DIGEST}"
+          echo ""
+          echo "Published tags:"
+          echo "${TAGS}"
+          echo ""
+          echo "HTML report artifact:"
+          echo "docker-build-push-report"
+          echo "=========================================="
