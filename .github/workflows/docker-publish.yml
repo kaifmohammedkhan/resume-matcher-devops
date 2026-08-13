@@ -1,15 +1,15 @@
-name: Build and Push to GHCR
+name: Build and Push to GHCR and Docker Hub
 
 on:
   push:
     branches:
       - main  # Triggers the build whenever you push to the main branch
-  workflow_dispatch: # Allows you to trigger the build manually from the GitHub UI
+  workflow_dispatch: # Allows the build to be triggered manually from GitHub Actions
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    
+
     # Permissions required to log in and push to GitHub Packages (GHCR)
     permissions:
       contents: read
@@ -23,7 +23,7 @@ jobs:
         uses: docker/setup-qemu-action@49b3bc8c2311636a942006768205f42220d18822 # v3.2.0
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@c1001a189f36f69ef4269e84725d2c0e86b240ff # v3.12.0
+        uses: docker/setup-buildx-action@c1001a189f36f69ef426e84725d2c0e86b240ff # v3.12.0
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
@@ -32,11 +32,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Log in to Docker Hub
+        uses: docker/login-action@9780b0c442fbb1117ed29e0efdff1e18412f7567 # v3.3.0
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
       - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@369eb701f426a3124536735c023d3862cb5631c5 # v5.7.0
         with:
-          images: ghcr.io/${{ github.repository }}
+          images: |
+            ghcr.io/${{ github.repository }}
+            kaifmohammedkhan123/resume-matcher-devops
           tags: |
             type=raw,value=latest
             type=sha,format=short
@@ -49,6 +57,7 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          # Enables powerful GitHub Actions native caching to speed up future builds
+
+          # GitHub Actions native cache
           cache-from: type=gha
           cache-to: type=gha,mode=max
