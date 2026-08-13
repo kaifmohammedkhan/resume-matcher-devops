@@ -26,25 +26,31 @@ jobs:
 
   k6-load-test:
     name: k6 Load Test
-
-
-
     runs-on: ubuntu-latest
 
     services:
       postgres:
         image: postgres:15
-
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: resume_db
-
         ports:
           - 5432:5432
-
         options: >-
           --health-cmd="pg_isready -U postgres -d resume_db"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+      wiremock:
+        image: wiremock/wiremock:2.35.0
+        ports:
+          - 8080:8080
+        volumes:
+          - ./wiremock/mappings:/home/wiremock/mappings
+        options: >-
+          --health-cmd="curl --fail http://localhost:8080/__admin/health || exit 1"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
@@ -77,6 +83,7 @@ jobs:
       - name: Start Application
         env:
           PORT: 3000
+          WIREMOCK_URL: http://127.0.0.1:8080
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
@@ -87,66 +94,30 @@ jobs:
           SONAR_ORG: ${{ secrets.SONAR_ORG }}
           SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          MOCK_SERP: "true"
-
-          # ====================================================
-          # LOAD-TEST-ONLY RATE LIMIT OVERRIDE
-          #
-          # server.js defaults to 100 requests / 60 seconds.
-          # This environment variable exists ONLY for this
-          # GitHub Actions load-test application process.
-          # It does NOT modify production configuration.
-          # ====================================================
           RATE_LIMIT_MAX: "10000"
-
         run: |
           mkdir -p results
-
           npm start > results/app.log 2>&1 &
-
           APP_PID=$!
-
           echo "$APP_PID" > results/app.pid
-
           echo "Application PID: $APP_PID"
 
           for i in {1..30}; do
-
-            if curl \
-              --silent \
-              --show-error \
-              --fail \
-              http://127.0.0.1:3000/ \
-              > /dev/null 2>&1; then
-
+            if curl --silent --fail http://127.0.0.1:3000/ > /dev/null 2>&1; then
               echo "Application is READY."
-
               exit 0
             fi
-
             if ! kill -0 "$APP_PID" 2>/dev/null; then
-
-              echo ""
               echo "Application exited unexpectedly."
-              echo ""
-
               cat results/app.log || true
-
               exit 1
             fi
-
             echo "Waiting for application... attempt $i/30"
-
             sleep 2
-
           done
 
-          echo ""
           echo "Application failed to start."
-          echo ""
-
           cat results/app.log || true
-
           exit 1
 
       - name: Verify Application Before Load Test
@@ -159,21 +130,12 @@ jobs:
               http://127.0.0.1:3000/ \
               || true
           )
-
           echo "HTTP status: $HTTP_STATUS"
-
           if [ "$HTTP_STATUS" = "000" ]; then
-
-            echo ""
             echo "ERROR: Application is unreachable."
-            echo ""
-
             cat results/app.log || true
-
             exit 1
           fi
-
-          echo ""
           echo "Application is reachable."
           echo "Target: http://127.0.0.1:3000"
 
@@ -192,7 +154,6 @@ jobs:
           echo ""
 
           set +e
-
           k6 run \
             --vus 10 \
             --duration 30s \
@@ -200,17 +161,11 @@ jobs:
             --summary-export=results/summary.json \
             tests/load.js \
             2>&1 | tee results/k6-console.log
-
           K6_EXIT=${PIPESTATUS[0]}
-
           set -e
 
-          echo "$K6_EXIT" \
-            > results/k6-exit-code.txt
-
-          echo ""
+          echo "$K6_EXIT" > results/k6-exit-code.txt
           echo "k6 exit code: $K6_EXIT"
-
           exit "$K6_EXIT"
 
       - name: Capture Load Diagnostics
@@ -220,40 +175,30 @@ jobs:
             echo "=========================================="
             echo "k6 Load Diagnostics"
             echo "=========================================="
-
             echo ""
             echo "Timestamp:"
             date -u '+%Y-%m-%dT%H:%M:%SZ'
-
             echo ""
             echo "k6 step outcome:"
             echo "${{ steps.k6_load.outcome }}"
-
             echo ""
             echo "k6 exit code:"
             cat results/k6-exit-code.txt 2>/dev/null || true
-
             echo ""
             echo "=========================================="
             echo "Application Log"
             echo "=========================================="
-
             cat results/app.log 2>/dev/null || true
-
             echo ""
             echo "=========================================="
             echo "k6 Console Log"
             echo "=========================================="
-
             cat results/k6-console.log 2>/dev/null || true
-
             echo ""
             echo "=========================================="
             echo "k6 Summary"
             echo "=========================================="
-
             cat results/summary.json 2>/dev/null || true
-
           } > results/diagnostics.log
 
       - name: Upload k6 Load Reports
@@ -277,7 +222,4 @@ jobs:
           echo "  results/output.json"
           echo "  results/k6-console.log"
           echo "  results/diagnostics.log"
-
           exit 1
-
-  # ============================================================
