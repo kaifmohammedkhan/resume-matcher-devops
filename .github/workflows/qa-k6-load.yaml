@@ -6,10 +6,6 @@ on:
 permissions:
   contents: read
 
-# ============================================================
-# GLOBAL ENVIRONMENT
-# ============================================================
-
 env:
   GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
   EMAIL_USER: ${{ secrets.EMAIL_USER }}
@@ -122,14 +118,8 @@ jobs:
 
       - name: Verify Application Before Load Test
         run: |
-          HTTP_STATUS=$(
-            curl \
-              --silent \
-              --output /dev/null \
-              --write-out "%{http_code}" \
-              http://127.0.0.1:3000/ \
-              || true
-          )
+          mkdir -p results
+          HTTP_STATUS=$(curl --silent --output /dev/null --write-out "%{http_code}" http://127.0.0.1:3000/ || true)
           echo "HTTP status: $HTTP_STATUS"
           if [ "$HTTP_STATUS" = "000" ]; then
             echo "ERROR: Application is unreachable."
@@ -143,6 +133,7 @@ jobs:
         id: k6_load
         continue-on-error: true
         run: |
+          mkdir -p results
           echo "=========================================="
           echo "k6 LOAD TEST"
           echo "=========================================="
@@ -171,6 +162,7 @@ jobs:
       - name: Capture Load Diagnostics
         if: always()
         run: |
+          mkdir -p results
           {
             echo "=========================================="
             echo "k6 Load Diagnostics"
