@@ -1,0 +1,35 @@
+name: CI & Security Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  owasp:
+    uses: ./.github/workflows/ci-owasp.yaml
+    secrets: inherit
+
+  test:
+    uses: ./.github/workflows/ci-test.yaml
+    secrets: inherit
+
+  sonarcloud:
+    needs: test
+    uses: ./.github/workflows/ci-sonarcloud.yaml
+    secrets: inherit
+
+  trivy:
+    needs: sonarcloud
+    uses: ./.github/workflows/ci-trivy.yaml
+    secrets: inherit
+
+  email:
+    needs: [test, sonarcloud, trivy]
+    uses: ./.github/workflows/ci-email.yaml
+    secrets: inherit

@@ -1,0 +1,55 @@
+name: CI & Security Pipeline - Combined Reports
+
+on:
+  workflow_call:
+
+jobs:
+  email:
+    name: Email Combined Reports
+    needs: [test, sonarcloud, trivy-fs, trivy-img]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: test-summary-report
+          path: .
+      - uses: actions/download-artifact@v4
+        with:
+          name: sonar-summary-report
+          path: .
+      - uses: actions/download-artifact@v4
+        with:
+          name: trivy-fs-report
+          path: .
+      - uses: actions/download-artifact@v4
+        with:
+          name: trivy-img-report
+          path: .
+      - name: Send Email with Reports
+        uses: dawidd6/action-send-mail@611879133a9569642c41be66f4a323286e9b8a3b
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.EMAIL_USER }}
+          password: ${{ secrets.EMAIL_PASS }}
+          subject: CI Reports - Resume Matcher
+          to: ${{ secrets.EMAIL_USER }}
+          from: ${{ secrets.EMAIL_USER }}
+          content_type: text/html
+          body: |
+            <h2>CI Pipeline Reports</h2>
+            <p><strong>Status:</strong> All jobs executed against <em>main</em> branch.</p>
+            <h3>Jest Test Suite</h3>
+            <p>See attached <em>test-summary.html</em> for full details.</p>
+            <h3>SonarCloud Security Analysis</h3>
+            <p>See attached <em>sonar-summary.html</em> for active issues report.</p>
+            <h3>Trivy Filesystem Scan</h3>
+            <p>See attached <em>trivy-fs-report.html</em> for filesystem vulnerabilities.</p>
+            <h3>Trivy Image Scan</h3>
+            <p>See attached <em>trivy-img-report.html</em> for container image vulnerabilities.</p>
+          attachments: |
+            test-summary.html
+            sonar-summary.html
+            trivy-fs-report.html
+            trivy-img-report.html
+

@@ -1,0 +1,66 @@
+name: CI & Security Pipeline - OWASP Dependency Check
+
+on:
+  workflow_call:
+
+jobs:
+  owasp:
+    name: OWASP Dependency Check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Cache OWASP DB
+        uses: actions/cache@v4
+        with:
+          path: ~/.dependency-check/data
+          key: owasp-db
+
+      - name: Install and Run OWASP Dependency Check
+        continue-on-error: true
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSLf https://github.com/jeremylong/DependencyCheck/releases/download/v12.1.0/dependency-check-12.1.0-release.zip -o /tmp/dc.zip
+          unzip -q /tmp/dc.zip -d $HOME/dc
+          rm -f /tmp/dc.zip
+          npm ci --ignore-scripts
+          $HOME/dc/dependency-check/bin/dependency-check.sh \
+            --project "Resume Matcher" \
+            --scan . \
+            --exclude "**/node_modules/**" \
+            --format HTML \
+            --out dependency-check-report.html \
+            --nvdApiKey "$NVD_API_KEY" \
+            --disableOssIndex
+
+      - name: Upload OWASP Report Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: owasp-dependency-check-report
+          path: dependency-check-report.html
+
+      - name: Send Email
+        if: always()
+        run: sleep $((1 + RANDOM % 5))
+
+      - name: Email OWASP Report
+        if: always()
+        uses: dawidd6/action-send-mail@611879133a9569642c41be66f4a323286e9b8a3b
+        with:
+          server_address: smtp.gmail.com
+          server_port: 465
+          username: ${{ secrets.EMAIL_USER }}
+          password: ${{ secrets.EMAIL_PASS }}
+          subject: OWASP Report - Resume Matcher
+          to: ${{ secrets.EMAIL_USER }}
+          from: ${{ secrets.EMAIL_USER }}
+          content_type: text/html
+          body: |
+            <h2>OWASP Dependency Check completed</h2>
+            <p>See attached report or workflow artifacts for full details.</p>
+          attachments: dependency-check-report.html
+
+

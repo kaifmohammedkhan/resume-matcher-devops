@@ -1,0 +1,81 @@
+name: CI & Security Pipeline - SonarCloud Security Analysis
+
+on:
+  workflow_call:
+
+jobs:
+  sonarcloud:
+    name: SonarCloud Security Analysis
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - name: Install SonarScanner CLI (secure)
+        run: |
+          curl --proto '=https' --tlsv1.2 -sSLf \
+            https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006.zip \
+            -o sonar-scanner.zip
+          curl --proto '=https' --tlsv1.2 -sSLf \
+            https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006.zip.sha256 \
+            -o sonar-scanner.zip.sha256
+          sed -i "s/$/  sonar-scanner.zip/" sonar-scanner.zip.sha256
+          sha256sum -c sonar-scanner.zip.sha256
+          unzip -q sonar-scanner.zip -d $HOME
+          rm -f sonar-scanner.zip sonar-scanner.zip.sha256
+          echo "$HOME/sonar-scanner-5.0.1.3006/bin" >> $GITHUB_PATH
+      - name: Run SonarScanner
+        continue-on-error: true
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+          SONAR_ORG: ${{ secrets.SONAR_ORG }}
+          SONAR_HOST: ${{ secrets.SONAR_HOST }}
+        run: |
+          sonar-scanner \
+            -Dsonar.projectKey="$SONAR_PROJECT_KEY" \
+            -Dsonar.organization="$SONAR_ORG" \
+            -Dsonar.sources=. \
+            -Dsonar.host.url="$SONAR_HOST" \
+            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info \
+            -Dsonar.qualitygate.wait=false
+      - name: Export SonarCloud Report
+        if: always()
+        continue-on-error: true
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+        run: |
+          curl --proto '=https' --tlsv1.2 -s -u "$SONAR_TOKEN:" \
+            "https://sonarcloud.io/api/issues/search?projectKeys=$SONAR_PROJECT_KEY&statuses=OPEN,REOPENED&ps=500" \
+            -o sonar-report.json
+      - name: Convert SonarCloud JSON to HTML Table
+        if: always()
+        run: |
+          sudo apt-get update && sudo apt-get install -y jq
+          {
+            echo "<html><body>"
+            echo "<h2>SonarCloud Active Issues Report</h2>"
+            echo "<table border='1' cellpadding='5' cellspacing='0' style='border-collapse: collapse; font-family: sans-serif;'>"
+            echo "<tr style='background-color: #f2f2f2;'><th>Rule</th><th>Message</th><th>Severity</th><th>File</th><th>Line</th><th>Action</th></tr>"
+            if jq -e '.issues | length > 0' sonar-report.json >/dev/null 2>&1; then
+              jq -r '.issues[] | "<tr><td>\(.rule)</td><td>\(.message)</td><td>\(.severity)</td><td>\(.component)</td><td>\(.line)</td><td>Review</td></tr>"' sonar-report.json
+            else
+              echo "<tr><td colspan='6'>✅ No active issues found.</td></tr>"
+            fi
+            echo "</table></body></html>"
+          } > sonar-summary.html
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sonar-summary-report
+          path: sonar-summary.html
+
+
