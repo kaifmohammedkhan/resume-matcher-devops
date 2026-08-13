@@ -138,6 +138,7 @@ jobs:
         id: k6_smoke
         continue-on-error: true
         run: |
+          mkdir -p results
           echo "=========================================="
           echo "k6 SMOKE TEST"
           echo "=========================================="
@@ -160,6 +161,7 @@ jobs:
       - name: Capture Smoke Diagnostics
         if: always()
         run: |
+          mkdir -p results
           {
             echo "=========================================="
             echo "k6 Smoke Diagnostics"
