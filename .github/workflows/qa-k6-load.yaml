@@ -44,7 +44,7 @@ jobs:
         ports:
           - 8080:8080
         volumes:
-          - /tmp/wiremock-mappings:/home/wiremock/mappings:ro
+          - ${{ github.workspace }}/wiremock-mappings:/home/wiremock/mappings:ro
         # Removed invalid /__admin/health probe
 
     steps:
@@ -54,8 +54,8 @@ jobs:
 
       - name: Prepare WireMock mappings
         run: |
-          mkdir -p /tmp/wiremock-mappings
-          cp -r wiremock/mappings/* /tmp/wiremock-mappings/
+          mkdir -p ${{ github.workspace }}/wiremock-mappings
+          cp -r wiremock/mappings/* ${{ github.workspace }}/wiremock-mappings/
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
