@@ -45,11 +45,7 @@ jobs:
           - 8080:8080
         volumes:
           - ./wiremock/mappings:/home/wiremock/mappings
-        options: >-
-          --health-cmd="curl --fail http://localhost:8080/__admin/health || exit 1"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
+        # Removed invalid /__admin/health probe
 
     steps:
 
