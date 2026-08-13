@@ -1,0 +1,266 @@
+name: QA Pipeline - Cypress E2E
+
+on:
+  workflow_call:
+
+permissions:
+  contents: read
+
+# ============================================================
+# GLOBAL ENVIRONMENT
+# ============================================================
+
+env:
+  GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+  EMAIL_USER: ${{ secrets.EMAIL_USER }}
+  EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+  NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+  QA_EMAIL_TO: ${{ secrets.QA_EMAIL_TO }}
+  QA_EMAIL_CC: ${{ secrets.QA_EMAIL_CC }}
+  SONAR_HOST: ${{ secrets.SONAR_HOST }}
+  SONAR_ORG: ${{ secrets.SONAR_ORG }}
+  SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+  SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+
+jobs:
+
+  cypress-e2e:
+    name: Cypress E2E Tests
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: resume_db
+
+        ports:
+          - 5432:5432
+
+        options: >-
+          --health-cmd="pg_isready -U postgres -d resume_db"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Build Application
+        run: |
+          if npm run | grep -q "build"; then
+            echo "Build script found."
+            npm run build
+          else
+            echo "No build script found. Skipping build."
+          fi
+
+      - name: Verify Cypress Specs
+        run: |
+          echo "Searching for Cypress E2E specs..."
+
+          if ! find cypress/e2e \
+            -type f \
+            \( \
+              -name '*.cy.js' \
+              -o \
+              -name '*.cy.jsx' \
+              -o \
+              -name '*.cy.ts' \
+              -o \
+              -name '*.cy.tsx' \
+            \) \
+            -print -quit 2>/dev/null | grep -q .; then
+
+            echo ""
+            echo "ERROR: No Cypress E2E specs found."
+            echo "Expected location: cypress/e2e/"
+            echo ""
+
+            exit 1
+          fi
+
+          echo ""
+          echo "Cypress specs found:"
+
+          find cypress/e2e \
+            -type f \
+            \( \
+              -name '*.cy.js' \
+              -o \
+              -name '*.cy.jsx' \
+              -o \
+              -name '*.cy.ts' \
+              -o \
+              -name '*.cy.tsx' \
+            \) \
+            -print
+
+      - name: Start Application
+        env:
+          PORT: 3000
+          GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+          QA_EMAIL_TO: ${{ secrets.QA_EMAIL_TO }}
+          QA_EMAIL_CC: ${{ secrets.QA_EMAIL_CC }}
+          SONAR_HOST: ${{ secrets.SONAR_HOST }}
+          SONAR_ORG: ${{ secrets.SONAR_ORG }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        run: |
+          mkdir -p cypress/reports
+
+          echo "Starting application..."
+
+          npm start > cypress/reports/app.log 2>&1 &
+
+          APP_PID=$!
+
+          echo "$APP_PID" > cypress/reports/app.pid
+
+          echo "Application PID: $APP_PID"
+
+          for i in {1..30}; do
+
+            if curl \
+              --silent \
+              --show-error \
+              --fail \
+              http://127.0.0.1:3000/ \
+              > /dev/null 2>&1; then
+
+              echo "=========================================="
+              echo "Application is READY"
+              echo "URL: http://127.0.0.1:3000"
+              echo "=========================================="
+
+              exit 0
+            fi
+
+            if ! kill -0 "$APP_PID" 2>/dev/null; then
+
+              echo ""
+              echo "ERROR: Application exited unexpectedly."
+              echo ""
+
+              cat cypress/reports/app.log || true
+
+              exit 1
+            fi
+
+            echo "Waiting for application... attempt $i/30"
+
+            sleep 2
+
+          done
+
+          echo ""
+          echo "ERROR: Application failed to become ready."
+          echo ""
+
+          cat cypress/reports/app.log || true
+
+          exit 1
+
+      - name: Run Cypress E2E Tests
+        id: cypress_tests
+        continue-on-error: true
+        env:
+          CYPRESS_baseUrl: http://127.0.0.1:3000
+        run: |
+          mkdir -p cypress/reports
+
+          npx cypress run \
+            --browser chrome \
+            --headless \
+            --reporter junit \
+            --reporter-options "mochaFile=cypress/reports/junit-[hash].xml,toConsole=true" \
+            2>&1 | tee cypress/reports/cypress-run.log
+
+          CYPRESS_EXIT=${PIPESTATUS[0]}
+
+          echo "$CYPRESS_EXIT" \
+            > cypress/reports/cypress-exit-code.txt
+
+          exit "$CYPRESS_EXIT"
+
+      - name: Capture Cypress Diagnostics
+        if: always()
+        run: |
+          mkdir -p cypress/reports
+
+          {
+            echo "=========================================="
+            echo "Cypress Diagnostics"
+            echo "=========================================="
+
+            echo ""
+            echo "Timestamp:"
+            date -u '+%Y-%m-%dT%H:%M:%SZ'
+
+            echo ""
+            echo "Cypress step outcome:"
+            echo "${{ steps.cypress_tests.outcome }}"
+
+            echo ""
+            echo "Cypress exit code:"
+            cat cypress/reports/cypress-exit-code.txt 2>/dev/null || true
+
+            echo ""
+            echo "=========================================="
+            echo "Application Log"
+            echo "=========================================="
+
+            cat cypress/reports/app.log 2>/dev/null || true
+
+            echo ""
+            echo "=========================================="
+            echo "Cypress Console Log"
+            echo "=========================================="
+
+            cat cypress/reports/cypress-run.log 2>/dev/null || true
+
+          } > cypress/reports/diagnostics.log
+
+      - name: Upload Cypress Reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: cypress-e2e-report
+          path: |
+            cypress/reports/
+            cypress/screenshots/
+            cypress/videos/
+          if-no-files-found: warn
+          retention-days: 14
+
+      - name: Fail Cypress Stage
+        if: always() && steps.cypress_tests.outcome == 'failure'
+        run: |
+          echo "=========================================="
+          echo "Cypress E2E tests FAILED"
+          echo "=========================================="
+          echo ""
+          echo "k6 testing will NOT run."
+          echo ""
+          echo "Review the cypress-e2e-report artifact."
+
+          exit 1
+
+  # ============================================================
