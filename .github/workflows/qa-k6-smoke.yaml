@@ -48,13 +48,18 @@ jobs:
         ports:
           - 8080:8080
         volumes:
-          - ./wiremock/mappings:/home/wiremock/mappings:ro
+          - /tmp/wiremock-mappings:/home/wiremock/mappings:ro
         # Removed invalid /__admin/health probe
 
     steps:
 
       - name: Checkout Repository
         uses: actions/checkout@v4
+
+      - name: Prepare WireMock mappings
+        run: |
+          mkdir -p /tmp/wiremock-mappings
+          cp -r wiremock/mappings/* /tmp/wiremock-mappings/
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
