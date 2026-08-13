@@ -6,7 +6,6 @@ on:
 jobs:
   trivy-fs:
     name: Trivy Filesystem Scan
-    needs: sonarcloud
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -194,5 +193,3 @@ jobs:
             <h2>Trivy image scan completed</h2>
             <p>See attached report or workflow artifacts for full details.</p>
           attachments: trivy-img-report.html
-
-
