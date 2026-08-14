@@ -7,8 +7,10 @@ jobs:
   test:
     name: Run Unit Tests & Coverage
     runs-on: ubuntu-latest
+
     permissions:
       contents: read
+
     services:
       postgres:
         image: postgres:15
@@ -23,99 +25,639 @@ jobs:
           --health-interval=10s
           --health-timeout=5s
           --health-retries=5
+
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      # ============================================================
+      # CHECKOUT
+      # ============================================================
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      # ============================================================
+      # NODE.JS
+      # ============================================================
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
-      - run: sudo apt-get update && sudo apt-get install -y libsqlite3-dev build-essential
-      - run: npm ci --ignore-scripts
+          cache: npm
+
+      # ============================================================
+      # SYSTEM DEPENDENCIES
+      # ============================================================
+      - name: Install System Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libsqlite3-dev build-essential
+
+      # ============================================================
+      # NPM DEPENDENCIES
+      # ============================================================
+      - name: Install Dependencies
+        run: npm ci --ignore-scripts
+
+      # ============================================================
+      # JEST TESTS + LCOV COVERAGE
+      # ============================================================
       - name: Run Tests & Capture Console Logs
-        run: npm test --silent=false | tee console.log
-      - uses: actions/upload-artifact@v4
+        shell: bash
+        run: |
+          set -o pipefail
+
+          npm test --silent=false 2>&1 | tee console.log
+
+      # ============================================================
+      # UPLOAD RAW COVERAGE
+      # ============================================================
+      - name: Upload Coverage Report
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
           name: coverage-report
           path: coverage/
+          if-no-files-found: warn
+
+      # ============================================================
+      # BUILD REAL-TIME TEST SUMMARY
+      # ============================================================
       - name: Build Test Summary HTML Report
         if: always()
+        shell: bash
         run: |
-          SUITES_PASSED=$(grep "Test Suites:" console.log | awk '{print $3}')
-          TESTS_PASSED=$(grep "Tests:" console.log | awk '{print $2}')
-          TIME_ELAPSED=$(grep "Time:" console.log | awk '{print $2, $3}')
+          set -u
 
-          # Extract exact totals from the Coverage summary block at the bottom
-          STMTS_SUMMARY=$(grep -A 5 "Coverage summary" console.log | grep "Statements" | sed 's/\x1b\[[0-9;]*m//g')
-          BRANCH_SUMMARY=$(grep -A 5 "Coverage summary" console.log | grep "Branches" | sed 's/\x1b\[[0-9;]*m//g')
-          FUNCS_SUMMARY=$(grep -A 5 "Coverage summary" console.log | grep "Functions" | sed 's/\x1b\[[0-9;]*m//g')
-          LINES_SUMMARY=$(grep -A 5 "Coverage summary" console.log | grep "Lines" | sed 's/\x1b\[[0-9;]*m//g')
+          # --------------------------------------------------------
+          # Remove ANSI escape sequences from Jest output
+          # --------------------------------------------------------
+          CLEAN_LOG="console-clean.log"
 
-          {
-            echo "<html><body style='font-family: Arial, sans-serif; margin: 20px;'>"
-            echo "<h2>Jest Test Suite Execution Report</h2>"
-            echo "<p><strong>Status:</strong> Tests executed successfully against <em>main</em> branch.</p>"
-            
-            # Results Summary Table
-            echo "<h3>Test Execution Summary</h3>"
-            echo "<table border='1' cellpadding='8' cellspacing='0' style='border-collapse: collapse; width: 100%; max-width: 600px;'>"
-            echo "<tr style='background-color: #f2f2f2;'><th>Metric</th><th>Result</th></tr>"
-            echo "<tr><td>Test Suites Passed</td><td><strong>${SUITES_PASSED:-40 passed, 40 total}</strong></td></tr>"
-            echo "<tr><td>Tests Passed</td><td><strong>${TESTS_PASSED:-75 passed, 75 total}</strong></td></tr>"
-            echo "<tr><td>Execution Time</td><td>${TIME_ELAPSED:-40.809 s}</td></tr>"
-            echo "</table>"
+          if [ -f console.log ]; then
+            sed 's/\x1b\[[0-9;]*m//g' console.log > "$CLEAN_LOG"
+          else
+            touch "$CLEAN_LOG"
+          fi
 
-            # Overall Coverage Summary Table
-            echo "<h3>Overall Coverage Summary</h3>"
-            echo "<table border='1' cellpadding='8' cellspacing='0' style='border-collapse: collapse; width: 100%; max-width: 600px; font-family: monospace;'>"
-            echo "<tr style='background-color: #f2f2f2; font-family: Arial, sans-serif;'><th>Metric</th><th>Details</th></tr>"
-            echo "<tr><td><strong>Statements</strong></td><td>$STMTS_SUMMARY</td></tr>"
-            echo "<tr><td><strong>Branches</strong></td><td>$BRANCH_SUMMARY</td></tr>"
-            echo "<tr><td><strong>Functions</strong></td><td>$FUNCS_SUMMARY</td></tr>"
-            echo "<tr><td><strong>Lines</strong></td><td>$LINES_SUMMARY</td></tr>"
-            echo "</table>"
+          # --------------------------------------------------------
+          # Repository metadata
+          # --------------------------------------------------------
+          REPOSITORY="${GITHUB_REPOSITORY:-N/A}"
+          BRANCH="${GITHUB_REF_NAME:-N/A}"
+          COMMIT="${GITHUB_SHA:-N/A}"
 
-            # Full Coverage Breakdown Table (File by File)
-            echo "<h3>Full Coverage Breakdown</h3>"
-            echo "<table border='1' cellpadding='6' cellspacing='0' style='border-collapse: collapse; font-family: monospace; font-size: 13px; width: 100%; max-width: 900px;'>"
-            echo "<tr style='background-color: #f2f2f2; font-family: Arial, sans-serif;'><th>File</th><th>% Stmts</th><th>% Branch</th><th>% Funcs</th><th>% Lines</th><th>Uncovered Line #s</th></tr>"
-            
-            awk '/----*\|----*/ {flag=1; next} /Coverage summary/ {flag=0} flag' console.log | while IFS='|' read -r file stmts branch funcs lines uncovered; do
+          if [ "$COMMIT" != "N/A" ]; then
+            SHORT_COMMIT="${COMMIT:0:7}"
+          else
+            SHORT_COMMIT="N/A"
+          fi
+
+          # --------------------------------------------------------
+          # Test Suite result
+          # Example:
+          # Test Suites: 40 passed, 40 total
+          # --------------------------------------------------------
+          SUITES_LINE=$(grep -E "^Test Suites:" "$CLEAN_LOG" | tail -1 || true)
+
+          if [ -n "$SUITES_LINE" ]; then
+            SUITES_RESULT=$(echo "$SUITES_LINE" | sed 's/^Test Suites:[[:space:]]*//')
+          else
+            SUITES_RESULT="N/A"
+          fi
+
+          # --------------------------------------------------------
+          # Test result
+          # Example:
+          # Tests: 76 passed, 76 total
+          # --------------------------------------------------------
+          TESTS_LINE=$(grep -E "^Tests:" "$CLEAN_LOG" | tail -1 || true)
+
+          if [ -n "$TESTS_LINE" ]; then
+            TESTS_RESULT=$(echo "$TESTS_LINE" | sed 's/^Tests:[[:space:]]*//')
+          else
+            TESTS_RESULT="N/A"
+          fi
+
+          # --------------------------------------------------------
+          # Snapshot result
+          # --------------------------------------------------------
+          SNAPSHOTS_LINE=$(grep -E "^Snapshots:" "$CLEAN_LOG" | tail -1 || true)
+
+          if [ -n "$SNAPSHOTS_LINE" ]; then
+            SNAPSHOTS_RESULT=$(echo "$SNAPSHOTS_LINE" | sed 's/^Snapshots:[[:space:]]*//')
+          else
+            SNAPSHOTS_RESULT="N/A"
+          fi
+
+          # --------------------------------------------------------
+          # Execution time
+          # --------------------------------------------------------
+          TIME_LINE=$(grep -E "^Time:" "$CLEAN_LOG" | tail -1 || true)
+
+          if [ -n "$TIME_LINE" ]; then
+            TIME_RESULT=$(echo "$TIME_LINE" | sed 's/^Time:[[:space:]]*//')
+          else
+            TIME_RESULT="N/A"
+          fi
+
+          # --------------------------------------------------------
+          # Jest overall coverage summary
+          # --------------------------------------------------------
+          STMTS_SUMMARY=$(grep -E "^Statements[[:space:]]*:" "$CLEAN_LOG" | tail -1 || true)
+          BRANCH_SUMMARY=$(grep -E "^Branches[[:space:]]*:" "$CLEAN_LOG" | tail -1 || true)
+          FUNCS_SUMMARY=$(grep -E "^Functions[[:space:]]*:" "$CLEAN_LOG" | tail -1 || true)
+          LINES_SUMMARY=$(grep -E "^Lines[[:space:]]*:" "$CLEAN_LOG" | tail -1 || true)
+
+          STMTS_SUMMARY="${STMTS_SUMMARY:-N/A}"
+          BRANCH_SUMMARY="${BRANCH_SUMMARY:-N/A}"
+          FUNCS_SUMMARY="${FUNCS_SUMMARY:-N/A}"
+          LINES_SUMMARY="${LINES_SUMMARY:-N/A}"
+
+          # --------------------------------------------------------
+          # HTML escaping helper
+          # --------------------------------------------------------
+          html_escape() {
+            printf '%s' "$1" \
+              | sed \
+                -e 's/&/\&amp;/g' \
+                -e 's/</\&lt;/g' \
+                -e 's/>/\&gt;/g' \
+                -e 's/"/\&quot;/g' \
+                -e "s/'/\&#39;/g"
+          }
+
+          # --------------------------------------------------------
+          # Escape metadata
+          # --------------------------------------------------------
+          HTML_REPOSITORY=$(html_escape "$REPOSITORY")
+          HTML_BRANCH=$(html_escape "$BRANCH")
+          HTML_COMMIT=$(html_escape "$SHORT_COMMIT")
+
+          HTML_SUITES=$(html_escape "$SUITES_RESULT")
+          HTML_TESTS=$(html_escape "$TESTS_RESULT")
+          HTML_SNAPSHOTS=$(html_escape "$SNAPSHOTS_RESULT")
+          HTML_TIME=$(html_escape "$TIME_RESULT")
+
+          HTML_STMTS=$(html_escape "$STMTS_SUMMARY")
+          HTML_BRANCH=$(html_escape "$BRANCH_SUMMARY")
+          HTML_FUNCS=$(html_escape "$FUNCS_SUMMARY")
+          HTML_LINES=$(html_escape "$LINES_SUMMARY")
+
+          # --------------------------------------------------------
+          # Determine test status from actual Jest output
+          # --------------------------------------------------------
+          if grep -qE "^Test Suites:.*failed" "$CLEAN_LOG"; then
+            TEST_STATUS="FAILED"
+          elif grep -qE "^Test Suites:.*passed" "$CLEAN_LOG"; then
+            TEST_STATUS="PASSED"
+          else
+            TEST_STATUS="UNKNOWN"
+          fi
+
+          # --------------------------------------------------------
+          # Coverage table
+          # --------------------------------------------------------
+          COVERAGE_ROWS=""
+
+          if grep -q "All files" "$CLEAN_LOG"; then
+
+            while IFS='|' read -r file stmts branch funcs lines uncovered; do
+
               file=$(echo "$file" | xargs)
               stmts=$(echo "$stmts" | xargs)
               branch=$(echo "$branch" | xargs)
               funcs=$(echo "$funcs" | xargs)
               lines=$(echo "$lines" | xargs)
               uncovered=$(echo "$uncovered" | xargs)
-              
-              if [[ "$file" != "File" ]] && [[ "$file" != --* ]]; then
-                if [ -z "$file" ]; then
-                  echo "<tr><td colspan='6' style='background-color: #fafafa; height: 8px;'></td></tr>"
-                else
-                  echo "<tr><td><strong>$file</strong></td><td>$stmts</td><td>$branch</td><td>$funcs</td><td>$lines</td><td style='color: #c00;'>$uncovered</td></tr>"
-                fi
+
+              # Skip invalid/header rows
+              if [ -z "$file" ]; then
+                continue
               fi
-            done
-            echo "</table>"
 
-            # Artifact Links
-            echo "<h3>Artifact Links</h3>"
-            echo "<table border='1' cellpadding='8' cellspacing='0' style='border-collapse: collapse; width: 100%; max-width: 600px;'>"
-            echo "<tr style='background-color: #f2f2f2;'><th>Artifact / Output</th><th>Path / Details</th></tr>"
-            echo "<tr><td>LCOV Coverage File</td><td><code>coverage/lcov.info</code></td></tr>"
-            echo "<tr><td>LCOV HTML Index</td><td><code>coverage/lcov-report/index.html</code></td></tr>"
-            echo "</table>"
+              if [ "$file" = "File" ]; then
+                continue
+              fi
 
-            # Clean Console Highlights
-            echo "<h3>Console Output Highlights</h3>"
-            echo "<pre style='background:#f9f9f9; padding:12px; border:1px solid #ccc; font-family:monospace; max-height: 300px; overflow-y: auto;'>"
-            grep -E "🧠|📏|❌|📁|🔑|🧩|🛠️|✅|🚫|⚠️" console.log | grep -v "at " || echo "No major highlights found."
-            echo "</pre>"
-            
-            echo "</body></html>"
-          } > test-summary.html
-      - uses: actions/upload-artifact@v4
+              if [[ "$file" == -* ]]; then
+                continue
+              fi
+
+              if [[ "$file" == "All files" ]]; then
+                continue
+              fi
+
+              # Skip decorative rows
+              if [[ "$file" == "==="* ]]; then
+                continue
+              fi
+
+              if [ -z "$uncovered" ]; then
+                uncovered="None"
+              fi
+
+              HTML_FILE=$(html_escape "$file")
+              HTML_STMTS_FILE=$(html_escape "$stmts")
+              HTML_BRANCH_FILE=$(html_escape "$branch")
+              HTML_FUNCS_FILE=$(html_escape "$funcs")
+              HTML_LINES_FILE=$(html_escape "$lines")
+              HTML_UNCOVERED=$(html_escape "$uncovered")
+
+              if [ "$uncovered" = "None" ]; then
+                ROW_CLASS="covered"
+              else
+                ROW_CLASS="uncovered"
+              fi
+
+              COVERAGE_ROWS="${COVERAGE_ROWS}
+          <tr class=\"${ROW_CLASS}\">
+            <td><strong>${HTML_FILE}</strong></td>
+            <td>${HTML_STMTS_FILE}</td>
+            <td>${HTML_BRANCH_FILE}</td>
+            <td>${HTML_FUNCS_FILE}</td>
+            <td>${HTML_LINES_FILE}</td>
+            <td>${HTML_UNCOVERED}</td>
+          </tr>"
+
+            done < <(
+              awk '
+                /File[[:space:]]+\|[[:space:]]+% Stmts/ {
+                  found=1
+                  next
+                }
+
+                /Coverage summary/ {
+                  found=0
+                }
+
+                found {
+                  print
+                }
+              ' "$CLEAN_LOG"
+            )
+
+          fi
+
+          if [ -z "$COVERAGE_ROWS" ]; then
+            COVERAGE_ROWS="
+          <tr>
+            <td colspan=\"6\">No Jest coverage table was found in the current test output.</td>
+          </tr>"
+          fi
+
+          # --------------------------------------------------------
+          # Console highlights
+          # --------------------------------------------------------
+          HIGHLIGHTS=$(grep -E "🧠|📏|❌|📁|🔑|🧩|🛠️|✅|🚫|⚠️" "$CLEAN_LOG" \
+            | grep -v "at " \
+            | tail -100 || true)
+
+          if [ -z "$HIGHLIGHTS" ]; then
+            HIGHLIGHTS="No major console highlights found."
+          fi
+
+          HTML_HIGHLIGHTS=$(html_escape "$HIGHLIGHTS")
+
+          # --------------------------------------------------------
+          # Generate HTML
+          # --------------------------------------------------------
+          cat > test-summary.html <<EOF
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+            <title>Jest Test & Coverage Report</title>
+
+            <style>
+              * {
+                box-sizing: border-box;
+              }
+
+              body {
+                margin: 0;
+                padding: 0;
+                background: #f5f7fb;
+                color: #1f2937;
+                font-family: Arial, Helvetica, sans-serif;
+              }
+
+              .container {
+                max-width: 1500px;
+                margin: 0 auto;
+                padding: 30px;
+              }
+
+              .header {
+                background: white;
+                border-radius: 16px;
+                padding: 28px;
+                margin-bottom: 24px;
+                box-shadow: 0 4px 18px rgba(0,0,0,0.07);
+              }
+
+              .header h1 {
+                margin: 0 0 10px 0;
+                font-size: 28px;
+              }
+
+              .header p {
+                margin: 5px 0;
+                color: #6b7280;
+              }
+
+              .status {
+                display: inline-block;
+                margin-top: 15px;
+                padding: 8px 16px;
+                border-radius: 999px;
+                font-weight: bold;
+                background: ${TEST_STATUS == "PASSED" && echo "#dcfce7" || echo "#fee2e2"};
+                color: ${TEST_STATUS == "PASSED" && echo "#166534" || echo "#991b1b"};
+              }
+
+              .cards {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                gap: 18px;
+                margin-bottom: 24px;
+              }
+
+              .card {
+                background: white;
+                border-radius: 14px;
+                padding: 22px;
+                box-shadow: 0 4px 18px rgba(0,0,0,0.06);
+              }
+
+              .card .label {
+                color: #6b7280;
+                font-size: 14px;
+                margin-bottom: 8px;
+              }
+
+              .card .value {
+                font-size: 25px;
+                font-weight: bold;
+              }
+
+              .section {
+                background: white;
+                border-radius: 16px;
+                padding: 24px;
+                margin-bottom: 24px;
+                box-shadow: 0 4px 18px rgba(0,0,0,0.06);
+              }
+
+              .section h2 {
+                margin-top: 0;
+              }
+
+              table {
+                width: 100%;
+                border-collapse: collapse;
+              }
+
+              th {
+                background: #f3f4f6;
+                text-align: left;
+                padding: 10px;
+              }
+
+              td {
+                padding: 9px 10px;
+                border-bottom: 1px solid #e5e7eb;
+                vertical-align: top;
+              }
+
+              tr.uncovered td:last-child {
+                color: #dc2626;
+                font-weight: bold;
+              }
+
+              tr.covered td:last-child {
+                color: #16a34a;
+              }
+
+              .code {
+                background: #111827;
+                color: #e5e7eb;
+                padding: 16px;
+                border-radius: 10px;
+                white-space: pre-wrap;
+                overflow-x: auto;
+                max-height: 400px;
+                overflow-y: auto;
+              }
+
+              .metadata {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+                gap: 12px;
+              }
+
+              .metadata div {
+                background: #f9fafb;
+                padding: 12px;
+                border-radius: 8px;
+              }
+
+              .metadata strong {
+                display: block;
+                margin-bottom: 4px;
+              }
+
+              code {
+                background: #f3f4f6;
+                padding: 2px 5px;
+                border-radius: 4px;
+              }
+
+              @media (max-width: 800px) {
+                .container {
+                  padding: 15px;
+                }
+
+                table {
+                  font-size: 12px;
+                }
+              }
+            </style>
+          </head>
+
+          <body>
+
+            <div class="container">
+
+              <div class="header">
+                <h1>🧪 Jest Test & Coverage Report</h1>
+
+                <p>
+                  Real-time test execution and Jest coverage generated from the current GitHub Actions run.
+                </p>
+
+                <div class="metadata">
+                  <div>
+                    <strong>Repository</strong>
+                    ${HTML_REPOSITORY}
+                  </div>
+
+                  <div>
+                    <strong>Branch</strong>
+                    ${HTML_BRANCH}
+                  </div>
+
+                  <div>
+                    <strong>Commit</strong>
+                    ${HTML_COMMIT}
+                  </div>
+                </div>
+
+                <div class="status">
+                  ${TEST_STATUS}
+                </div>
+              </div>
+
+              <div class="cards">
+
+                <div class="card">
+                  <div class="label">Test Suites</div>
+                  <div class="value">${HTML_SUITES}</div>
+                </div>
+
+                <div class="card">
+                  <div class="label">Tests</div>
+                  <div class="value">${HTML_TESTS}</div>
+                </div>
+
+                <div class="card">
+                  <div class="label">Snapshots</div>
+                  <div class="value">${HTML_SNAPSHOTS}</div>
+                </div>
+
+                <div class="card">
+                  <div class="label">Execution Time</div>
+                  <div class="value">${HTML_TIME}</div>
+                </div>
+
+              </div>
+
+              <div class="section">
+
+                <h2>📊 Overall Coverage Summary</h2>
+
+                <table>
+                  <tr>
+                    <th>Metric</th>
+                    <th>Actual Jest Result</th>
+                  </tr>
+
+                  <tr>
+                    <td><strong>Statements</strong></td>
+                    <td>${HTML_STMTS}</td>
+                  </tr>
+
+                  <tr>
+                    <td><strong>Branches</strong></td>
+                    <td>${HTML_BRANCH}</td>
+                  </tr>
+
+                  <tr>
+                    <td><strong>Functions</strong></td>
+                    <td>${HTML_FUNCS}</td>
+                  </tr>
+
+                  <tr>
+                    <td><strong>Lines</strong></td>
+                    <td>${HTML_LINES}</td>
+                  </tr>
+                </table>
+
+              </div>
+
+              <div class="section">
+
+                <h2>📁 Full Coverage Breakdown</h2>
+
+                <p>
+                  File-level coverage and uncovered lines reported by the current Jest execution.
+                </p>
+
+                <table>
+
+                  <tr>
+                    <th>File</th>
+                    <th>% Stmts</th>
+                    <th>% Branch</th>
+                    <th>% Funcs</th>
+                    <th>% Lines</th>
+                    <th>Uncovered Line #s</th>
+                  </tr>
+
+                  ${COVERAGE_ROWS}
+
+                </table>
+
+              </div>
+
+              <div class="section">
+
+                <h2>📦 Coverage Artifacts</h2>
+
+                <table>
+
+                  <tr>
+                    <th>Artifact</th>
+                    <th>Location</th>
+                  </tr>
+
+                  <tr>
+                    <td>LCOV Coverage</td>
+                    <td><code>coverage/lcov.info</code></td>
+                  </tr>
+
+                  <tr>
+                    <td>LCOV HTML Report</td>
+                    <td><code>coverage/lcov-report/index.html</code></td>
+                  </tr>
+
+                </table>
+
+              </div>
+
+              <div class="section">
+
+                <h2>🖥️ Console Output Highlights</h2>
+
+                <pre class="code">${HTML_HIGHLIGHTS}</pre>
+
+              </div>
+
+            </div>
+
+          </body>
+          </html>
+          EOF
+
+          echo "============================================================"
+          echo "Jest Test & Coverage Report"
+          echo "============================================================"
+          echo "Repository : $REPOSITORY"
+          echo "Branch     : $BRANCH"
+          echo "Commit     : $SHORT_COMMIT"
+          echo "Status     : $TEST_STATUS"
+          echo "Suites     : $SUITES_RESULT"
+          echo "Tests      : $TESTS_RESULT"
+          echo "Snapshots  : $SNAPSHOTS_RESULT"
+          echo "Time       : $TIME_RESULT"
+          echo "============================================================"
+
+      # ============================================================
+      # UPLOAD HTML REPORT
+      # ============================================================
+      - name: Upload Test Summary Report
+        if: always()
+        uses: actions/upload-artifact@v4
         with:
           name: test-summary-report
           path: test-summary.html
-
-
+          if-no-files-found: warn
