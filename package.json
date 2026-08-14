@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
-    "test": "cross-env NODE_OPTIONS=--experimental-vm-modules jest --coverage --coverageProvider=v8 --coverageReporters=text --coverageReporters=text-summary --coverageReporters=lcov --coverageReporters=html",
+    "test": "cross-env NODE_OPTIONS=--experimental-vm-modules jest --coverage --coverageProvider=v8 --coverageReporters=text --coverageReporters=lcov --coverageReporters=html",
     "cypress:ci": "cypress run --browser chrome --headless",
     "wait": "wait-on http://localhost:3000"
   },
