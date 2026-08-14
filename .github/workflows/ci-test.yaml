@@ -27,6 +27,7 @@ jobs:
           --health-retries=5
 
     steps:
+
       # ============================================================
       # CHECKOUT
       # ============================================================
@@ -34,7 +35,7 @@ jobs:
         uses: actions/checkout@v4
 
       # ============================================================
-      # NODE
+      # NODE.JS
       # ============================================================
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -59,6 +60,13 @@ jobs:
       # ============================================================
       # TESTS + COVERAGE
       # ============================================================
+      #
+      # IMPORTANT:
+      # Do not use "set -e" here.
+      # We need the real Jest exit code while still allowing
+      # the report-generation steps to execute.
+      #
+      # ============================================================
       - name: Run Tests & Capture Console Logs
         id: jest
         shell: bash
@@ -71,10 +79,14 @@ jobs:
 
           echo "TEST_EXIT_CODE=$TEST_EXIT_CODE" >> "$GITHUB_ENV"
 
+          echo "============================================================"
+          echo "Jest exit code: $TEST_EXIT_CODE"
+          echo "============================================================"
+
           exit "$TEST_EXIT_CODE"
 
       # ============================================================
-      # COVERAGE ARTIFACT
+      # UPLOAD RAW COVERAGE
       # ============================================================
       - name: Upload Coverage Report
         if: always()
@@ -87,25 +99,37 @@ jobs:
       # ============================================================
       # GENERATE REAL-TIME HTML REPORT
       # ============================================================
+      #
+      # This uses:
+      #
+      #   coverage/coverage-summary.json
+      #
+      # as the authoritative source for coverage.
+      #
+      # Therefore the report does NOT contain hardcoded:
+      #   86.1%
+      #   212
+      #   67
+      # etc.
+      #
+      # Every value comes from the current Jest execution.
+      #
+      # ============================================================
       - name: Generate Test & Coverage HTML Report
         if: always()
         shell: bash
         run: |
+
           cat > generate-test-report.mjs <<'NODE'
           import fs from "fs";
 
-          const logFile = "console.log";
-          const outputFile = "test-summary.html";
+          const LOG_FILE = "console.log";
+          const COVERAGE_FILE = "coverage/coverage-summary.json";
+          const OUTPUT_FILE = "test-summary.html";
 
-          let log = "";
-
-          if (fs.existsSync(logFile)) {
-            log = fs.readFileSync(logFile, "utf8");
-          }
-
-          // ------------------------------------------------------------
-          // Helpers
-          // ------------------------------------------------------------
+          // ============================================================
+          // HELPERS
+          // ============================================================
 
           function escapeHtml(value = "") {
             return String(value)
@@ -118,228 +142,390 @@ jobs:
 
           function stripAnsi(value = "") {
             return String(value).replace(
-              // eslint-disable-next-line no-control-regex
               /\u001B(?:[@-_]|\[[0-?]*[ -/]*[@-~])/g,
               ""
             );
           }
 
-          const cleanLog = stripAnsi(log);
+          function readFileSafe(file) {
+            try {
+              return fs.readFileSync(file, "utf8");
+            } catch {
+              return "";
+            }
+          }
 
-          // ------------------------------------------------------------
-          // GitHub metadata
-          // ------------------------------------------------------------
+          // ============================================================
+          // READ JEST LOG
+          // ============================================================
+
+          const rawLog = readFileSafe(LOG_FILE);
+          const cleanLog = stripAnsi(rawLog);
+
+          // ============================================================
+          // GITHUB METADATA
+          // ============================================================
 
           const repository =
-            process.env.GITHUB_REPOSITORY || "Unknown repository";
+            process.env.GITHUB_REPOSITORY ||
+            "Unknown repository";
 
           const branch =
-            process.env.GITHUB_REF_NAME || "Unknown branch";
+            process.env.GITHUB_REF_NAME ||
+            "Unknown branch";
 
           const commit =
             process.env.GITHUB_SHA
               ? process.env.GITHUB_SHA.substring(0, 7)
               : "Unknown";
 
-          // ------------------------------------------------------------
-          // Test status
-          // ------------------------------------------------------------
+          const workflowRun =
+            process.env.GITHUB_RUN_NUMBER ||
+            "Unknown";
+
+          const runId =
+            process.env.GITHUB_RUN_ID ||
+            "Unknown";
+
+          const serverUrl =
+            process.env.GITHUB_SERVER_URL ||
+            "https://github.com";
+
+          const repositoryUrl =
+            `${serverUrl}/${repository}`;
+
+          const actionsUrl =
+            `${repositoryUrl}/actions/runs/${runId}`;
+
+          // ============================================================
+          // TEST EXIT CODE
+          // ============================================================
 
           const exitCode =
-            process.env.TEST_EXIT_CODE ?? "1";
+            Number(process.env.TEST_EXIT_CODE ?? 1);
 
           const testPassed =
-            exitCode === "0";
+            exitCode === 0;
 
           const testStatus =
-            testPassed ? "PASSED" : "FAILED";
+            testPassed
+              ? "PASSED"
+              : "FAILED";
 
-          // ------------------------------------------------------------
-          // Jest summary
-          // ------------------------------------------------------------
+          const statusBackground =
+            testPassed
+              ? "#dcfce7"
+              : "#fee2e2";
+
+          const statusColor =
+            testPassed
+              ? "#166534"
+              : "#991b1b";
+
+          // ============================================================
+          // FIND JEST SUMMARY LINES
+          // ============================================================
+
+          const logLines =
+            cleanLog.split(/\r?\n/);
 
           function findLine(prefix) {
-            const lines = cleanLog.split(/\r?\n/);
-
             return (
-              lines.find((line) =>
+              logLines.find((line) =>
                 line.trim().startsWith(prefix)
               ) || ""
             );
           }
 
-          const suiteLine = findLine("Test Suites:");
+          const suiteLine =
+            findLine("Test Suites:");
 
-          const testsLine = findLine("Tests:");
+          const testsLine =
+            findLine("Tests:");
 
-          const snapshotsLine = findLine("Snapshots:");
+          const snapshotsLine =
+            findLine("Snapshots:");
 
-          const timeLine = findLine("Time:");
+          const timeLine =
+            findLine("Time:");
 
-          // ------------------------------------------------------------
-          // Extract numeric test information
-          // ------------------------------------------------------------
+          // ============================================================
+          // TEST METRIC PARSER
+          // ============================================================
 
-          function extractMetric(line, label) {
-            const match = line.match(
+          function metric(line, word) {
+            const regex =
               new RegExp(
-                `(\\d+)\\s+${label}`,
+                `(\\d+)\\s+${word}`,
                 "i"
-              )
-            );
+              );
 
-            return match ? match[1] : "0";
+            const match =
+              line.match(regex);
+
+            return match
+              ? match[1]
+              : "0";
           }
 
+          function totalFromLine(line) {
+            const match =
+              line.match(
+                /(?:of\s+)?(\d+)\s+total/i
+              );
+
+            return match
+              ? match[1]
+              : "0";
+          }
+
+          // ============================================================
+          // TEST SUITE METRICS
+          // ============================================================
+
           const suitesPassed =
-            extractMetric(suiteLine, "passed");
+            metric(
+              suiteLine,
+              "passed"
+            );
 
           const suitesFailed =
-            extractMetric(suiteLine, "failed");
-
-          const suitesTotalMatch =
-            suiteLine.match(
-              /of\s+(\d+)\s+total/i
+            metric(
+              suiteLine,
+              "failed"
             );
 
           const suitesTotal =
-            suitesTotalMatch
-              ? suitesTotalMatch[1]
-              : "0";
+            totalFromLine(
+              suiteLine
+            );
+
+          // ============================================================
+          // TEST METRICS
+          // ============================================================
 
           const testsPassed =
-            extractMetric(testsLine, "passed");
+            metric(
+              testsLine,
+              "passed"
+            );
 
           const testsFailed =
-            extractMetric(testsLine, "failed");
-
-          const testsTotalMatch =
-            testsLine.match(
-              /(\d+)\s+total/i
+            metric(
+              testsLine,
+              "failed"
             );
 
           const testsTotal =
-            testsTotalMatch
-              ? testsTotalMatch[1]
-              : "0";
+            totalFromLine(
+              testsLine
+            );
+
+          // ============================================================
+          // SNAPSHOTS
+          // ============================================================
 
           const snapshots =
-            snapshotsLine.trim() || "N/A";
+            snapshotsLine.trim() ||
+            "Snapshots: N/A";
+
+          // ============================================================
+          // EXECUTION TIME
+          // ============================================================
 
           const executionTime =
-            timeLine.trim() || "N/A";
+            timeLine.trim() ||
+            "Time: N/A";
 
-          // ------------------------------------------------------------
-          // Coverage summary
-          // ------------------------------------------------------------
+          // ============================================================
+          // READ REAL COVERAGE JSON
+          // ============================================================
 
-          function extractCoverage(metric) {
-            const lines = cleanLog.split(/\r?\n/);
+          let coverage = null;
 
-            for (const line of lines) {
-              if (
-                line
-                  .toLowerCase()
-                  .includes(metric.toLowerCase())
-              ) {
-                const match =
-                  line.match(
-                    /(\d+(?:\.\d+)?)\s*%/
-                  );
-
-                if (match) {
-                  return `${match[1]}%`;
-                }
-              }
+          if (fs.existsSync(COVERAGE_FILE)) {
+            try {
+              coverage =
+                JSON.parse(
+                  fs.readFileSync(
+                    COVERAGE_FILE,
+                    "utf8"
+                  )
+                );
+            } catch (error) {
+              console.log(
+                "Unable to parse coverage-summary.json:",
+                error.message
+              );
             }
-
-            return "N/A";
           }
 
+          // ============================================================
+          // COVERAGE HELPERS
+          // ============================================================
+
+          function coveragePercent(
+            section,
+            key
+          ) {
+            if (
+              !section ||
+              !section[key]
+            ) {
+              return "N/A";
+            }
+
+            const value =
+              section[key].pct;
+
+            if (
+              value === undefined ||
+              value === null
+            ) {
+              return "N/A";
+            }
+
+            return `${value}%`;
+          }
+
+          function coverageUncovered(
+            section,
+            key
+          ) {
+            if (
+              !section ||
+              !section[key]
+            ) {
+              return "0";
+            }
+
+            return String(
+              section[key].uncovered ??
+              0
+            );
+          }
+
+          // ============================================================
+          // OVERALL COVERAGE
+          // ============================================================
+
+          const totalCoverage =
+            coverage?.total || null;
+
           const statements =
-            extractCoverage("Statements");
+            coveragePercent(
+              totalCoverage,
+              "statements"
+            );
 
           const branches =
-            extractCoverage("Branches");
+            coveragePercent(
+              totalCoverage,
+              "branches"
+            );
 
           const functions =
-            extractCoverage("Functions");
+            coveragePercent(
+              totalCoverage,
+              "functions"
+            );
 
           const linesCoverage =
-            extractCoverage("Lines");
+            coveragePercent(
+              totalCoverage,
+              "lines"
+            );
 
-          // ------------------------------------------------------------
-          // Coverage table
-          // ------------------------------------------------------------
+          const statementsUncovered =
+            coverageUncovered(
+              totalCoverage,
+              "statements"
+            );
+
+          const branchesUncovered =
+            coverageUncovered(
+              totalCoverage,
+              "branches"
+            );
+
+          const functionsUncovered =
+            coverageUncovered(
+              totalCoverage,
+              "functions"
+            );
+
+          const linesUncovered =
+            coverageUncovered(
+              totalCoverage,
+              "lines"
+            );
+
+          // ============================================================
+          // COVERAGE FILE ROWS
+          // ============================================================
 
           let coverageRows = "";
 
-          const coverageStart =
-            cleanLog.indexOf(
-              "-------------------|---------|----------|---------|---------|-------------------"
-            );
+          if (
+            coverage &&
+            typeof coverage === "object"
+          ) {
+            const entries =
+              Object.entries(
+                coverage
+              )
+              .filter(
+                ([key]) =>
+                  key !== "total"
+              )
+              .sort(
+                (a, b) =>
+                  Number(
+                    b[1]?.lines?.uncovered ??
+                    0
+                  ) -
+                  Number(
+                    a[1]?.lines?.uncovered ??
+                    0
+                  )
+              );
 
-          if (coverageStart !== -1) {
-            const coverageText =
-              cleanLog.substring(coverageStart);
+            for (
+              const [file, data]
+              of entries
+            ) {
+              const stmts =
+                coveragePercent(
+                  data,
+                  "statements"
+                );
 
-            const coverageLines =
-              coverageText.split(/\r?\n/);
+              const branch =
+                coveragePercent(
+                  data,
+                  "branches"
+                );
 
-            for (const rawLine of coverageLines) {
-              const line = rawLine.trim();
+              const funcs =
+                coveragePercent(
+                  data,
+                  "functions"
+                );
 
-              if (!line.startsWith("|")) {
-                continue;
-              }
+              const lines =
+                coveragePercent(
+                  data,
+                  "lines"
+                );
 
-              const parts =
-                line
-                  .split("|")
-                  .map((part) => part.trim())
-                  .filter(Boolean);
-
-              if (parts.length < 6) {
-                continue;
-              }
-
-              const file = parts[0];
-
-              if (
-                file === "File" ||
-                file.startsWith("---")
-              ) {
-                continue;
-              }
-
-              const stmts = parts[1];
-              const branch = parts[2];
-              const funcs = parts[3];
-              const lines = parts[4];
-              const uncovered = parts[5];
-
-              if (
-                file === "All files" ||
-                file === "All files "
-              ) {
-                coverageRows += `
-                  <tr class="total-row">
-                    <td><strong>${escapeHtml(file)}</strong></td>
-                    <td><strong>${escapeHtml(stmts)}</strong></td>
-                    <td><strong>${escapeHtml(branch)}</strong></td>
-                    <td><strong>${escapeHtml(funcs)}</strong></td>
-                    <td><strong>${escapeHtml(lines)}</strong></td>
-                    <td><strong>${escapeHtml(uncovered)}</strong></td>
-                  </tr>
-                `;
-
-                continue;
-              }
+              const uncovered =
+                coverageUncovered(
+                  data,
+                  "lines"
+                );
 
               const uncoveredExists =
-                uncovered &&
-                uncovered !== "-" &&
-                uncovered !== "0";
+                Number(uncovered) > 0;
 
               coverageRows += `
                 <tr class="${
@@ -352,7 +538,7 @@ jobs:
                   <td>${escapeHtml(branch)}</td>
                   <td>${escapeHtml(funcs)}</td>
                   <td>${escapeHtml(lines)}</td>
-                  <td>${escapeHtml(uncovered || "-")}</td>
+                  <td>${escapeHtml(uncovered)}</td>
                 </tr>
               `;
             }
@@ -362,74 +548,81 @@ jobs:
             coverageRows = `
               <tr>
                 <td colspan="6">
-                  No file-level coverage table was detected in Jest output.
-                  See the LCOV artifact for the complete coverage report.
+                  No coverage-summary.json was generated.
+                  Check the coverage artifact.
                 </td>
               </tr>
             `;
           }
 
-          // ------------------------------------------------------------
-          // Console highlights
-          // ------------------------------------------------------------
+          // ============================================================
+          // CONSOLE HIGHLIGHTS
+          // ============================================================
 
-          const highlightLines =
-            cleanLog
-              .split(/\r?\n/)
+          const highlights =
+            logLines
               .filter((line) =>
-                /PASS |FAIL |Test Suites:|Tests:|Snapshots:|Time:|Coverage summary|Statements|Branches|Functions|Lines|console\.error|console\.warn/i.test(
+                /PASS |FAIL |Test Suites:|Tests:|Snapshots:|Time:|Coverage summary|console\.error|console\.warn|console\.log/i.test(
                   line
                 )
               )
-              .slice(-150);
+              .slice(-200)
+              .join("\n") ||
+            "No console highlights found.";
 
-          const highlights =
-            highlightLines.length
-              ? highlightLines.join("\n")
-              : "No console highlights found.";
+          // ============================================================
+          // COVERAGE AVAILABILITY
+          // ============================================================
 
-          // ------------------------------------------------------------
-          // Status styling
-          // ------------------------------------------------------------
+          const coverageAvailable =
+            Boolean(
+              coverage &&
+              coverage.total
+            );
 
-          const statusBackground =
-            testPassed
-              ? "#dcfce7"
-              : "#fee2e2";
+          const coverageStatus =
+            coverageAvailable
+              ? "Coverage data available"
+              : "Coverage data unavailable";
 
-          const statusColor =
-            testPassed
-              ? "#166534"
-              : "#991b1b";
-
-          // ------------------------------------------------------------
+          // ============================================================
           // HTML
-          // ------------------------------------------------------------
+          // ============================================================
 
           const html = `<!DOCTYPE html>
           <html lang="en">
           <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-            <title>Jest Test & Coverage Report</title>
+            <meta charset="UTF-8">
+
+            <meta
+              name="viewport"
+              content="width=device-width, initial-scale=1.0"
+            >
+
+            <title>
+              Jest Test & Coverage Report
+            </title>
 
             <style>
+
               * {
                 box-sizing: border-box;
               }
 
               body {
                 margin: 0;
-                padding: 0;
                 background: #f5f7fb;
                 color: #1f2937;
-                font-family: Arial, Helvetica, sans-serif;
+                font-family:
+                  Arial,
+                  Helvetica,
+                  sans-serif;
               }
 
               .container {
-                max-width: 1500px;
-                margin: 0 auto;
+                max-width: 1600px;
+                margin: auto;
                 padding: 30px;
               }
 
@@ -438,7 +631,9 @@ jobs:
               .card {
                 background: white;
                 border-radius: 16px;
-                box-shadow: 0 4px 18px rgba(0,0,0,0.06);
+                box-shadow:
+                  0 4px 18px
+                  rgba(0,0,0,0.06);
               }
 
               .header {
@@ -446,19 +641,17 @@ jobs:
                 margin-bottom: 24px;
               }
 
-              .header h1 {
-                margin: 0 0 10px;
-                font-size: 28px;
-              }
-
-              .header p {
-                color: #6b7280;
+              h1 {
+                margin-top: 0;
               }
 
               .metadata {
                 display: grid;
                 grid-template-columns:
-                  repeat(auto-fit, minmax(240px, 1fr));
+                  repeat(
+                    auto-fit,
+                    minmax(240px, 1fr)
+                  );
                 gap: 12px;
                 margin-top: 20px;
               }
@@ -487,7 +680,10 @@ jobs:
               .cards {
                 display: grid;
                 grid-template-columns:
-                  repeat(auto-fit, minmax(200px, 1fr));
+                  repeat(
+                    auto-fit,
+                    minmax(180px, 1fr)
+                  );
                 gap: 18px;
                 margin-bottom: 24px;
               }
@@ -503,17 +699,13 @@ jobs:
               }
 
               .value {
-                font-size: 25px;
+                font-size: 26px;
                 font-weight: bold;
               }
 
               .section {
                 padding: 24px;
                 margin-bottom: 24px;
-              }
-
-              .section h2 {
-                margin-top: 0;
               }
 
               table {
@@ -529,16 +721,19 @@ jobs:
 
               td {
                 padding: 9px 10px;
-                border-bottom: 1px solid #e5e7eb;
+                border-bottom:
+                  1px solid #e5e7eb;
                 vertical-align: top;
               }
 
-              tr.uncovered td:last-child {
+              tr.uncovered
+                td:last-child {
                 color: #dc2626;
                 font-weight: bold;
               }
 
-              tr.covered td:last-child {
+              tr.covered
+                td:last-child {
                 color: #16a34a;
               }
 
@@ -557,12 +752,26 @@ jobs:
                 overflow-y: auto;
               }
 
-              code {
-                background: #f3f4f6;
-                padding: 2px 5px;
-                border-radius: 4px;
+              .links a {
+                color: #2563eb;
+                text-decoration: none;
+                font-weight: bold;
               }
+
+              .links a:hover {
+                text-decoration: underline;
+              }
+
+              .success {
+                color: #166534;
+              }
+
+              .danger {
+                color: #991b1b;
+              }
+
             </style>
+
           </head>
 
           <body>
@@ -571,11 +780,14 @@ jobs:
 
               <div class="header">
 
-                <h1>🧪 Jest Test & Coverage Report</h1>
+                <h1>
+                  🧪 Jest Test & Coverage Report
+                </h1>
 
                 <p>
-                  Real-time test execution and coverage generated
-                  from the current GitHub Actions run.
+                  Real-time test execution and
+                  coverage generated from the
+                  current GitHub Actions run.
                 </p>
 
                 <div class="metadata">
@@ -595,9 +807,16 @@ jobs:
                     ${escapeHtml(commit)}
                   </div>
 
+                  <div>
+                    <strong>Workflow Run</strong>
+                    #${escapeHtml(workflowRun)}
+                  </div>
+
                 </div>
 
-                <div class="status">
+                <div
+                  class="status"
+                >
                   ${escapeHtml(testStatus)}
                 </div>
 
@@ -606,39 +825,65 @@ jobs:
               <div class="cards">
 
                 <div class="card">
-                  <div class="label">Test Suites Passed</div>
+                  <div class="label">
+                    Test Suites
+                  </div>
                   <div class="value">
-                    ${escapeHtml(suitesPassed)} /
-                    ${escapeHtml(suitesTotal)}
+                    ${escapeHtml(
+                      suitesPassed
+                    )}
+                    /
+                    ${escapeHtml(
+                      suitesTotal
+                    )}
                   </div>
                 </div>
 
                 <div class="card">
-                  <div class="label">Tests Passed</div>
+                  <div class="label">
+                    Tests
+                  </div>
                   <div class="value">
-                    ${escapeHtml(testsPassed)} /
-                    ${escapeHtml(testsTotal)}
+                    ${escapeHtml(
+                      testsPassed
+                    )}
+                    /
+                    ${escapeHtml(
+                      testsTotal
+                    )}
                   </div>
                 </div>
 
                 <div class="card">
-                  <div class="label">Test Suites Failed</div>
-                  <div class="value">
-                    ${escapeHtml(suitesFailed)}
+                  <div class="label">
+                    Failed Suites
+                  </div>
+                  <div class="value danger">
+                    ${escapeHtml(
+                      suitesFailed
+                    )}
                   </div>
                 </div>
 
                 <div class="card">
-                  <div class="label">Tests Failed</div>
-                  <div class="value">
-                    ${escapeHtml(testsFailed)}
+                  <div class="label">
+                    Failed Tests
+                  </div>
+                  <div class="value danger">
+                    ${escapeHtml(
+                      testsFailed
+                    )}
                   </div>
                 </div>
 
                 <div class="card">
-                  <div class="label">Execution Time</div>
+                  <div class="label">
+                    Execution Time
+                  </div>
                   <div class="value">
-                    ${escapeHtml(executionTime)}
+                    ${escapeHtml(
+                      executionTime
+                    )}
                   </div>
                 </div>
 
@@ -646,33 +891,94 @@ jobs:
 
               <div class="section">
 
-                <h2>📊 Overall Coverage Summary</h2>
+                <h2>
+                  📊 Overall Coverage
+                </h2>
+
+                <p>
+                  ${escapeHtml(
+                    coverageStatus
+                  )}
+                </p>
 
                 <table>
 
                   <tr>
                     <th>Metric</th>
-                    <th>Actual Jest Result</th>
+                    <th>Coverage</th>
+                    <th>Uncovered</th>
                   </tr>
 
                   <tr>
-                    <td><strong>Statements</strong></td>
-                    <td>${escapeHtml(statements)}</td>
+                    <td>
+                      <strong>
+                        Statements
+                      </strong>
+                    </td>
+                    <td>
+                      ${escapeHtml(
+                        statements
+                      )}
+                    </td>
+                    <td>
+                      ${escapeHtml(
+                        statementsUncovered
+                      )}
+                    </td>
                   </tr>
 
                   <tr>
-                    <td><strong>Branches</strong></td>
-                    <td>${escapeHtml(branches)}</td>
+                    <td>
+                      <strong>
+                        Branches
+                      </strong>
+                    </td>
+                    <td>
+                      ${escapeHtml(
+                        branches
+                      )}
+                    </td>
+                    <td>
+                      ${escapeHtml(
+                        branchesUncovered
+                      )}
+                    </td>
                   </tr>
 
                   <tr>
-                    <td><strong>Functions</strong></td>
-                    <td>${escapeHtml(functions)}</td>
+                    <td>
+                      <strong>
+                        Functions
+                      </strong>
+                    </td>
+                    <td>
+                      ${escapeHtml(
+                        functions
+                      )}
+                    </td>
+                    <td>
+                      ${escapeHtml(
+                        functionsUncovered
+                      )}
+                    </td>
                   </tr>
 
                   <tr>
-                    <td><strong>Lines</strong></td>
-                    <td>${escapeHtml(linesCoverage)}</td>
+                    <td>
+                      <strong>
+                        Lines
+                      </strong>
+                    </td>
+                    <td>
+                      ${escapeHtml(
+                        linesCoverage
+                      )}
+                    </td>
+                    <td>
+                      ${escapeHtml(
+                        linesUncovered
+                      )}
+                    </td>
                   </tr>
 
                 </table>
@@ -681,22 +987,24 @@ jobs:
 
               <div class="section">
 
-                <h2>📁 Full Coverage Breakdown</h2>
+                <h2>
+                  📁 Full Coverage Breakdown
+                </h2>
 
                 <p>
-                  File-level coverage and uncovered lines reported
-                  by the current Jest execution.
+                  Actual file-level coverage
+                  generated by Jest.
                 </p>
 
                 <table>
 
                   <tr>
                     <th>File</th>
-                    <th>% Stmts</th>
-                    <th>% Branch</th>
-                    <th>% Funcs</th>
+                    <th>% Statements</th>
+                    <th>% Branches</th>
+                    <th>% Functions</th>
                     <th>% Lines</th>
-                    <th>Uncovered Line #s</th>
+                    <th>Uncovered Lines</th>
                   </tr>
 
                   ${coverageRows}
@@ -707,7 +1015,43 @@ jobs:
 
               <div class="section">
 
-                <h2>📦 Coverage Artifacts</h2>
+                <h2>
+                  🔗 GitHub Run
+                </h2>
+
+                <div class="links">
+
+                  <p>
+                    <a
+                      href="${escapeHtml(
+                        repositoryUrl
+                      )}"
+                      target="_blank"
+                    >
+                      Open Repository
+                    </a>
+                  </p>
+
+                  <p>
+                    <a
+                      href="${escapeHtml(
+                        actionsUrl
+                      )}"
+                      target="_blank"
+                    >
+                      Open This GitHub Actions Run
+                    </a>
+                  </p>
+
+                </div>
+
+              </div>
+
+              <div class="section">
+
+                <h2>
+                  📦 Coverage Artifacts
+                </h2>
 
                 <table>
 
@@ -717,16 +1061,35 @@ jobs:
                   </tr>
 
                   <tr>
-                    <td>LCOV Coverage</td>
                     <td>
-                      <code>coverage/lcov.info</code>
+                      LCOV
+                    </td>
+                    <td>
+                      <code>
+                        coverage/lcov.info
+                      </code>
                     </td>
                   </tr>
 
                   <tr>
-                    <td>LCOV HTML Report</td>
                     <td>
-                      <code>coverage/lcov-report/index.html</code>
+                      Coverage JSON
+                    </td>
+                    <td>
+                      <code>
+                        coverage/coverage-summary.json
+                      </code>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td>
+                      HTML Coverage
+                    </td>
+                    <td>
+                      <code>
+                        coverage/lcov-report/index.html
+                      </code>
                     </td>
                   </tr>
 
@@ -736,9 +1099,13 @@ jobs:
 
               <div class="section">
 
-                <h2>🖥️ Console Output Highlights</h2>
+                <h2>
+                  🖥️ Console Output Highlights
+                </h2>
 
-                <pre class="code">${escapeHtml(highlights)}</pre>
+                <pre class="code">${escapeHtml(
+                  highlights
+                )}</pre>
 
               </div>
 
@@ -748,14 +1115,25 @@ jobs:
           </html>`;
 
           fs.writeFileSync(
-            outputFile,
+            OUTPUT_FILE,
             html,
             "utf8"
           );
 
           console.log(
-            `Generated ${outputFile}`
+            `Generated ${OUTPUT_FILE}`
           );
+
+          console.log(
+            `Coverage file present: ${
+              coverageAvailable
+            }`
+          );
+
+          console.log(
+            `Test exit code: ${exitCode}`
+          );
+
           NODE
 
           node generate-test-report.mjs
@@ -772,7 +1150,7 @@ jobs:
           if-no-files-found: error
 
       # ============================================================
-      # UPLOAD RAW TEST LOG
+      # UPLOAD RAW JEST LOG
       # ============================================================
       - name: Upload Jest Console Log
         if: always()
@@ -781,3 +1159,28 @@ jobs:
           name: jest-console-log
           path: console.log
           if-no-files-found: warn
+
+      # ============================================================
+      # FINAL RESULT
+      # ============================================================
+      #
+      # The Jest step remains authoritative.
+      # If tests fail, the workflow/job fails even though
+      # the reports were successfully generated.
+      #
+      # ============================================================
+      - name: Report Final Test Result
+        if: always()
+        shell: bash
+        run: |
+          echo "============================================================"
+          echo "FINAL JEST RESULT"
+          echo "============================================================"
+          echo "Exit code: ${TEST_EXIT_CODE:-unknown}"
+
+          if [ "${TEST_EXIT_CODE:-1}" -ne 0 ]; then
+            echo "❌ Jest tests failed."
+            exit "${TEST_EXIT_CODE:-1}"
+          fi
+
+          echo "✅ Jest tests passed."
