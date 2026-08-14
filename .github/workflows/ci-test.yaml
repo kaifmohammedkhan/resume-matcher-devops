@@ -30,14 +30,12 @@ jobs:
       # ============================================================
       # CHECKOUT
       # ============================================================
-
       - name: Checkout Repository
         uses: actions/checkout@v4
 
       # ============================================================
-      # NODE.JS
+      # NODE
       # ============================================================
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -47,27 +45,22 @@ jobs:
       # ============================================================
       # SYSTEM DEPENDENCIES
       # ============================================================
-
       - name: Install System Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            libsqlite3-dev \
-            build-essential
+          sudo apt-get install -y libsqlite3-dev build-essential
 
       # ============================================================
       # DEPENDENCIES
       # ============================================================
-
       - name: Install Dependencies
         run: npm ci --ignore-scripts
 
       # ============================================================
       # TESTS + COVERAGE
       # ============================================================
-
       - name: Run Tests & Capture Console Logs
-        id: tests
+        id: jest
         shell: bash
         run: |
           set +e
@@ -76,14 +69,13 @@ jobs:
 
           TEST_EXIT_CODE=${PIPESTATUS[0]}
 
-          echo "TEST_EXIT_CODE=${TEST_EXIT_CODE}" >> "$GITHUB_ENV"
+          echo "TEST_EXIT_CODE=$TEST_EXIT_CODE" >> "$GITHUB_ENV"
 
           exit "$TEST_EXIT_CODE"
 
       # ============================================================
-      # UPLOAD COVERAGE
+      # COVERAGE ARTIFACT
       # ============================================================
-
       - name: Upload Coverage Report
         if: always()
         uses: actions/upload-artifact@v4
@@ -95,259 +87,326 @@ jobs:
       # ============================================================
       # GENERATE REAL-TIME HTML REPORT
       # ============================================================
-
-      - name: Build Test Summary HTML Report
+      - name: Generate Test & Coverage HTML Report
         if: always()
         shell: bash
         run: |
-          set +e
+          cat > generate-test-report.mjs <<'NODE'
+          import fs from "fs";
 
-          echo "============================================================"
-          echo "Generating Jest Test & Coverage HTML report"
-          echo "============================================================"
+          const logFile = "console.log";
+          const outputFile = "test-summary.html";
 
-          # --------------------------------------------------------
-          # Basic metadata
-          # --------------------------------------------------------
+          let log = "";
 
-          REPOSITORY="${GITHUB_REPOSITORY}"
-          BRANCH="${GITHUB_REF_NAME}"
-          COMMIT="${GITHUB_SHA:0:7}"
-
-          if [ "${TEST_EXIT_CODE:-1}" -eq 0 ]; then
-            TEST_STATUS="PASSED"
-          else
-            TEST_STATUS="FAILED"
-          fi
-
-          # --------------------------------------------------------
-          # Clean ANSI escape sequences
-          # --------------------------------------------------------
-
-          if [ -f console.log ]; then
-            sed -E $'s/\033\\[[0-9;]*[[:alpha:]]//g' console.log > console-clean.log
-          else
-            touch console-clean.log
-          fi
-
-          # --------------------------------------------------------
-          # Extract Jest test statistics
-          # --------------------------------------------------------
-
-          SUITES_LINE=$(grep -E "^Test Suites:" console-clean.log | tail -1 || true)
-          TESTS_LINE=$(grep -E "^Tests:" console-clean.log | tail -1 || true)
-          SNAPSHOTS_LINE=$(grep -E "^Snapshots:" console-clean.log | tail -1 || true)
-          TIME_LINE=$(grep -E "^Time:" console-clean.log | tail -1 || true)
-
-          SUITES_RESULT=$(echo "$SUITES_LINE" | sed 's/^Test Suites:[[:space:]]*//' | xargs)
-          TESTS_RESULT=$(echo "$TESTS_LINE" | sed 's/^Tests:[[:space:]]*//' | xargs)
-          SNAPSHOTS_RESULT=$(echo "$SNAPSHOTS_LINE" | sed 's/^Snapshots:[[:space:]]*//' | xargs)
-          TIME_RESULT=$(echo "$TIME_LINE" | sed 's/^Time:[[:space:]]*//' | xargs)
-
-          SUITES_RESULT="${SUITES_RESULT:-N/A}"
-          TESTS_RESULT="${TESTS_RESULT:-N/A}"
-          SNAPSHOTS_RESULT="${SNAPSHOTS_RESULT:-N/A}"
-          TIME_RESULT="${TIME_RESULT:-N/A}"
-
-          # --------------------------------------------------------
-          # Extract coverage summary
-          #
-          # Jest coverage output normally looks like:
-          #
-          # Statements   : 86.1% ( ...)
-          # Branches     : 76.4% ( ...)
-          # Functions    : 88.2% ( ...)
-          # Lines        : 86.1% ( ...)
-          # --------------------------------------------------------
-
-          STMTS_SUMMARY=$(grep -E "Statements[[:space:]]*:" console-clean.log | tail -1 || true)
-          BRANCH_SUMMARY=$(grep -E "Branches[[:space:]]*:" console-clean.log | tail -1 || true)
-          FUNCS_SUMMARY=$(grep -E "Functions[[:space:]]*:" console-clean.log | tail -1 || true)
-          LINES_SUMMARY=$(grep -E "Lines[[:space:]]*:" console-clean.log | tail -1 || true)
-
-          STMTS_SUMMARY="${STMTS_SUMMARY:-N/A}"
-          BRANCH_SUMMARY="${BRANCH_SUMMARY:-N/A}"
-          FUNCS_SUMMARY="${FUNCS_SUMMARY:-N/A}"
-          LINES_SUMMARY="${LINES_SUMMARY:-N/A}"
-
-          # --------------------------------------------------------
-          # Escape HTML helper
-          # --------------------------------------------------------
-
-          escape_html() {
-            sed \
-              -e 's/&/\&amp;/g' \
-              -e 's/</\&lt;/g' \
-              -e 's/>/\&gt;/g' \
-              -e 's/"/\&quot;/g' \
-              -e "s/'/&#39;/g"
+          if (fs.existsSync(logFile)) {
+            log = fs.readFileSync(logFile, "utf8");
           }
 
-          HTML_REPOSITORY=$(printf '%s' "$REPOSITORY" | escape_html)
-          HTML_BRANCH=$(printf '%s' "$BRANCH" | escape_html)
-          HTML_COMMIT=$(printf '%s' "$COMMIT" | escape_html)
+          // ------------------------------------------------------------
+          // Helpers
+          // ------------------------------------------------------------
 
-          HTML_STATUS=$(printf '%s' "$TEST_STATUS" | escape_html)
-          HTML_SUITES=$(printf '%s' "$SUITES_RESULT" | escape_html)
-          HTML_TESTS=$(printf '%s' "$TESTS_RESULT" | escape_html)
-          HTML_SNAPSHOTS=$(printf '%s' "$SNAPSHOTS_RESULT" | escape_html)
-          HTML_TIME=$(printf '%s' "$TIME_RESULT" | escape_html)
+          function escapeHtml(value = "") {
+            return String(value)
+              .replace(/&/g, "&amp;")
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;")
+              .replace(/"/g, "&quot;")
+              .replace(/'/g, "&#039;");
+          }
 
-          HTML_STMTS=$(printf '%s' "$STMTS_SUMMARY" | escape_html)
-          HTML_BRANCH_COVERAGE=$(printf '%s' "$BRANCH_SUMMARY" | escape_html)
-          HTML_FUNCS=$(printf '%s' "$FUNCS_SUMMARY" | escape_html)
-          HTML_LINES=$(printf '%s' "$LINES_SUMMARY" | escape_html)
+          function stripAnsi(value = "") {
+            return String(value).replace(
+              // eslint-disable-next-line no-control-regex
+              /\u001B(?:[@-_]|\[[0-?]*[ -/]*[@-~])/g,
+              ""
+            );
+          }
 
-          # --------------------------------------------------------
-          # Build file-by-file coverage rows directly from
-          # coverage/lcov.info.
-          #
-          # This is more reliable than scraping Jest's console table.
-          # --------------------------------------------------------
+          const cleanLog = stripAnsi(log);
 
-          COVERAGE_ROWS=""
+          // ------------------------------------------------------------
+          // GitHub metadata
+          // ------------------------------------------------------------
 
-          if [ -f coverage/lcov.info ]; then
+          const repository =
+            process.env.GITHUB_REPOSITORY || "Unknown repository";
 
-            CURRENT_FILE=""
-            CURRENT_LINES_FOUND=0
-            CURRENT_LINES_HIT=0
-            CURRENT_UNCOVERED=""
+          const branch =
+            process.env.GITHUB_REF_NAME || "Unknown branch";
 
-            while IFS= read -r line || [ -n "$line" ]; do
+          const commit =
+            process.env.GITHUB_SHA
+              ? process.env.GITHUB_SHA.substring(0, 7)
+              : "Unknown";
 
-              case "$line" in
+          // ------------------------------------------------------------
+          // Test status
+          // ------------------------------------------------------------
 
-                SF:*)
-                  CURRENT_FILE="${line#SF:}"
-                  CURRENT_LINES_FOUND=0
-                  CURRENT_LINES_HIT=0
-                  CURRENT_UNCOVERED=""
-                  ;;
+          const exitCode =
+            process.env.TEST_EXIT_CODE ?? "1";
 
-                LF:*)
-                  CURRENT_LINES_FOUND="${line#LF:}"
-                  ;;
+          const testPassed =
+            exitCode === "0";
 
-                LH:*)
-                  CURRENT_LINES_HIT="${line#LH:}"
-                  ;;
+          const testStatus =
+            testPassed ? "PASSED" : "FAILED";
 
-                DA:*)
-                  DATA="${line#DA:}"
+          // ------------------------------------------------------------
+          // Jest summary
+          // ------------------------------------------------------------
 
-                  LINE_NUMBER="${DATA%%,*}"
-                  REST="${DATA#*,}"
+          function findLine(prefix) {
+            const lines = cleanLog.split(/\r?\n/);
 
-                  HIT_COUNT="${REST%%,*}"
+            return (
+              lines.find((line) =>
+                line.trim().startsWith(prefix)
+              ) || ""
+            );
+          }
 
-                  if [ "$HIT_COUNT" = "0" ]; then
-                    if [ -n "$CURRENT_UNCOVERED" ]; then
-                      CURRENT_UNCOVERED="${CURRENT_UNCOVERED}, ${LINE_NUMBER}"
-                    else
-                      CURRENT_UNCOVERED="${LINE_NUMBER}"
-                    fi
-                  fi
-                  ;;
+          const suiteLine = findLine("Test Suites:");
 
-                end_of_record)
+          const testsLine = findLine("Tests:");
 
-                  if [ -n "$CURRENT_FILE" ]; then
+          const snapshotsLine = findLine("Snapshots:");
 
-                    if [ "$CURRENT_LINES_FOUND" -gt 0 ] 2>/dev/null; then
-                      COVERAGE_PERCENT=$(awk \
-                        -v hit="$CURRENT_LINES_HIT" \
-                        -v found="$CURRENT_LINES_FOUND" \
-                        'BEGIN {
-                          if (found == 0) print "N/A";
-                          else printf "%.1f%%", (hit / found) * 100;
-                        }')
-                    else
-                      COVERAGE_PERCENT="N/A"
-                    fi
+          const timeLine = findLine("Time:");
 
-                    FILE_ESCAPED=$(printf '%s' "$CURRENT_FILE" | escape_html)
-                    PERCENT_ESCAPED=$(printf '%s' "$COVERAGE_PERCENT" | escape_html)
-                    UNCOVERED_ESCAPED=$(printf '%s' "${CURRENT_UNCOVERED:-None}" | escape_html)
+          // ------------------------------------------------------------
+          // Extract numeric test information
+          // ------------------------------------------------------------
 
-                    if [ "$CURRENT_LINES_FOUND" -gt 0 ] 2>/dev/null &&
-                       [ "$CURRENT_LINES_HIT" -eq "$CURRENT_LINES_FOUND" ] 2>/dev/null; then
+          function extractMetric(line, label) {
+            const match = line.match(
+              new RegExp(
+                `(\\d+)\\s+${label}`,
+                "i"
+              )
+            );
 
-                      ROW_CLASS="covered"
+            return match ? match[1] : "0";
+          }
 
-                    else
+          const suitesPassed =
+            extractMetric(suiteLine, "passed");
 
-                      ROW_CLASS="uncovered"
+          const suitesFailed =
+            extractMetric(suiteLine, "failed");
 
-                    fi
+          const suitesTotalMatch =
+            suiteLine.match(
+              /of\s+(\d+)\s+total/i
+            );
 
-                    COVERAGE_ROWS="${COVERAGE_ROWS}
-          <tr class=\"${ROW_CLASS}\">
-            <td><strong>${FILE_ESCAPED}</strong></td>
-            <td>${PERCENT_ESCAPED}</td>
-            <td>${CURRENT_LINES_FOUND}</td>
-            <td>${CURRENT_LINES_HIT}</td>
-            <td>${UNCOVERED_ESCAPED}</td>
-          </tr>"
+          const suitesTotal =
+            suitesTotalMatch
+              ? suitesTotalMatch[1]
+              : "0";
 
-                  fi
+          const testsPassed =
+            extractMetric(testsLine, "passed");
 
-                  CURRENT_FILE=""
-                  CURRENT_LINES_FOUND=0
-                  CURRENT_LINES_HIT=0
-                  CURRENT_UNCOVERED=""
+          const testsFailed =
+            extractMetric(testsLine, "failed");
 
-                  ;;
+          const testsTotalMatch =
+            testsLine.match(
+              /(\d+)\s+total/i
+            );
 
-              esac
+          const testsTotal =
+            testsTotalMatch
+              ? testsTotalMatch[1]
+              : "0";
 
-            done < coverage/lcov.info
+          const snapshots =
+            snapshotsLine.trim() || "N/A";
 
-          fi
+          const executionTime =
+            timeLine.trim() || "N/A";
 
-          if [ -z "$COVERAGE_ROWS" ]; then
-            COVERAGE_ROWS='
-          <tr>
-            <td colspan="5">No LCOV coverage data was generated.</td>
-          </tr>'
-          fi
+          // ------------------------------------------------------------
+          // Coverage summary
+          // ------------------------------------------------------------
 
-          # --------------------------------------------------------
-          # Console highlights
-          # --------------------------------------------------------
+          function extractCoverage(metric) {
+            const lines = cleanLog.split(/\r?\n/);
 
-          if [ -f console-clean.log ]; then
-            HTML_HIGHLIGHTS=$(grep -E \
-              "PASS|FAIL|Test Suites:|Tests:|Snapshots:|Time:|Coverage|PASS|FAIL|❌|✅|⚠️" \
-              console-clean.log \
-              | tail -100 \
-              | escape_html || true)
-          fi
+            for (const line of lines) {
+              if (
+                line
+                  .toLowerCase()
+                  .includes(metric.toLowerCase())
+              ) {
+                const match =
+                  line.match(
+                    /(\d+(?:\.\d+)?)\s*%/
+                  );
 
-          HTML_HIGHLIGHTS="${HTML_HIGHLIGHTS:-No major test output highlights found.}"
+                if (match) {
+                  return `${match[1]}%`;
+                }
+              }
+            }
 
-          # --------------------------------------------------------
-          # Determine status CSS
-          # --------------------------------------------------------
+            return "N/A";
+          }
 
-          if [ "$TEST_STATUS" = "PASSED" ]; then
-            STATUS_BACKGROUND="#dcfce7"
-            STATUS_COLOR="#166534"
-          else
-            STATUS_BACKGROUND="#fee2e2"
-            STATUS_COLOR="#991b1b"
-          fi
+          const statements =
+            extractCoverage("Statements");
 
-          # --------------------------------------------------------
-          # Generate HTML.
-          #
-          # IMPORTANT:
-          # The heredoc is single-quoted so Bash DOES NOT evaluate
-          # JavaScript/CSS ${...} expressions.
-          # --------------------------------------------------------
+          const branches =
+            extractCoverage("Branches");
 
-          cat > test-summary.html <<'HTML'
-          <!DOCTYPE html>
+          const functions =
+            extractCoverage("Functions");
+
+          const linesCoverage =
+            extractCoverage("Lines");
+
+          // ------------------------------------------------------------
+          // Coverage table
+          // ------------------------------------------------------------
+
+          let coverageRows = "";
+
+          const coverageStart =
+            cleanLog.indexOf(
+              "-------------------|---------|----------|---------|---------|-------------------"
+            );
+
+          if (coverageStart !== -1) {
+            const coverageText =
+              cleanLog.substring(coverageStart);
+
+            const coverageLines =
+              coverageText.split(/\r?\n/);
+
+            for (const rawLine of coverageLines) {
+              const line = rawLine.trim();
+
+              if (!line.startsWith("|")) {
+                continue;
+              }
+
+              const parts =
+                line
+                  .split("|")
+                  .map((part) => part.trim())
+                  .filter(Boolean);
+
+              if (parts.length < 6) {
+                continue;
+              }
+
+              const file = parts[0];
+
+              if (
+                file === "File" ||
+                file.startsWith("---")
+              ) {
+                continue;
+              }
+
+              const stmts = parts[1];
+              const branch = parts[2];
+              const funcs = parts[3];
+              const lines = parts[4];
+              const uncovered = parts[5];
+
+              if (
+                file === "All files" ||
+                file === "All files "
+              ) {
+                coverageRows += `
+                  <tr class="total-row">
+                    <td><strong>${escapeHtml(file)}</strong></td>
+                    <td><strong>${escapeHtml(stmts)}</strong></td>
+                    <td><strong>${escapeHtml(branch)}</strong></td>
+                    <td><strong>${escapeHtml(funcs)}</strong></td>
+                    <td><strong>${escapeHtml(lines)}</strong></td>
+                    <td><strong>${escapeHtml(uncovered)}</strong></td>
+                  </tr>
+                `;
+
+                continue;
+              }
+
+              const uncoveredExists =
+                uncovered &&
+                uncovered !== "-" &&
+                uncovered !== "0";
+
+              coverageRows += `
+                <tr class="${
+                  uncoveredExists
+                    ? "uncovered"
+                    : "covered"
+                }">
+                  <td>${escapeHtml(file)}</td>
+                  <td>${escapeHtml(stmts)}</td>
+                  <td>${escapeHtml(branch)}</td>
+                  <td>${escapeHtml(funcs)}</td>
+                  <td>${escapeHtml(lines)}</td>
+                  <td>${escapeHtml(uncovered || "-")}</td>
+                </tr>
+              `;
+            }
+          }
+
+          if (!coverageRows) {
+            coverageRows = `
+              <tr>
+                <td colspan="6">
+                  No file-level coverage table was detected in Jest output.
+                  See the LCOV artifact for the complete coverage report.
+                </td>
+              </tr>
+            `;
+          }
+
+          // ------------------------------------------------------------
+          // Console highlights
+          // ------------------------------------------------------------
+
+          const highlightLines =
+            cleanLog
+              .split(/\r?\n/)
+              .filter((line) =>
+                /PASS |FAIL |Test Suites:|Tests:|Snapshots:|Time:|Coverage summary|Statements|Branches|Functions|Lines|console\.error|console\.warn/i.test(
+                  line
+                )
+              )
+              .slice(-150);
+
+          const highlights =
+            highlightLines.length
+              ? highlightLines.join("\n")
+              : "No console highlights found.";
+
+          // ------------------------------------------------------------
+          // Status styling
+          // ------------------------------------------------------------
+
+          const statusBackground =
+            testPassed
+              ? "#dcfce7"
+              : "#fee2e2";
+
+          const statusColor =
+            testPassed
+              ? "#166534"
+              : "#991b1b";
+
+          // ------------------------------------------------------------
+          // HTML
+          // ------------------------------------------------------------
+
+          const html = `<!DOCTYPE html>
           <html lang="en">
           <head>
             <meta charset="UTF-8">
@@ -379,7 +438,7 @@ jobs:
               .card {
                 background: white;
                 border-radius: 16px;
-                box-shadow: 0 4px 18px rgba(0,0,0,0.07);
+                box-shadow: 0 4px 18px rgba(0,0,0,0.06);
               }
 
               .header {
@@ -388,44 +447,47 @@ jobs:
               }
 
               .header h1 {
-                margin: 0 0 10px 0;
+                margin: 0 0 10px;
                 font-size: 28px;
               }
 
               .header p {
-                margin: 5px 0;
                 color: #6b7280;
-              }
-
-              .status {
-                display: inline-block;
-                margin-top: 15px;
-                padding: 8px 16px;
-                border-radius: 999px;
-                font-weight: bold;
               }
 
               .metadata {
                 display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+                grid-template-columns:
+                  repeat(auto-fit, minmax(240px, 1fr));
                 gap: 12px;
-                margin-top: 18px;
+                margin-top: 20px;
               }
 
               .metadata div {
                 background: #f9fafb;
-                padding: 12px;
-                border-radius: 8px;
+                padding: 14px;
+                border-radius: 10px;
               }
 
               .metadata strong {
                 display: block;
-                margin-bottom: 4px;
+                margin-bottom: 5px;
+              }
+
+              .status {
+                display: inline-block;
+                margin-top: 18px;
+                padding: 9px 18px;
+                border-radius: 999px;
+                font-weight: bold;
+                background: ${statusBackground};
+                color: ${statusColor};
               }
 
               .cards {
                 display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+                grid-template-columns:
+                  repeat(auto-fit, minmax(200px, 1fr));
                 gap: 18px;
                 margin-bottom: 24px;
               }
@@ -434,13 +496,13 @@ jobs:
                 padding: 22px;
               }
 
-              .card .label {
+              .label {
                 color: #6b7280;
                 font-size: 14px;
                 margin-bottom: 8px;
               }
 
-              .card .value {
+              .value {
                 font-size: 25px;
                 font-weight: bold;
               }
@@ -480,6 +542,10 @@ jobs:
                 color: #16a34a;
               }
 
+              tr.total-row {
+                background: #f9fafb;
+              }
+
               .code {
                 background: #111827;
                 color: #e5e7eb;
@@ -487,7 +553,7 @@ jobs:
                 border-radius: 10px;
                 white-space: pre-wrap;
                 overflow-x: auto;
-                max-height: 400px;
+                max-height: 450px;
                 overflow-y: auto;
               }
 
@@ -495,26 +561,6 @@ jobs:
                 background: #f3f4f6;
                 padding: 2px 5px;
                 border-radius: 4px;
-              }
-
-              .link {
-                display: inline-block;
-                margin-top: 12px;
-                padding: 10px 16px;
-                border-radius: 8px;
-                background: #111827;
-                color: white;
-                text-decoration: none;
-              }
-
-              @media (max-width: 800px) {
-                .container {
-                  padding: 15px;
-                }
-
-                table {
-                  font-size: 12px;
-                }
               }
             </style>
           </head>
@@ -528,72 +574,75 @@ jobs:
                 <h1>🧪 Jest Test & Coverage Report</h1>
 
                 <p>
-                  Real-time test execution and Jest coverage generated from the current GitHub Actions run.
+                  Real-time test execution and coverage generated
+                  from the current GitHub Actions run.
                 </p>
 
                 <div class="metadata">
 
                   <div>
                     <strong>Repository</strong>
-                    __HTML_REPOSITORY__
+                    ${escapeHtml(repository)}
                   </div>
 
                   <div>
                     <strong>Branch</strong>
-                    __HTML_BRANCH__
+                    ${escapeHtml(branch)}
                   </div>
 
                   <div>
                     <strong>Commit</strong>
-                    __HTML_COMMIT__
+                    ${escapeHtml(commit)}
                   </div>
 
                 </div>
 
-                <div
-                  class="status"
-                  style="background: __STATUS_BACKGROUND__; color: __STATUS_COLOR__;"
-                >
-                  __HTML_STATUS__
+                <div class="status">
+                  ${escapeHtml(testStatus)}
                 </div>
 
-                <br>
-
-                <a
-                  class="link"
-                  href="https://github.com/__HTML_REPOSITORY__/actions"
-                  target="_blank"
-                >
-                  Open GitHub Actions
-                </a>
-
               </div>
-
 
               <div class="cards">
 
                 <div class="card">
-                  <div class="label">Test Suites</div>
-                  <div class="value">__HTML_SUITES__</div>
+                  <div class="label">Test Suites Passed</div>
+                  <div class="value">
+                    ${escapeHtml(suitesPassed)} /
+                    ${escapeHtml(suitesTotal)}
+                  </div>
                 </div>
 
                 <div class="card">
-                  <div class="label">Tests</div>
-                  <div class="value">__HTML_TESTS__</div>
+                  <div class="label">Tests Passed</div>
+                  <div class="value">
+                    ${escapeHtml(testsPassed)} /
+                    ${escapeHtml(testsTotal)}
+                  </div>
                 </div>
 
                 <div class="card">
-                  <div class="label">Snapshots</div>
-                  <div class="value">__HTML_SNAPSHOTS__</div>
+                  <div class="label">Test Suites Failed</div>
+                  <div class="value">
+                    ${escapeHtml(suitesFailed)}
+                  </div>
+                </div>
+
+                <div class="card">
+                  <div class="label">Tests Failed</div>
+                  <div class="value">
+                    ${escapeHtml(testsFailed)}
+                  </div>
                 </div>
 
                 <div class="card">
                   <div class="label">Execution Time</div>
-                  <div class="value">__HTML_TIME__</div>
+                  <div class="value">
+                    ${escapeHtml(executionTime)}
+                  </div>
                 </div>
 
               </div>
-
 
               <div class="section">
 
@@ -608,54 +657,53 @@ jobs:
 
                   <tr>
                     <td><strong>Statements</strong></td>
-                    <td>__HTML_STMTS__</td>
+                    <td>${escapeHtml(statements)}</td>
                   </tr>
 
                   <tr>
                     <td><strong>Branches</strong></td>
-                    <td>__HTML_BRANCH_COVERAGE__</td>
+                    <td>${escapeHtml(branches)}</td>
                   </tr>
 
                   <tr>
                     <td><strong>Functions</strong></td>
-                    <td>__HTML_FUNCS__</td>
+                    <td>${escapeHtml(functions)}</td>
                   </tr>
 
                   <tr>
                     <td><strong>Lines</strong></td>
-                    <td>__HTML_LINES__</td>
+                    <td>${escapeHtml(linesCoverage)}</td>
                   </tr>
 
                 </table>
 
               </div>
-
 
               <div class="section">
 
                 <h2>📁 Full Coverage Breakdown</h2>
 
                 <p>
-                  File-level coverage generated directly from the current
-                  <code>coverage/lcov.info</code> file.
+                  File-level coverage and uncovered lines reported
+                  by the current Jest execution.
                 </p>
 
                 <table>
 
                   <tr>
                     <th>File</th>
-                    <th>Line Coverage</th>
-                    <th>Lines Found</th>
-                    <th>Lines Hit</th>
-                    <th>Uncovered Lines</th>
+                    <th>% Stmts</th>
+                    <th>% Branch</th>
+                    <th>% Funcs</th>
+                    <th>% Lines</th>
+                    <th>Uncovered Line #s</th>
                   </tr>
 
-                  __COVERAGE_ROWS__
+                  ${coverageRows}
 
                 </table>
 
               </div>
-
 
               <div class="section">
 
@@ -670,119 +718,66 @@ jobs:
 
                   <tr>
                     <td>LCOV Coverage</td>
-                    <td><code>coverage/lcov.info</code></td>
+                    <td>
+                      <code>coverage/lcov.info</code>
+                    </td>
                   </tr>
 
                   <tr>
                     <td>LCOV HTML Report</td>
-                    <td><code>coverage/lcov-report/index.html</code></td>
+                    <td>
+                      <code>coverage/lcov-report/index.html</code>
+                    </td>
                   </tr>
 
                 </table>
 
               </div>
 
-
               <div class="section">
 
                 <h2>🖥️ Console Output Highlights</h2>
 
-                <pre class="code">__HTML_HIGHLIGHTS__</pre>
+                <pre class="code">${escapeHtml(highlights)}</pre>
 
               </div>
 
             </div>
 
           </body>
-          </html>
-          HTML
+          </html>`;
 
-          # --------------------------------------------------------
-          # Replace placeholders.
-          #
-          # This is intentionally done AFTER the quoted heredoc so
-          # HTML/CSS/JavaScript cannot be interpreted by Bash.
-          # --------------------------------------------------------
+          fs.writeFileSync(
+            outputFile,
+            html,
+            "utf8"
+          );
 
-          sed -i \
-            -e "s|__HTML_REPOSITORY__|${HTML_REPOSITORY}|g" \
-            -e "s|__HTML_BRANCH__|${HTML_BRANCH}|g" \
-            -e "s|__HTML_COMMIT__|${HTML_COMMIT}|g" \
-            -e "s|__HTML_STATUS__|${HTML_STATUS}|g" \
-            -e "s|__HTML_SUITES__|${HTML_SUITES}|g" \
-            -e "s|__HTML_TESTS__|${HTML_TESTS}|g" \
-            -e "s|__HTML_SNAPSHOTS__|${HTML_SNAPSHOTS}|g" \
-            -e "s|__HTML_TIME__|${HTML_TIME}|g" \
-            -e "s|__HTML_STMTS__|${HTML_STMTS}|g" \
-            -e "s|__HTML_BRANCH_COVERAGE__|${HTML_BRANCH_COVERAGE}|g" \
-            -e "s|__HTML_FUNCS__|${HTML_FUNCS}|g" \
-            -e "s|__HTML_LINES__|${HTML_LINES}|g" \
-            -e "s|__STATUS_BACKGROUND__|${STATUS_BACKGROUND}|g" \
-            -e "s|__STATUS_COLOR__|${STATUS_COLOR}|g" \
-            test-summary.html
+          console.log(
+            `Generated ${outputFile}`
+          );
+          NODE
 
-          # COVERAGE_ROWS and HTML_HIGHLIGHTS may contain newlines,
-          # so replace them using temporary files rather than sed.
-
-          python3 - <<'PY'
-          from pathlib import Path
-
-          html_path = Path("test-summary.html")
-          html = html_path.read_text(encoding="utf-8")
-
-          coverage_rows = Path("/tmp/coverage_rows.txt").read_text(encoding="utf-8") if Path("/tmp/coverage_rows.txt").exists() else ""
-          highlights = Path("/tmp/highlights.txt").read_text(encoding="utf-8") if Path("/tmp/highlights.txt").exists() else ""
-
-          html = html.replace("__COVERAGE_ROWS__", coverage_rows)
-          html = html.replace("__HTML_HIGHLIGHTS__", highlights)
-
-          html_path.write_text(html, encoding="utf-8")
-          PY
-
-          # Write multiline values for the replacement step.
-          printf '%s\n' "$COVERAGE_ROWS" > /tmp/coverage_rows.txt
-          printf '%s\n' "$HTML_HIGHLIGHTS" > /tmp/highlights.txt
-
-          python3 - <<'PY'
-          from pathlib import Path
-
-          html_path = Path("test-summary.html")
-          html = html_path.read_text(encoding="utf-8")
-
-          coverage_rows = Path("/tmp/coverage_rows.txt").read_text(encoding="utf-8")
-          highlights = Path("/tmp/highlights.txt").read_text(encoding="utf-8")
-
-          html = html.replace("__COVERAGE_ROWS__", coverage_rows)
-          html = html.replace("__HTML_HIGHLIGHTS__", highlights)
-
-          html_path.write_text(html, encoding="utf-8")
-          PY
-
-          echo "============================================================"
-          echo "HTML report generated:"
-          echo "test-summary.html"
-          echo "============================================================"
+          node generate-test-report.mjs
 
       # ============================================================
       # UPLOAD HTML REPORT
       # ============================================================
-
-      - name: Upload Test Summary HTML Report
+      - name: Upload Test Summary Report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-summary-report
           path: test-summary.html
-          if-no-files-found: warn
+          if-no-files-found: error
 
       # ============================================================
-      # UPLOAD RAW CONSOLE LOG
+      # UPLOAD RAW TEST LOG
       # ============================================================
-
-      - name: Upload Test Console Log
+      - name: Upload Jest Console Log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: test-console-log
+          name: jest-console-log
           path: console.log
           if-no-files-found: warn
