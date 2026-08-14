@@ -15,14 +15,30 @@ jobs:
       packages: write
 
     steps:
+      # ==========================================================
+      # CHECKOUT
+      # ==========================================================
+
       - name: Checkout repository
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      # ==========================================================
+      # QEMU
+      # ==========================================================
 
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3.2.0
 
+      # ==========================================================
+      # DOCKER BUILDX
+      # ==========================================================
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3.12.0
+
+      # ==========================================================
+      # GHCR LOGIN
+      # ==========================================================
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3.3.0
@@ -31,11 +47,19 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # ==========================================================
+      # DOCKER HUB LOGIN
+      # ==========================================================
+
       - name: Log in to Docker Hub
         uses: docker/login-action@v3.3.0
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # ==========================================================
+      # DOCKER IMAGE METADATA
+      # ==========================================================
 
       - name: Extract metadata (tags, labels) for Docker
         id: meta
@@ -47,6 +71,10 @@ jobs:
           tags: |
             type=raw,value=latest
             type=sha,format=short
+
+      # ==========================================================
+      # BUILD AND PUSH
+      # ==========================================================
 
       - name: Build and push Docker image
         id: build
@@ -64,6 +92,9 @@ jobs:
 
       # ==========================================================
       # GENERATE HTML REPORT
+      #
+      # This happens only after the Docker build/push succeeds.
+      # It does not modify the Docker image.
       # ==========================================================
 
       - name: Generate Docker Build & Push HTML Report
@@ -91,22 +122,44 @@ jobs:
 
           const e = process.env;
 
-          const repo = e.REPOSITORY || "N/A";
-          const repoName = e.REPOSITORY_NAME || "resume-matcher-devops";
-          const branch = e.BRANCH || "N/A";
-          const commit = e.COMMIT || "N/A";
-          const shortCommit = commit.slice(0, 7);
-          const actor = e.ACTOR || "N/A";
-          const run = e.RUN_NUMBER || "N/A";
-          const runId = e.RUN_ID || "N/A";
-          const server = e.SERVER_URL || "https://github.com";
-          const hubUser = e.DOCKERHUB_USERNAME || "N/A";
-          const digest = e.BUILD_DIGEST || "N/A";
+          const repo =
+            e.REPOSITORY || "N/A";
 
-          const tags = (e.IMAGE_TAGS || "")
-            .split(/\r?\n/)
-            .map(x => x.trim())
-            .filter(Boolean);
+          const repoName =
+            e.REPOSITORY_NAME || "resume-matcher-devops";
+
+          const branch =
+            e.BRANCH || "N/A";
+
+          const commit =
+            e.COMMIT || "N/A";
+
+          const shortCommit =
+            commit.slice(0, 7);
+
+          const actor =
+            e.ACTOR || "N/A";
+
+          const run =
+            e.RUN_NUMBER || "N/A";
+
+          const runId =
+            e.RUN_ID || "N/A";
+
+          const server =
+            e.SERVER_URL || "https://github.com";
+
+          const hubUser =
+            e.DOCKERHUB_USERNAME || "N/A";
+
+          const digest =
+            e.BUILD_DIGEST || "N/A";
+
+          const tags =
+            (e.IMAGE_TAGS || "")
+              .split(/\r?\n/)
+              .map(x => x.trim())
+              .filter(Boolean);
 
           const platforms = [
             "linux/amd64",
@@ -122,15 +175,21 @@ jobs:
               .replaceAll("'", "&#39;");
           }
 
-          const ghcrTags = tags.filter(
-            x => x.startsWith("ghcr.io/")
-          );
+          const ghcrTags =
+            tags.filter(
+              x => x.startsWith("ghcr.io/")
+            );
 
-          const hubTags = tags.filter(
-            x => !x.startsWith("ghcr.io/")
-          );
+          const hubTags =
+            tags.filter(
+              x => !x.startsWith("ghcr.io/")
+            );
 
-          function metric(label, value, cls = "") {
+          function metric(
+            label,
+            value,
+            cls = ""
+          ) {
             return `
               <div class="metric ${cls}">
                 <span>${esc(label)}</span>
@@ -148,11 +207,13 @@ jobs:
               `;
             }
 
-            return list.map(tag => `
-              <div class="tag">
-                ${esc(tag)}
-              </div>
-            `).join("");
+            return list
+              .map(tag => `
+                <div class="tag">
+                  ${esc(tag)}
+                </div>
+              `)
+              .join("");
           }
 
           function platformHtml(platform) {
@@ -180,9 +241,12 @@ jobs:
             `${server}/${repo}/commit/${commit}`;
 
           const generated =
-            new Date().toLocaleString("en-IN", {
-              timeZone: "Asia/Kolkata"
-            });
+            new Date().toLocaleString(
+              "en-IN",
+              {
+                timeZone: "Asia/Kolkata"
+              }
+            );
 
           const html = `<!doctype html>
 
@@ -823,13 +887,27 @@ jobs:
           retention-days: 14
 
       # ==========================================================
-      # SEND REPORT BY EMAIL
+      # INSTALL NODEMAILER
       # ==========================================================
 
       - name: Install Nodemailer
         if: success() && steps.build.outcome == 'success'
         run: |
+          set -e
           npm install --no-save --ignore-scripts nodemailer@9.0.3
+
+      # ==========================================================
+      # EMAIL HTML REPORT
+      #
+      # Uses ONLY:
+      #
+      # EMAIL_USER
+      # EMAIL_PASS
+      # QA_EMAIL_TO
+      # QA_EMAIL_CC
+      #
+      # No MAIL_SERVER or MAIL_PORT.
+      # ==========================================================
 
       - name: Email Docker Build & Push Report
         if: success() && steps.build.outcome == 'success'
@@ -848,6 +926,7 @@ jobs:
 
           BUILD_DIGEST: ${{ steps.build.outputs.digest }}
           IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+
         run: |
           set -e
 
@@ -855,373 +934,452 @@ jobs:
           const nodemailer = require("nodemailer");
           const fs = require("fs");
 
-          const emailUser = process.env.EMAIL_USER;
-          const emailPass = process.env.EMAIL_PASS;
-          const emailTo = process.env.QA_EMAIL_TO;
-          const emailCc = process.env.QA_EMAIL_CC || "";
+          (async () => {
 
-          if (!emailUser) {
-            throw new Error("EMAIL_USER secret is not configured.");
-          }
+            const emailUser =
+              process.env.EMAIL_USER;
 
-          if (!emailPass) {
-            throw new Error("EMAIL_PASS secret is not configured.");
-          }
+            const emailPass =
+              process.env.EMAIL_PASS;
 
-          if (!emailTo) {
-            throw new Error("QA_EMAIL_TO secret is not configured.");
-          }
+            const emailTo =
+              process.env.QA_EMAIL_TO;
 
-          const repo = process.env.REPOSITORY || "N/A";
-          const branch = process.env.BRANCH || "N/A";
-          const commit = process.env.COMMIT || "N/A";
-          const shortCommit = commit.substring(0, 7);
+            const emailCc =
+              process.env.QA_EMAIL_CC || "";
 
-          const runNumber =
-            process.env.RUN_NUMBER || "N/A";
-
-          const runId =
-            process.env.RUN_ID || "N/A";
-
-          const serverUrl =
-            process.env.SERVER_URL || "https://github.com";
-
-          const digest =
-            process.env.BUILD_DIGEST || "N/A";
-
-          const imageTags =
-            process.env.IMAGE_TAGS || "N/A";
-
-          const reportPath =
-            "reports/docker/docker-build-push-report.html";
-
-          if (!fs.existsSync(reportPath)) {
-            throw new Error(
-              `HTML report not found: ${reportPath}`
-            );
-          }
-
-          /*
-           * Gmail is selected through Nodemailer's well-known
-           * service preset.
-           *
-           * No MAIL_SERVER or MAIL_PORT variables are used.
-           */
-          const transporter = nodemailer.createTransport({
-            service: "gmail",
-            auth: {
-              user: emailUser,
-              pass: emailPass
+            if (!emailUser) {
+              throw new Error(
+                "EMAIL_USER secret is not configured."
+              );
             }
-          });
 
-          const runUrl =
-            `${serverUrl}/${repo}/actions/runs/${runId}`;
+            if (!emailPass) {
+              throw new Error(
+                "EMAIL_PASS secret is not configured."
+              );
+            }
 
-          const ghcrUrl =
-            `https://github.com/${repo}/pkgs/container/${repo.split("/")[1]}`;
+            if (!emailTo) {
+              throw new Error(
+                "QA_EMAIL_TO secret is not configured."
+              );
+            }
 
-          const dockerHubUser =
-            emailUser ? "" : "";
+            const repo =
+              process.env.REPOSITORY || "N/A";
 
-          const dockerHubUrl =
-            "https://hub.docker.com/r/kaifmohammedkhan123/resume-matcher-devops";
+            const branch =
+              process.env.BRANCH || "N/A";
 
-          const subject =
-            `Docker Build & Push Successful | ${repo} | ${shortCommit}`;
+            const commit =
+              process.env.COMMIT || "N/A";
 
-          const htmlBody = `
-          <!doctype html>
-          <html>
-          <body style="
-            margin:0;
-            padding:24px;
-            background:#07111f;
-            color:#f8fafc;
-            font-family:Arial,Helvetica,sans-serif;
-          ">
+            const shortCommit =
+              commit.substring(0, 7);
 
-            <div style="
-              max-width:700px;
-              margin:auto;
-              background:#0d1a2b;
-              border:1px solid #263a56;
-              border-radius:16px;
-              overflow:hidden;
+            const runNumber =
+              process.env.RUN_NUMBER || "N/A";
+
+            const runId =
+              process.env.RUN_ID || "N/A";
+
+            const serverUrl =
+              process.env.SERVER_URL ||
+              "https://github.com";
+
+            const digest =
+              process.env.BUILD_DIGEST || "N/A";
+
+            const imageTags =
+              process.env.IMAGE_TAGS || "N/A";
+
+            const reportPath =
+              "reports/docker/docker-build-push-report.html";
+
+            if (!fs.existsSync(reportPath)) {
+              throw new Error(
+                `HTML report not found: ${reportPath}`
+              );
+            }
+
+            /*
+             * Gmail service preset.
+             *
+             * No MAIL_SERVER or MAIL_PORT
+             * variables are used.
+             */
+            const transporter =
+              nodemailer.createTransport({
+                service: "gmail",
+                auth: {
+                  user: emailUser,
+                  pass: emailPass
+                }
+              });
+
+            /*
+             * Verify authentication before
+             * attempting to send.
+             */
+            console.log(
+              "Verifying email transport..."
+            );
+
+            await transporter.verify();
+
+            console.log(
+              "Email transport verified successfully."
+            );
+
+            const runUrl =
+              `${serverUrl}/${repo}/actions/runs/${runId}`;
+
+            const repoName =
+              repo.split("/")[1] ||
+              "resume-matcher-devops";
+
+            const ghcrUrl =
+              `https://github.com/${repo}/pkgs/container/${repoName}`;
+
+            const dockerHubUrl =
+              "https://hub.docker.com/r/kaifmohammedkhan123/resume-matcher-devops";
+
+            const subject =
+              `Docker Build & Push Successful | ${repo} | ${shortCommit}`;
+
+            const htmlBody = `
+            <!doctype html>
+
+            <html>
+
+            <body style="
+              margin:0;
+              padding:24px;
+              background:#07111f;
+              color:#f8fafc;
+              font-family:Arial,Helvetica,sans-serif;
             ">
 
               <div style="
-                padding:24px;
-                border-bottom:1px solid #263a56;
+                max-width:700px;
+                margin:auto;
+                background:#0d1a2b;
+                border:1px solid #263a56;
+                border-radius:16px;
+                overflow:hidden;
               ">
 
                 <div style="
-                  color:#38bdf8;
-                  font-size:11px;
-                  font-weight:bold;
-                  letter-spacing:2px;
-                  text-transform:uppercase;
-                ">
-                  Container Release
-                </div>
-
-                <h1 style="
-                  margin:8px 0;
-                  font-size:26px;
-                  color:#ffffff;
-                ">
-                  Docker Build &amp; Push Successful
-                </h1>
-
-                <div style="
-                  color:#94a8c1;
-                  font-size:13px;
-                ">
-                  ${repo}
-                </div>
-
-              </div>
-
-              <div style="padding:24px;">
-
-                <table
-                  width="100%"
-                  cellpadding="8"
-                  cellspacing="0"
-                  style="
-                    border-collapse:collapse;
-                    font-size:13px;
-                  "
-                >
-
-                  <tr>
-                    <td style="color:#94a8c1;">
-                      Status
-                    </td>
-                    <td style="
-                      color:#34d399;
-                      font-weight:bold;
-                    ">
-                      ✓ SUCCESS
-                    </td>
-                  </tr>
-
-                  <tr>
-                    <td style="color:#94a8c1;">
-                      Repository
-                    </td>
-                    <td style="color:#ffffff;">
-                      ${repo}
-                    </td>
-                  </tr>
-
-                  <tr>
-                    <td style="color:#94a8c1;">
-                      Branch
-                    </td>
-                    <td style="color:#ffffff;">
-                      ${branch}
-                    </td>
-                  </tr>
-
-                  <tr>
-                    <td style="color:#94a8c1;">
-                      Commit
-                    </td>
-                    <td style="
-                      color:#ffffff;
-                      font-family:monospace;
-                    ">
-                      ${shortCommit}
-                    </td>
-                  </tr>
-
-                  <tr>
-                    <td style="color:#94a8c1;">
-                      Platforms
-                    </td>
-                    <td style="color:#ffffff;">
-                      linux/amd64 + linux/arm64
-                    </td>
-                  </tr>
-
-                  <tr>
-                    <td style="color:#94a8c1;">
-                      Build Digest
-                    </td>
-                    <td style="
-                      color:#ffffff;
-                      font-family:monospace;
-                      word-break:break-all;
-                    ">
-                      ${digest}
-                    </td>
-                  </tr>
-
-                  <tr>
-                    <td style="color:#94a8c1;">
-                      Workflow Run
-                    </td>
-                    <td style="color:#ffffff;">
-                      #${runNumber}
-                    </td>
-                  </tr>
-
-                </table>
-
-                <div style="
-                  margin-top:20px;
-                  padding:15px;
-                  background:#102138;
-                  border:1px solid #263a56;
-                  border-radius:10px;
+                  padding:24px;
+                  border-bottom:1px solid #263a56;
                 ">
 
                   <div style="
-                    color:#94a8c1;
-                    font-size:10px;
-                    text-transform:uppercase;
+                    color:#38bdf8;
+                    font-size:11px;
                     font-weight:bold;
-                    margin-bottom:8px;
+                    letter-spacing:2px;
+                    text-transform:uppercase;
                   ">
-                    Published Tags
+                    Container Release
                   </div>
 
-                  <pre style="
-                    margin:0;
-                    color:#f8fafc;
-                    white-space:pre-wrap;
-                    word-break:break-all;
-                    font-size:11px;
-                  ">${imageTags}</pre>
+                  <h1 style="
+                    margin:8px 0;
+                    font-size:26px;
+                    color:#ffffff;
+                  ">
+                    Docker Build &amp; Push Successful
+                  </h1>
+
+                  <div style="
+                    color:#94a8c1;
+                    font-size:13px;
+                  ">
+                    ${repo}
+                  </div>
 
                 </div>
 
                 <div style="
-                  margin-top:20px;
+                  padding:24px;
                 ">
 
-                  <a
-                    href="${runUrl}"
+                  <table
+                    width="100%"
+                    cellpadding="8"
+                    cellspacing="0"
                     style="
-                      display:inline-block;
-                      padding:11px 15px;
-                      margin-right:7px;
-                      background:#102138;
-                      border:1px solid #263a56;
-                      border-radius:8px;
-                      color:#f8fafc;
-                      text-decoration:none;
-                      font-size:12px;
-                      font-weight:bold;
+                      border-collapse:collapse;
+                      font-size:13px;
                     "
                   >
-                    GitHub Actions Run
-                  </a>
 
-                  <a
-                    href="${ghcrUrl}"
-                    style="
-                      display:inline-block;
-                      padding:11px 15px;
-                      margin-right:7px;
-                      background:#102138;
-                      border:1px solid #263a56;
-                      border-radius:8px;
-                      color:#f8fafc;
-                      text-decoration:none;
-                      font-size:12px;
-                      font-weight:bold;
-                    "
-                  >
-                    GHCR
-                  </a>
+                    <tr>
+                      <td style="color:#94a8c1;">
+                        Status
+                      </td>
 
-                  <a
-                    href="${dockerHubUrl}"
-                    style="
-                      display:inline-block;
-                      padding:11px 15px;
-                      background:#102138;
-                      border:1px solid #263a56;
-                      border-radius:8px;
-                      color:#f8fafc;
-                      text-decoration:none;
-                      font-size:12px;
+                      <td style="
+                        color:#34d399;
+                        font-weight:bold;
+                      ">
+                        ✓ SUCCESS
+                      </td>
+                    </tr>
+
+                    <tr>
+                      <td style="color:#94a8c1;">
+                        Repository
+                      </td>
+
+                      <td style="color:#ffffff;">
+                        ${repo}
+                      </td>
+                    </tr>
+
+                    <tr>
+                      <td style="color:#94a8c1;">
+                        Branch
+                      </td>
+
+                      <td style="color:#ffffff;">
+                        ${branch}
+                      </td>
+                    </tr>
+
+                    <tr>
+                      <td style="color:#94a8c1;">
+                        Commit
+                      </td>
+
+                      <td style="
+                        color:#ffffff;
+                        font-family:monospace;
+                      ">
+                        ${shortCommit}
+                      </td>
+                    </tr>
+
+                    <tr>
+                      <td style="color:#94a8c1;">
+                        Platforms
+                      </td>
+
+                      <td style="color:#ffffff;">
+                        linux/amd64 + linux/arm64
+                      </td>
+                    </tr>
+
+                    <tr>
+                      <td style="color:#94a8c1;">
+                        Build Digest
+                      </td>
+
+                      <td style="
+                        color:#ffffff;
+                        font-family:monospace;
+                        word-break:break-all;
+                      ">
+                        ${digest}
+                      </td>
+                    </tr>
+
+                    <tr>
+                      <td style="color:#94a8c1;">
+                        Workflow Run
+                      </td>
+
+                      <td style="color:#ffffff;">
+                        #${runNumber}
+                      </td>
+                    </tr>
+
+                  </table>
+
+                  <div style="
+                    margin-top:20px;
+                    padding:15px;
+                    background:#102138;
+                    border:1px solid #263a56;
+                    border-radius:10px;
+                  ">
+
+                    <div style="
+                      color:#94a8c1;
+                      font-size:10px;
+                      text-transform:uppercase;
                       font-weight:bold;
-                    "
-                  >
-                    Docker Hub
-                  </a>
+                      margin-bottom:8px;
+                    ">
+                      Published Tags
+                    </div>
+
+                    <pre style="
+                      margin:0;
+                      color:#f8fafc;
+                      white-space:pre-wrap;
+                      word-break:break-all;
+                      font-size:11px;
+                    ">${imageTags}</pre>
+
+                  </div>
+
+                  <div style="
+                    margin-top:20px;
+                  ">
+
+                    <a
+                      href="${runUrl}"
+                      style="
+                        display:inline-block;
+                        padding:11px 15px;
+                        margin-right:7px;
+                        background:#102138;
+                        border:1px solid #263a56;
+                        border-radius:8px;
+                        color:#f8fafc;
+                        text-decoration:none;
+                        font-size:12px;
+                        font-weight:bold;
+                      "
+                    >
+                      GitHub Actions Run
+                    </a>
+
+                    <a
+                      href="${ghcrUrl}"
+                      style="
+                        display:inline-block;
+                        padding:11px 15px;
+                        margin-right:7px;
+                        background:#102138;
+                        border:1px solid #263a56;
+                        border-radius:8px;
+                        color:#f8fafc;
+                        text-decoration:none;
+                        font-size:12px;
+                        font-weight:bold;
+                      "
+                    >
+                      GHCR
+                    </a>
+
+                    <a
+                      href="${dockerHubUrl}"
+                      style="
+                        display:inline-block;
+                        padding:11px 15px;
+                        background:#102138;
+                        border:1px solid #263a56;
+                        border-radius:8px;
+                        color:#f8fafc;
+                        text-decoration:none;
+                        font-size:12px;
+                        font-weight:bold;
+                      "
+                    >
+                      Docker Hub
+                    </a>
+
+                  </div>
+
+                  <p style="
+                    margin-top:24px;
+                    color:#94a8c1;
+                    font-size:11px;
+                    line-height:1.6;
+                  ">
+                    The complete infographic HTML report is
+                    attached to this email and is also available
+                    as the GitHub Actions artifact
+                    <strong style="color:#ffffff;">
+                      docker-build-push-report
+                    </strong>.
+                  </p>
 
                 </div>
 
-                <p style="
-                  margin-top:24px;
-                  color:#94a8c1;
-                  font-size:11px;
-                  line-height:1.6;
-                ">
-                  The complete infographic HTML report is attached
-                  to this email and is also available as the
-                  <strong style="color:#ffffff;">
-                    docker-build-push-report
-                  </strong>
-                  GitHub Actions artifact.
-                </p>
-
               </div>
 
-            </div>
+            </body>
 
-          </body>
-          </html>
-          `;
+            </html>
+            `;
 
-          const mailOptions = {
-            from: `"Docker Build & Push" <${emailUser}>`,
-            to: emailTo,
-            cc: emailCc || undefined,
-            subject,
-            html: htmlBody,
-            attachments: [
-              {
-                filename:
-                  "docker-build-push-report.html",
-                path: reportPath,
-                contentType: "text/html"
-              }
-            ]
-          };
+            const mailOptions = {
+              from:
+                `"Docker Build & Push" <${emailUser}>`,
 
-          console.log(
-            "Sending Docker Build & Push report email..."
-          );
+              to:
+                emailTo,
 
-          console.log(
-            `Recipient count: ${
-              emailTo
-                .split(",")
-                .map(x => x.trim())
-                .filter(Boolean)
-                .length
-            }`
-          );
+              cc:
+                emailCc.trim()
+                  ? emailCc
+                  : undefined,
 
-          if (emailCc.trim()) {
-            console.log("CC recipients configured.");
-          }
+              subject,
 
-          const info =
-            await transporter.sendMail(mailOptions);
+              html:
+                htmlBody,
 
-          console.log(
-            "Docker Build & Push report email sent successfully."
-          );
+              attachments: [
+                {
+                  filename:
+                    "docker-build-push-report.html",
 
-          console.log(
-            `Message ID: ${info.messageId}`
-          );
+                  path:
+                    reportPath,
+
+                  contentType:
+                    "text/html"
+                }
+              ]
+            };
+
+            console.log(
+              "Sending Docker Build & Push report email..."
+            );
+
+            console.log(
+              `Recipient(s): ${emailTo}`
+            );
+
+            if (emailCc.trim()) {
+              console.log(
+                `CC recipient(s): ${emailCc}`
+              );
+            }
+
+            const info =
+              await transporter.sendMail(
+                mailOptions
+              );
+
+            console.log(
+              "Docker Build & Push report email sent successfully."
+            );
+
+            console.log(
+              `Message ID: ${info.messageId}`
+            );
+
+          })().catch(error => {
+
+            console.error(
+              "Failed to send Docker Build & Push report email."
+            );
+
+            console.error(
+              error && error.stack
+                ? error.stack
+                : error
+            );
+
+            process.exit(1);
+          });
 
           NODE
 
