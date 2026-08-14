@@ -12,6 +12,7 @@ jobs:
       contents: read
 
     steps:
+
       # ============================================================
       # CHECKOUT
       # ============================================================
@@ -31,10 +32,14 @@ jobs:
 
       - name: Verify coverage report
         run: |
+          set -e
+
           echo "============================================================"
           echo "Coverage files"
           echo "============================================================"
+
           find coverage -maxdepth 3 -type f -print || true
+
           echo "============================================================"
 
           if [ ! -f "coverage/lcov.info" ]; then
@@ -42,7 +47,7 @@ jobs:
             exit 1
           fi
 
-          echo "Found coverage/lcov.info"
+          echo "Coverage report found."
 
       # ============================================================
       # JAVA
@@ -54,7 +59,7 @@ jobs:
           java-version: 21
 
       # ============================================================
-      # INSTALL SONAR SCANNER
+      # INSTALL SONARSCANNER
       # ============================================================
       - name: Install SonarScanner CLI securely
         run: |
@@ -67,8 +72,6 @@ jobs:
           curl --proto '=https' --tlsv1.2 -sSLf \
             https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006.zip.sha256 \
             -o sonar-scanner.zip.sha256
-
-          echo "Verifying SonarScanner checksum..."
 
           sed -i "s/$/  sonar-scanner.zip/" sonar-scanner.zip.sha256
 
@@ -93,7 +96,7 @@ jobs:
           set -e
 
           echo "============================================================"
-          echo "Running SonarCloud Analysis"
+          echo "SonarCloud Analysis"
           echo "============================================================"
           echo "Project: $SONAR_PROJECT_KEY"
           echo "Organization: $SONAR_ORG"
@@ -111,50 +114,50 @@ jobs:
             -Dsonar.qualitygate.wait=false
 
       # ============================================================
-      # VERIFY SONAR TASK FILE
+      # SHOW SONAR TASK
       # ============================================================
-      - name: Verify Sonar analysis task
+      - name: Show SonarCloud task
         if: always()
         run: |
           echo "============================================================"
-          echo "SonarScanner task information"
+          echo "SonarCloud task"
           echo "============================================================"
 
           if [ -f ".scannerwork/report-task.txt" ]; then
             cat .scannerwork/report-task.txt
           else
-            echo "WARNING: .scannerwork/report-task.txt was not found."
+            echo "WARNING: .scannerwork/report-task.txt not found."
           fi
 
       # ============================================================
-      # WAIT FOR SONARCLOUD ANALYSIS
+      # WAIT FOR SONARCLOUD COMPUTE ENGINE
       # ============================================================
       - name: Wait for SonarCloud analysis
         if: always()
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_HOST: ${{ secrets.SONAR_HOST }}
         run: |
           set -e
 
           if [ ! -f ".scannerwork/report-task.txt" ]; then
-            echo "No Sonar task file found."
+            echo "ERROR: Sonar task file does not exist."
             exit 1
           fi
 
           CE_TASK_URL=$(grep '^ceTaskUrl=' .scannerwork/report-task.txt | cut -d'=' -f2-)
 
           if [ -z "$CE_TASK_URL" ]; then
-            echo "Could not find ceTaskUrl."
+            echo "ERROR: ceTaskUrl was not found."
             exit 1
           fi
 
-          echo "SonarCloud Compute Engine task:"
+          echo "Compute Engine URL:"
           echo "$CE_TASK_URL"
 
-          echo "Waiting for SonarCloud analysis to complete..."
+          echo ""
+          echo "Waiting for SonarCloud analysis..."
 
-          for i in $(seq 1 30); do
+          for i in $(seq 1 36); do
 
             RESPONSE=$(curl \
               --proto '=https' \
@@ -165,7 +168,7 @@ jobs:
 
             STATUS=$(echo "$RESPONSE" | jq -r '.task.status // empty')
 
-            echo "Attempt $i/30 - status: $STATUS"
+            echo "Attempt $i/36 - Status: $STATUS"
 
             case "$STATUS" in
 
@@ -174,8 +177,14 @@ jobs:
                 exit 0
                 ;;
 
-              FAILED|CANCELED)
-                echo "SonarCloud analysis failed."
+              FAILED)
+                echo "SonarCloud analysis FAILED."
+                echo "$RESPONSE" | jq .
+                exit 1
+                ;;
+
+              CANCELED)
+                echo "SonarCloud analysis was CANCELED."
                 echo "$RESPONSE" | jq .
                 exit 1
                 ;;
@@ -185,7 +194,7 @@ jobs:
                 ;;
 
               *)
-                echo "Unexpected SonarCloud task response:"
+                echo "Unexpected response:"
                 echo "$RESPONSE"
                 sleep 10
                 ;;
@@ -194,89 +203,131 @@ jobs:
 
           done
 
-          echo "Timed out waiting for SonarCloud analysis."
+          echo "ERROR: Timed out waiting for SonarCloud."
           exit 1
 
       # ============================================================
-      # CREATE ESM SONARCLOUD REPORT GENERATOR
+      # CREATE REPORT GENERATOR
       # ============================================================
       - name: Create SonarCloud report generator
         if: always()
         run: |
           cat > generate-sonar-report.mjs <<'EOF'
+
           import fs from "node:fs";
 
           const SONAR_TOKEN = process.env.SONAR_TOKEN;
-          const SONAR_HOST = process.env.SONAR_HOST || "https://sonarcloud.io";
-          const SONAR_PROJECT_KEY = process.env.SONAR_PROJECT_KEY;
-          const SONAR_ORG = process.env.SONAR_ORG;
-          const BRANCH = process.env.GITHUB_REF_NAME || "main";
-          const REPOSITORY = process.env.GITHUB_REPOSITORY || "unknown";
-          const COMMIT = process.env.GITHUB_SHA || "";
+          const SONAR_HOST =
+            process.env.SONAR_HOST || "https://sonarcloud.io";
+
+          const SONAR_PROJECT_KEY =
+            process.env.SONAR_PROJECT_KEY;
+
+          const SONAR_ORG =
+            process.env.SONAR_ORG;
+
+          const BRANCH =
+            process.env.GITHUB_REF_NAME || "main";
+
+          const REPOSITORY =
+            process.env.GITHUB_REPOSITORY || "unknown";
+
+          const COMMIT =
+            process.env.GITHUB_SHA || "";
 
           if (!SONAR_TOKEN) {
-            throw new Error("SONAR_TOKEN is missing");
+            throw new Error("SONAR_TOKEN is missing.");
           }
 
           if (!SONAR_PROJECT_KEY) {
-            throw new Error("SONAR_PROJECT_KEY is missing");
+            throw new Error("SONAR_PROJECT_KEY is missing.");
           }
 
           if (!SONAR_ORG) {
-            throw new Error("SONAR_ORG is missing");
+            throw new Error("SONAR_ORG is missing.");
           }
 
-          const baseUrl = SONAR_HOST.replace(/\/+$/, "");
+          const BASE_URL =
+            SONAR_HOST.replace(/\/+$/, "");
 
-          function buildUrl(path, params = {}) {
-            const url = new URL(`${baseUrl}${path}`);
+          // ==========================================================
+          // API HELPER
+          // ==========================================================
+
+          async function sonarApi(path, params = {}) {
+
+            const url = new URL(
+              `${BASE_URL}${path}`
+            );
 
             for (const [key, value] of Object.entries(params)) {
+
               if (
                 value !== undefined &&
                 value !== null &&
                 value !== ""
               ) {
-                url.searchParams.set(key, String(value));
+                url.searchParams.set(
+                  key,
+                  String(value)
+                );
               }
+
             }
 
-            return url.toString();
-          }
-
-          async function sonarApi(path, params = {}) {
-            const url = buildUrl(path, params);
-
             console.log("");
-            console.log("============================================================");
+            console.log(
+              "============================================================"
+            );
             console.log("SonarCloud API");
-            console.log("============================================================");
+            console.log(
+              "============================================================"
+            );
             console.log(`Endpoint: ${path}`);
             console.log(`Project: ${SONAR_PROJECT_KEY}`);
-            console.log(`Organization: ${SONAR_ORG}`);
             console.log(`Branch: ${BRANCH}`);
-            console.log("============================================================");
+            console.log(`URL: ${url.toString()}`);
+            console.log(
+              "============================================================"
+            );
 
-            const response = await fetch(url, {
-              headers: {
-                Authorization:
-                  `Basic ${Buffer.from(`${SONAR_TOKEN}:`).toString("base64")}`,
-                Accept: "application/json",
-              },
-            });
+            const response = await fetch(
+              url.toString(),
+              {
+                headers: {
+                  Authorization:
+                    `Basic ${Buffer.from(
+                      `${SONAR_TOKEN}:`
+                    ).toString("base64")`,
 
-            const text = await response.text();
+                  Accept:
+                    "application/json",
+                },
+              }
+            );
+
+            const text =
+              await response.text();
 
             if (!response.ok) {
+
               console.error("");
-              console.error("============================================================");
-              console.error("SONARCLOUD API ERROR");
-              console.error("============================================================");
-              console.error(`HTTP status: ${response.status}`);
-              console.error(`URL: ${url}`);
-              console.error("Response:");
+              console.error(
+                "============================================================"
+              );
+              console.error(
+                "SONARCLOUD API ERROR"
+              );
+              console.error(
+                "============================================================"
+              );
+              console.error(
+                `HTTP ${response.status}`
+              );
               console.error(text);
-              console.error("============================================================");
+              console.error(
+                "============================================================"
+              );
 
               throw new Error(
                 `SonarCloud API returned HTTP ${response.status}`
@@ -287,260 +338,560 @@ jobs:
               return JSON.parse(text);
             } catch {
               throw new Error(
-                `SonarCloud returned non-JSON response: ${text}`
+                `Invalid JSON returned by SonarCloud: ${text}`
               );
             }
           }
 
+          // ==========================================================
+          // HTML ESCAPE
+          // ==========================================================
+
           function escapeHtml(value) {
+
             return String(value ?? "")
               .replaceAll("&", "&amp;")
               .replaceAll("<", "&lt;")
               .replaceAll(">", "&gt;")
               .replaceAll('"', "&quot;")
               .replaceAll("'", "&#039;");
+
           }
 
-          function number(value) {
-            const parsed = Number(value);
-            return Number.isFinite(parsed) ? parsed : 0;
+          function num(value) {
+
+            const parsed =
+              Number(value);
+
+            return Number.isFinite(parsed)
+              ? parsed
+              : 0;
+
           }
 
-          function formatPercent(value) {
-            if (value === undefined || value === null || value === "") {
+          function percent(value) {
+
+            if (
+              value === undefined ||
+              value === null ||
+              value === ""
+            ) {
               return "N/A";
             }
 
-            const parsed = Number(value);
+            const parsed =
+              Number(value);
 
             if (!Number.isFinite(parsed)) {
               return "N/A";
             }
 
             return `${parsed.toFixed(1)}%`;
+
           }
 
           // ==========================================================
-          // FETCH PROJECT MEASURES
+          // PROJECT METRICS
           // ==========================================================
 
-          const measuresResponse = await sonarApi(
-            "/api/measures/component",
-            {
-              component: SONAR_PROJECT_KEY,
-              metricKeys: [
-                "coverage",
-                "new_coverage",
-                "lines_to_cover",
-                "uncovered_lines",
-                "conditions_to_cover",
-                "uncovered_conditions",
-                "new_lines_to_cover",
-                "new_uncovered_lines",
-                "new_conditions_to_cover",
-                "new_uncovered_conditions",
-              ].join(","),
-              branch: BRANCH,
-            }
-          );
+          const metricKeys = [
+            "coverage",
+            "lines_to_cover",
+            "uncovered_lines",
+            "conditions_to_cover",
+            "uncovered_conditions",
 
-          const measures = {};
+            "new_coverage",
+            "new_lines_to_cover",
+            "new_uncovered_lines",
+            "new_conditions_to_cover",
+            "new_uncovered_conditions",
 
-          for (const metric of measuresResponse.component?.measures || []) {
-            measures[metric.metric] = metric.value;
+            "new_lines",
+            "new_technical_debt",
+            "new_bugs",
+            "new_vulnerabilities",
+            "new_code_smells",
+          ].join(",");
+
+          const projectData =
+            await sonarApi(
+              "/api/measures/component",
+              {
+                component:
+                  SONAR_PROJECT_KEY,
+
+                metricKeys,
+
+                branch:
+                  BRANCH,
+              }
+            );
+
+          const projectMeasures = {};
+
+          for (
+            const metric
+            of projectData.component?.measures || []
+          ) {
+
+            projectMeasures[
+              metric.metric
+            ] = metric.value;
+
           }
 
           // ==========================================================
-          // FETCH FILE-LEVEL COVERAGE
+          // FILE LEVEL METRICS
           // ==========================================================
 
-          const treeResponse = await sonarApi(
-            "/api/measures/component_tree",
-            {
-              component: SONAR_PROJECT_KEY,
-              metricKeys: [
-                "coverage",
-                "new_coverage",
-                "uncovered_lines",
-                "new_uncovered_lines",
-                "uncovered_conditions",
-                "new_uncovered_conditions",
-                "lines_to_cover",
-                "new_lines_to_cover",
-                "conditions_to_cover",
-                "new_conditions_to_cover",
-              ].join(","),
-              branch: BRANCH,
-              qualifiers: "FIL",
-              ps: 500,
-            }
-          );
+          const treeData =
+            await sonarApi(
+              "/api/measures/component_tree",
+              {
+                component:
+                  SONAR_PROJECT_KEY,
 
-          const files = [];
+                metricKeys,
 
-          for (const component of treeResponse.components || []) {
+                branch:
+                  BRANCH,
+
+                qualifiers:
+                  "FIL",
+
+                ps:
+                  500,
+              }
+            );
+
+          let files = [];
+
+          for (
+            const component
+            of treeData.components || []
+          ) {
+
             const values = {};
 
-            for (const metric of component.measures || []) {
-              values[metric.metric] = metric.value;
+            for (
+              const metric
+              of component.measures || []
+            ) {
+
+              values[
+                metric.metric
+              ] = metric.value;
+
+            }
+
+            const path =
+              component.path ||
+              component.key ||
+              "";
+
+            // --------------------------------------------------------
+            // Only source files that can meaningfully have JS coverage
+            // --------------------------------------------------------
+
+            const isCoverageFile =
+              /\.(js|jsx|mjs|cjs|ts|tsx)$/i.test(path);
+
+            if (!isCoverageFile) {
+              continue;
             }
 
             files.push({
-              path: component.path || component.key || "Unknown",
-              coverage: values.coverage,
-              newCoverage: values.new_coverage,
-              uncoveredLines: number(values.uncovered_lines),
-              newUncoveredLines: number(values.new_uncovered_lines),
-              uncoveredConditions: number(values.uncovered_conditions),
-              newUncoveredConditions: number(
-                values.new_uncovered_conditions
-              ),
-              linesToCover: number(values.lines_to_cover),
-              newLinesToCover: number(values.new_lines_to_cover),
-              conditionsToCover: number(values.conditions_to_cover),
-              newConditionsToCover: number(
-                values.new_conditions_to_cover
-              ),
+
+              path,
+
+              coverage:
+                values.coverage,
+
+              uncoveredLines:
+                num(values.uncovered_lines),
+
+              newCoverage:
+                values.new_coverage,
+
+              newUncoveredLines:
+                num(values.new_uncovered_lines),
+
+              newUncoveredConditions:
+                num(
+                  values.new_uncovered_conditions
+                ),
+
+              uncoveredConditions:
+                num(
+                  values.uncovered_conditions
+                ),
+
+              linesToCover:
+                num(values.lines_to_cover),
+
+              newLinesToCover:
+                num(
+                  values.new_lines_to_cover
+                ),
+
+              conditionsToCover:
+                num(
+                  values.conditions_to_cover
+                ),
+
+              newConditionsToCover:
+                num(
+                  values.new_conditions_to_cover
+                ),
+
             });
+
           }
 
           // ==========================================================
-          // FETCH ACTIVE ISSUES
+          // ISSUES
           // ==========================================================
 
-          const issuesResponse = await sonarApi(
-            "/api/issues/search",
-            {
-              componentKeys: SONAR_PROJECT_KEY,
-              branch: BRANCH,
-              statuses: "OPEN,REOPENED",
-              ps: 500,
-              organization: SONAR_ORG,
-            }
-          );
+          const issuesData =
+            await sonarApi(
+              "/api/issues/search",
+              {
+                componentKeys:
+                  SONAR_PROJECT_KEY,
 
-          const issues = issuesResponse.issues || [];
+                branch:
+                  BRANCH,
 
-          const highIssues = issues.filter(
-            issue => issue.severity === "HIGH"
-          );
+                statuses:
+                  "OPEN,REOPENED",
 
-          const mediumIssues = issues.filter(
-            issue => issue.severity === "MEDIUM"
-          );
+                ps:
+                  500,
 
-          const blockerIssues = issues.filter(
-            issue => issue.severity === "BLOCKER"
-          );
-
-          // ==========================================================
-          // SORT FILES BY UNCOVERED NEW LINES
-          // ==========================================================
-
-          files.sort((a, b) => {
-            if (b.newUncoveredLines !== a.newUncoveredLines) {
-              return b.newUncoveredLines - a.newUncoveredLines;
-            }
-
-            return (
-              b.newUncoveredConditions -
-              a.newUncoveredConditions
+                organization:
+                  SONAR_ORG,
+              }
             );
-          });
+
+          const issues =
+            issuesData.issues || [];
+
+          // ==========================================================
+          // SEVERITY COUNTS
+          // ==========================================================
+
+          const severityCounts = {
+
+            BLOCKER: 0,
+
+            CRITICAL: 0,
+
+            HIGH: 0,
+
+            MEDIUM: 0,
+
+            LOW: 0,
+
+            INFO: 0,
+
+          };
+
+          for (const issue of issues) {
+
+            const severity =
+              String(
+                issue.severity || ""
+              ).toUpperCase();
+
+            if (
+              severityCounts[
+                severity
+              ] !== undefined
+            ) {
+
+              severityCounts[
+                severity
+              ]++;
+
+            }
+
+          }
+
+          // ==========================================================
+          // SECURITY ISSUES
+          // ==========================================================
+
+          const securityIssues =
+            issues.filter(
+              issue =>
+                issue.type === "VULNERABILITY" ||
+                issue.type === "SECURITY_HOTSPOT" ||
+                issue.type === "BUG"
+            );
+
+          const highIssues =
+            issues.filter(
+              issue =>
+                String(
+                  issue.severity
+                ).toUpperCase() === "HIGH"
+            );
+
+          const mediumIssues =
+            issues.filter(
+              issue =>
+                String(
+                  issue.severity
+                ).toUpperCase() === "MEDIUM"
+            );
+
+          const blockerIssues =
+            issues.filter(
+              issue =>
+                String(
+                  issue.severity
+                ).toUpperCase() === "BLOCKER"
+            );
+
+          const criticalIssues =
+            issues.filter(
+              issue =>
+                String(
+                  issue.severity
+                ).toUpperCase() === "CRITICAL"
+            );
+
+          // ==========================================================
+          // NEW CODE FILES
+          //
+          // Only show files where Sonar actually reports new-code
+          // coverage information.
+          // ==========================================================
+
+          const newCodeFiles =
+            files.filter(file => {
+
+              return (
+                file.newCoverage !== undefined ||
+                file.newUncoveredLines > 0 ||
+                file.newUncoveredConditions > 0 ||
+                file.newLinesToCover > 0
+              );
+
+            });
+
+          newCodeFiles.sort(
+            (a, b) => {
+
+              if (
+                b.newUncoveredLines !==
+                a.newUncoveredLines
+              ) {
+
+                return (
+                  b.newUncoveredLines -
+                  a.newUncoveredLines
+                );
+
+              }
+
+              return (
+                b.newUncoveredConditions -
+                a.newUncoveredConditions
+              );
+
+            }
+          );
+
+          // ==========================================================
+          // ALL SOURCE FILES SORTED BY OVERALL UNCOVERED LINES
+          // ==========================================================
+
+          files.sort(
+            (a, b) =>
+              b.uncoveredLines -
+              a.uncoveredLines
+          );
 
           // ==========================================================
           // ISSUE TABLE
           // ==========================================================
 
           function issueTable(issueList) {
+
             if (!issueList.length) {
+
               return `
-                <div class="empty">
+                <div class="empty success">
                   ✓ No active issues found.
                 </div>
               `;
+
             }
 
             return `
               <div class="table-wrap">
+
                 <table>
+
                   <thead>
+
                     <tr>
                       <th>Severity</th>
+                      <th>Type</th>
                       <th>Rule</th>
                       <th>Message</th>
                       <th>File</th>
                       <th>Line</th>
                     </tr>
+
                   </thead>
+
                   <tbody>
-                    ${issueList.map(issue => `
-                      <tr>
-                        <td>
-                          <span class="badge ${escapeHtml(
-                            issue.severity.toLowerCase()
-                          )}">
-                            ${escapeHtml(issue.severity)}
-                          </span>
-                        </td>
 
-                        <td>
-                          ${escapeHtml(issue.rule || "N/A")}
-                        </td>
+                    ${issueList.map(issue => {
 
-                        <td>
-                          ${escapeHtml(issue.message || "N/A")}
-                        </td>
+                      const severity =
+                        String(
+                          issue.severity || ""
+                        ).toLowerCase();
 
-                        <td>
-                          ${escapeHtml(
-                            issue.component
-                              ?.replace(`${SONAR_PROJECT_KEY}:`, "")
-                              || "N/A"
-                          )}
-                        </td>
+                      const file =
+                        issue.component
+                          ?.replace(
+                            `${SONAR_PROJECT_KEY}:`,
+                            ""
+                          ) || "N/A";
 
-                        <td>
-                          ${escapeHtml(issue.line || "N/A")}
-                        </td>
-                      </tr>
-                    `).join("")}
+                      return `
+
+                        <tr>
+
+                          <td>
+                            <span
+                              class="badge ${escapeHtml(
+                                severity
+                              )}"
+                            >
+                              ${escapeHtml(
+                                issue.severity ||
+                                "UNKNOWN"
+                              )}
+                            </span>
+                          </td>
+
+                          <td>
+                            ${escapeHtml(
+                              issue.type ||
+                              "N/A"
+                            )}
+                          </td>
+
+                          <td>
+                            ${escapeHtml(
+                              issue.rule ||
+                              "N/A"
+                            )}
+                          </td>
+
+                          <td>
+                            ${escapeHtml(
+                              issue.message ||
+                              "N/A"
+                            )}
+                          </td>
+
+                          <td class="file">
+                            ${escapeHtml(file)}
+                          </td>
+
+                          <td>
+                            ${escapeHtml(
+                              issue.line ||
+                              "N/A"
+                            )}
+                          </td>
+
+                        </tr>
+
+                      `;
+
+                    }).join("")}
+
                   </tbody>
+
                 </table>
+
               </div>
             `;
+
           }
 
           // ==========================================================
-          // COVERAGE FILE TABLE
+          // NEW CODE COVERAGE TABLE
           // ==========================================================
 
-          function coverageTable() {
-            if (!files.length) {
+          function newCodeTable() {
+
+            if (!newCodeFiles.length) {
+
               return `
-                <div class="empty">
-                  No file-level coverage data returned by SonarCloud.
+
+                <div class="empty warning">
+
+                  ⚠ SonarCloud did not return file-level
+                  New Code coverage metrics for this analysis.
+
+                  <br><br>
+
+                  Overall coverage is available, but the
+                  New Code baseline/period must be available
+                  in SonarCloud for file-level new-code
+                  coverage to be calculated.
+
                 </div>
+
               `;
+
             }
 
             return `
+
               <div class="table-wrap">
+
                 <table>
+
                   <thead>
+
                     <tr>
+
                       <th>File</th>
+
                       <th>New Code Coverage</th>
+
+                      <th>New Lines</th>
+
                       <th>Uncovered New Lines</th>
+
+                      <th>New Conditions</th>
+
                       <th>Uncovered New Conditions</th>
+
                       <th>Overall Coverage</th>
+
                       <th>Overall Uncovered Lines</th>
+
                     </tr>
+
                   </thead>
 
                   <tbody>
-                    ${files.map(file => `
+
+                    ${newCodeFiles.map(file => `
+
                       <tr>
+
                         <td class="file">
                           ${escapeHtml(file.path)}
                         </td>
@@ -550,70 +901,219 @@ jobs:
                             ? "danger-text"
                             : "success-text"
                         }">
-                          ${formatPercent(file.newCoverage)}
+
+                          ${percent(
+                            file.newCoverage
+                          )}
+
                         </td>
 
                         <td>
+                          ${file.newLinesToCover}
+                        </td>
+
+                        <td class="${
+                          file.newUncoveredLines > 0
+                            ? "danger-text"
+                            : ""
+                        }">
+
                           ${file.newUncoveredLines}
+
                         </td>
 
                         <td>
+                          ${file.newConditionsToCover}
+                        </td>
+
+                        <td class="${
+                          file.newUncoveredConditions > 0
+                            ? "danger-text"
+                            : ""
+                        }">
+
                           ${file.newUncoveredConditions}
+
                         </td>
 
                         <td>
-                          ${formatPercent(file.coverage)}
+                          ${percent(
+                            file.coverage
+                          )}
                         </td>
 
                         <td>
                           ${file.uncoveredLines}
                         </td>
+
                       </tr>
+
                     `).join("")}
+
                   </tbody>
+
                 </table>
+
               </div>
+
             `;
+
           }
 
-          const highCount = highIssues.length;
-          const mediumCount = mediumIssues.length;
-          const blockerCount = blockerIssues.length;
-          const totalIssues = issues.length;
+          // ==========================================================
+          // OVERALL COVERAGE TABLE
+          // ==========================================================
 
-          const overallCoverage = measures.coverage;
-          const newCoverage = measures.new_coverage;
+          function overallCoverageTable() {
 
-          const uncoveredLines = number(
-            measures.uncovered_lines
-          );
+            return `
 
-          const uncoveredConditions = number(
-            measures.uncovered_conditions
-          );
+              <div class="table-wrap">
 
-          const newUncoveredLines = number(
-            measures.new_uncovered_lines
-          );
+                <table>
 
-          const newUncoveredConditions = number(
-            measures.new_uncovered_conditions
-          );
+                  <thead>
+
+                    <tr>
+
+                      <th>File</th>
+
+                      <th>Coverage</th>
+
+                      <th>Lines to Cover</th>
+
+                      <th>Uncovered Lines</th>
+
+                      <th>Conditions</th>
+
+                      <th>Uncovered Conditions</th>
+
+                    </tr>
+
+                  </thead>
+
+                  <tbody>
+
+                    ${files.map(file => `
+
+                      <tr>
+
+                        <td class="file">
+                          ${escapeHtml(
+                            file.path
+                          )}
+                        </td>
+
+                        <td>
+                          ${percent(
+                            file.coverage
+                          )}
+                        </td>
+
+                        <td>
+                          ${file.linesToCover}
+                        </td>
+
+                        <td class="${
+                          file.uncoveredLines > 0
+                            ? "danger-text"
+                            : ""
+                        }">
+
+                          ${file.uncoveredLines}
+
+                        </td>
+
+                        <td>
+                          ${file.conditionsToCover}
+                        </td>
+
+                        <td class="${
+                          file.uncoveredConditions > 0
+                            ? "danger-text"
+                            : ""
+                        }">
+
+                          ${file.uncoveredConditions}
+
+                        </td>
+
+                      </tr>
+
+                    `).join("")}
+
+                  </tbody>
+
+                </table>
+
+              </div>
+
+            `;
+
+          }
 
           // ==========================================================
-          // HTML
+          // PROJECT VALUES
+          // ==========================================================
+
+          const overallCoverage =
+            projectMeasures.coverage;
+
+          const newCoverage =
+            projectMeasures.new_coverage;
+
+          const uncoveredLines =
+            num(
+              projectMeasures.uncovered_lines
+            );
+
+          const uncoveredConditions =
+            num(
+              projectMeasures.uncovered_conditions
+            );
+
+          const newLines =
+            num(
+              projectMeasures.new_lines
+            );
+
+          const newLinesToCover =
+            num(
+              projectMeasures.new_lines_to_cover
+            );
+
+          const newUncoveredLines =
+            num(
+              projectMeasures.new_uncovered_lines
+            );
+
+          const newConditionsToCover =
+            num(
+              projectMeasures.new_conditions_to_cover
+            );
+
+          const newUncoveredConditions =
+            num(
+              projectMeasures.new_uncovered_conditions
+            );
+
+          // ==========================================================
+          // GENERATE HTML
           // ==========================================================
 
           const html = `
+
           <!DOCTYPE html>
-          <html lang="en">
+
+          <html>
 
           <head>
+
             <meta charset="UTF-8">
 
             <meta
               name="viewport"
-              content="width=device-width, initial-scale=1.0"
+              content="width=device-width,initial-scale=1"
             >
 
             <title>
@@ -627,276 +1127,564 @@ jobs:
               }
 
               body {
+
                 margin: 0;
-                padding: 32px;
-                background: #0b1220;
-                color: #f8fafc;
+
+                padding: 30px;
+
+                background:
+                  #07111f;
+
+                color:
+                  #f8fafc;
+
                 font-family:
                   Inter,
-                  ui-sans-serif,
                   system-ui,
                   -apple-system,
                   BlinkMacSystemFont,
                   "Segoe UI",
                   sans-serif;
+
               }
 
               .container {
-                max-width: 1400px;
-                margin: auto;
+
+                max-width:
+                  1500px;
+
+                margin:
+                  auto;
+
               }
 
               .hero {
-                background: #111b2e;
-                border: 1px solid #334155;
-                border-radius: 18px;
-                padding: 28px;
-                margin-bottom: 20px;
+
+                background:
+                  linear-gradient(
+                    135deg,
+                    #111c31,
+                    #0c1628
+                  );
+
+                border:
+                  1px solid #263852;
+
+                border-radius:
+                  20px;
+
+                padding:
+                  30px;
+
+                margin-bottom:
+                  20px;
+
               }
 
               h1 {
-                margin: 0 0 8px;
-                font-size: 28px;
+
+                margin:
+                  0 0 8px;
+
+                font-size:
+                  30px;
+
               }
 
               h2 {
-                margin-top: 0;
+
+                margin-top:
+                  0;
+
               }
 
               .subtitle {
-                color: #93c5fd;
+
+                color:
+                  #93c5fd;
+
               }
 
               .metadata {
-                margin-top: 18px;
-                color: #bfdbfe;
-                font-size: 13px;
+
+                margin-top:
+                  18px;
+
+                color:
+                  #cbd5e1;
+
+                font-size:
+                  13px;
+
+                display:
+                  flex;
+
+                flex-wrap:
+                  wrap;
+
+                gap:
+                  18px;
+
               }
 
-              .metadata span {
-                margin-right: 25px;
+              .metadata a {
+
+                color:
+                  #60a5fa;
+
               }
 
               .cards {
-                display: grid;
+
+                display:
+                  grid;
+
                 grid-template-columns:
-                  repeat(auto-fit, minmax(190px, 1fr));
-                gap: 14px;
-                margin-bottom: 20px;
+                  repeat(
+                    auto-fit,
+                    minmax(180px, 1fr)
+                  );
+
+                gap:
+                  14px;
+
+                margin-bottom:
+                  20px;
+
               }
 
               .card {
-                background: #111b2e;
-                border: 1px solid #334155;
-                border-radius: 15px;
-                padding: 20px;
+
+                background:
+                  #111c31;
+
+                border:
+                  1px solid #263852;
+
+                border-radius:
+                  16px;
+
+                padding:
+                  20px;
+
               }
 
               .card-label {
-                font-size: 12px;
-                color: #93c5fd;
-                text-transform: uppercase;
-                letter-spacing: .06em;
+
+                color:
+                  #93c5fd;
+
+                font-size:
+                  11px;
+
+                text-transform:
+                  uppercase;
+
+                letter-spacing:
+                  .08em;
+
               }
 
               .card-value {
-                font-size: 30px;
-                font-weight: 800;
-                margin-top: 10px;
+
+                font-size:
+                  30px;
+
+                font-weight:
+                  800;
+
+                margin-top:
+                  10px;
+
               }
 
               .high {
-                color: #ff647c;
+                color:
+                  #ff647c;
               }
 
               .medium {
-                color: #ffb11b;
+                color:
+                  #ffb11b;
               }
 
               .blocker {
-                color: #b184ff;
+                color:
+                  #b184ff;
+              }
+
+              .critical {
+                color:
+                  #ff8a65;
+              }
+
+              .low {
+                color:
+                  #94a3b8;
               }
 
               .success-text {
-                color: #7ee787;
+
+                color:
+                  #7ee787;
+
+                font-weight:
+                  700;
+
               }
 
               .danger-text {
-                color: #ff647c;
-                font-weight: 700;
+
+                color:
+                  #ff647c;
+
+                font-weight:
+                  700;
+
               }
 
               .section {
-                background: #111b2e;
-                border: 1px solid #334155;
-                border-radius: 18px;
-                padding: 22px;
-                margin-bottom: 20px;
+
+                background:
+                  #111c31;
+
+                border:
+                  1px solid #263852;
+
+                border-radius:
+                  18px;
+
+                padding:
+                  24px;
+
+                margin-bottom:
+                  20px;
+
               }
 
-              .severity-bar {
-                height: 18px;
-                background: #1e293b;
-                border-radius: 999px;
-                overflow: hidden;
-                display: flex;
-                margin: 20px 0;
+              .severity-grid {
+
+                display:
+                  grid;
+
+                grid-template-columns:
+                  repeat(
+                    auto-fit,
+                    minmax(140px, 1fr)
+                  );
+
+                gap:
+                  12px;
+
               }
 
-              .severity-high {
-                background: #ff647c;
+              .severity {
+
+                padding:
+                  16px;
+
+                border-radius:
+                  12px;
+
+                background:
+                  #0c1628;
+
+                border:
+                  1px solid #263852;
+
               }
 
-              .severity-medium {
-                background: #ffb11b;
-              }
+              .severity-number {
 
-              .severity-blocker {
-                background: #b184ff;
-              }
+                font-size:
+                  26px;
 
-              .legend {
-                display: flex;
-                gap: 22px;
-                font-size: 13px;
-                color: #cbd5e1;
-              }
+                font-weight:
+                  800;
 
-              .legend span::before {
-                content: "";
-                display: inline-block;
-                width: 9px;
-                height: 9px;
-                border-radius: 50%;
-                margin-right: 6px;
-              }
-
-              .legend-high::before {
-                background: #ff647c;
-              }
-
-              .legend-medium::before {
-                background: #ffb11b;
-              }
-
-              .legend-blocker::before {
-                background: #b184ff;
-              }
-
-              .table-wrap {
-                overflow-x: auto;
-              }
-
-              table {
-                width: 100%;
-                border-collapse: collapse;
-                margin-top: 15px;
-                font-size: 13px;
-              }
-
-              th {
-                background: #1e293b;
-                color: #bfdbfe;
-                text-align: left;
-                padding: 12px;
-                border-bottom: 1px solid #334155;
-                white-space: nowrap;
-              }
-
-              td {
-                padding: 12px;
-                border-bottom: 1px solid #263449;
-                vertical-align: top;
-              }
-
-              tr:hover {
-                background: #162238;
-              }
-
-              .file {
-                color: #93c5fd;
-                font-family: monospace;
-                white-space: nowrap;
-              }
-
-              .badge {
-                display: inline-block;
-                padding: 4px 9px;
-                border-radius: 999px;
-                font-weight: 700;
-                font-size: 11px;
-              }
-
-              .badge.high {
-                background: rgba(255, 100, 124, .15);
-                color: #ff647c;
-              }
-
-              .badge.medium {
-                background: rgba(255, 177, 27, .15);
-                color: #ffb11b;
-              }
-
-              .badge.blocker {
-                background: rgba(177, 132, 255, .15);
-                color: #b184ff;
-              }
-
-              .empty {
-                padding: 18px;
-                border-radius: 10px;
-                background: #0f172a;
-                color: #7ee787;
               }
 
               .coverage-grid {
-                display: grid;
+
+                display:
+                  grid;
+
                 grid-template-columns:
-                  repeat(auto-fit, minmax(190px, 1fr));
-                gap: 14px;
+                  repeat(
+                    auto-fit,
+                    minmax(180px, 1fr)
+                  );
+
+                gap:
+                  12px;
+
               }
 
               .metric {
-                background: #0f172a;
-                border: 1px solid #263449;
-                border-radius: 12px;
-                padding: 16px;
+
+                padding:
+                  17px;
+
+                border-radius:
+                  12px;
+
+                background:
+                  #0c1628;
+
+                border:
+                  1px solid #263852;
+
               }
 
               .metric-label {
-                color: #93c5fd;
-                font-size: 12px;
+
+                color:
+                  #93c5fd;
+
+                font-size:
+                  12px;
+
               }
 
               .metric-value {
-                font-size: 25px;
-                font-weight: 800;
-                margin-top: 8px;
+
+                margin-top:
+                  8px;
+
+                font-size:
+                  25px;
+
+                font-weight:
+                  800;
+
+              }
+
+              .table-wrap {
+
+                overflow-x:
+                  auto;
+
+              }
+
+              table {
+
+                width:
+                  100%;
+
+                border-collapse:
+                  collapse;
+
+                margin-top:
+                  15px;
+
+                font-size:
+                  12px;
+
+              }
+
+              th {
+
+                text-align:
+                  left;
+
+                padding:
+                  12px;
+
+                background:
+                  #1e293b;
+
+                color:
+                  #bfdbfe;
+
+                white-space:
+                  nowrap;
+
+                border-bottom:
+                  1px solid #334155;
+
+              }
+
+              td {
+
+                padding:
+                  11px;
+
+                border-bottom:
+                  1px solid #263449;
+
+                vertical-align:
+                  top;
+
+              }
+
+              tr:hover {
+
+                background:
+                  #172338;
+
+              }
+
+              .file {
+
+                font-family:
+                  monospace;
+
+                color:
+                  #93c5fd;
+
+                white-space:
+                  nowrap;
+
+              }
+
+              .badge {
+
+                display:
+                  inline-block;
+
+                padding:
+                  4px 9px;
+
+                border-radius:
+                  999px;
+
+                font-size:
+                  10px;
+
+                font-weight:
+                  800;
+
+              }
+
+              .badge.high {
+
+                background:
+                  rgba(
+                    255,
+                    100,
+                    124,
+                    .15
+                  );
+
+                color:
+                  #ff647c;
+
+              }
+
+              .badge.medium {
+
+                background:
+                  rgba(
+                    255,
+                    177,
+                    27,
+                    .15
+                  );
+
+                color:
+                  #ffb11b;
+
+              }
+
+              .badge.blocker {
+
+                background:
+                  rgba(
+                    177,
+                    132,
+                    255,
+                    .15
+                  );
+
+                color:
+                  #b184ff;
+
+              }
+
+              .badge.critical {
+
+                background:
+                  rgba(
+                    255,
+                    138,
+                    101,
+                    .15
+                  );
+
+                color:
+                  #ff8a65;
+
+              }
+
+              .badge.low {
+
+                background:
+                  rgba(
+                    148,
+                    163,
+                    184,
+                    .15
+                  );
+
+                color:
+                  #94a3b8;
+
+              }
+
+              .empty {
+
+                padding:
+                  18px;
+
+                border-radius:
+                  12px;
+
+                background:
+                  #0c1628;
+
+              }
+
+              .empty.success {
+
+                color:
+                  #7ee787;
+
+              }
+
+              .empty.warning {
+
+                color:
+                  #fbbf24;
+
               }
 
               .footer {
-                color: #64748b;
-                font-size: 12px;
-                text-align: center;
-                margin-top: 30px;
-              }
 
-              @media(max-width: 700px) {
-                body {
-                  padding: 14px;
-                }
+                text-align:
+                  center;
 
-                h1 {
-                  font-size: 22px;
-                }
+                color:
+                  #64748b;
+
+                font-size:
+                  12px;
+
+                margin-top:
+                  30px;
+
               }
 
             </style>
+
           </head>
 
           <body>
 
             <div class="container">
+
+              <!-- ================================================= -->
+              <!-- HERO -->
+              <!-- ================================================= -->
 
               <div class="hero">
 
@@ -905,8 +1693,12 @@ jobs:
                 </h1>
 
                 <div class="subtitle">
-                  Real-time security issues, severity distribution
-                  and uncovered new code.
+
+                  Real-time security issues,
+                  severity distribution,
+                  overall coverage and
+                  uncovered new code.
+
                 </div>
 
                 <div class="metadata">
@@ -928,214 +1720,360 @@ jobs:
                   <span>
                     Commit:
                     <strong>
-                      ${escapeHtml(COMMIT.substring(0, 7))}
+                      ${escapeHtml(
+                        COMMIT.substring(0, 7)
+                      )}
                     </strong>
                   </span>
 
                   <span>
+
                     <a
                       href="https://sonarcloud.io/dashboard?id=${encodeURIComponent(
                         SONAR_PROJECT_KEY
                       )}"
                       target="_blank"
-                      style="color:#60a5fa;"
                     >
                       Open SonarCloud
                     </a>
+
                   </span>
 
                 </div>
 
               </div>
 
+              <!-- ================================================= -->
+              <!-- TOP CARDS -->
+              <!-- ================================================= -->
+
               <div class="cards">
 
                 <div class="card">
-                  <div class="card-label">
-                    High Severity
-                  </div>
 
-                  <div class="card-value high">
-                    ${highCount}
-                  </div>
-                </div>
-
-                <div class="card">
-                  <div class="card-label">
-                    Medium Severity
-                  </div>
-
-                  <div class="card-value medium">
-                    ${mediumCount}
-                  </div>
-                </div>
-
-                <div class="card">
                   <div class="card-label">
                     Blocker
                   </div>
 
                   <div class="card-value blocker">
-                    ${blockerCount}
+                    ${severityCounts.BLOCKER}
                   </div>
+
                 </div>
 
                 <div class="card">
+
+                  <div class="card-label">
+                    Critical
+                  </div>
+
+                  <div class="card-value critical">
+                    ${severityCounts.CRITICAL}
+                  </div>
+
+                </div>
+
+                <div class="card">
+
+                  <div class="card-label">
+                    High
+                  </div>
+
+                  <div class="card-value high">
+                    ${severityCounts.HIGH}
+                  </div>
+
+                </div>
+
+                <div class="card">
+
+                  <div class="card-label">
+                    Medium
+                  </div>
+
+                  <div class="card-value medium">
+                    ${severityCounts.MEDIUM}
+                  </div>
+
+                </div>
+
+                <div class="card">
+
                   <div class="card-label">
                     Total Active Issues
                   </div>
 
                   <div class="card-value">
-                    ${totalIssues}
+                    ${issues.length}
                   </div>
+
                 </div>
 
                 <div class="card">
+
                   <div class="card-label">
                     Overall Coverage
                   </div>
 
-                  <div class="card-value">
-                    ${formatPercent(overallCoverage)}
+                  <div class="card-value success-text">
+                    ${percent(
+                      overallCoverage
+                    )}
                   </div>
+
                 </div>
 
                 <div class="card">
+
                   <div class="card-label">
                     New Code Coverage
                   </div>
 
-                  <div class="card-value success-text">
-                    ${formatPercent(newCoverage)}
+                  <div class="card-value ${
+                    newCoverage === undefined
+                      ? ""
+                      : "success-text"
+                  }">
+
+                    ${percent(
+                      newCoverage
+                    )}
+
                   </div>
+
                 </div>
 
               </div>
 
+              <!-- ================================================= -->
+              <!-- SECURITY -->
+              <!-- ================================================= -->
+
               <div class="section">
 
                 <h2>
-                  Security Severity Distribution
+                  🛡️ Security Severity Distribution
                 </h2>
 
                 <p class="subtitle">
-                  Active OPEN and REOPENED SonarCloud issues.
+
+                  All active OPEN and REOPENED
+                  SonarCloud issues.
+
                 </p>
 
-                <div class="severity-bar">
+                <div class="severity-grid">
 
-                  ${
-                    totalIssues > 0
-                      ? `
-                        <div
-                          class="severity-high"
-                          style="width:${(
-                            highCount / totalIssues * 100
-                          ).toFixed(2)}%"
-                        ></div>
+                  <div class="severity">
 
-                        <div
-                          class="severity-medium"
-                          style="width:${(
-                            mediumCount / totalIssues * 100
-                          ).toFixed(2)}%"
-                        ></div>
+                    <div>
+                      BLOCKER
+                    </div>
 
-                        <div
-                          class="severity-blocker"
-                          style="width:${(
-                            blockerCount / totalIssues * 100
-                          ).toFixed(2)}%"
-                        ></div>
-                      `
-                      : ""
-                  }
+                    <div class="severity-number blocker">
+                      ${severityCounts.BLOCKER}
+                    </div>
 
-                </div>
+                  </div>
 
-                <div class="legend">
+                  <div class="severity">
 
-                  <span class="legend-high">
-                    High: ${highCount}
-                  </span>
+                    <div>
+                      CRITICAL
+                    </div>
 
-                  <span class="legend-medium">
-                    Medium: ${mediumCount}
-                  </span>
+                    <div class="severity-number critical">
+                      ${severityCounts.CRITICAL}
+                    </div>
 
-                  <span class="legend-blocker">
-                    Blocker: ${blockerCount}
-                  </span>
+                  </div>
+
+                  <div class="severity">
+
+                    <div>
+                      HIGH
+                    </div>
+
+                    <div class="severity-number high">
+                      ${severityCounts.HIGH}
+                    </div>
+
+                  </div>
+
+                  <div class="severity">
+
+                    <div>
+                      MEDIUM
+                    </div>
+
+                    <div class="severity-number medium">
+                      ${severityCounts.MEDIUM}
+                    </div>
+
+                  </div>
+
+                  <div class="severity">
+
+                    <div>
+                      LOW
+                    </div>
+
+                    <div class="severity-number low">
+                      ${severityCounts.LOW}
+                    </div>
+
+                  </div>
+
+                  <div class="severity">
+
+                    <div>
+                      INFO
+                    </div>
+
+                    <div class="severity-number">
+                      ${severityCounts.INFO}
+                    </div>
+
+                  </div>
 
                 </div>
 
               </div>
 
+              <!-- ================================================= -->
+              <!-- COVERAGE -->
+              <!-- ================================================= -->
+
               <div class="section">
 
                 <h2>
-                  Coverage Overview
+                  📈 Coverage Overview
                 </h2>
 
                 <div class="coverage-grid">
 
                   <div class="metric">
+
                     <div class="metric-label">
                       Overall Coverage
                     </div>
+
                     <div class="metric-value">
-                      ${formatPercent(overallCoverage)}
+                      ${percent(
+                        overallCoverage
+                      )}
                     </div>
+
                   </div>
 
                   <div class="metric">
+
                     <div class="metric-label">
-                      Coverage on New Code
+                      New Code Coverage
                     </div>
+
                     <div class="metric-value success-text">
-                      ${formatPercent(newCoverage)}
+
+                      ${percent(
+                        newCoverage
+                      )}
+
                     </div>
+
                   </div>
 
                   <div class="metric">
+
                     <div class="metric-label">
                       Uncovered Lines
                     </div>
-                    <div class="metric-value">
+
+                    <div class="metric-value danger-text">
+
                       ${uncoveredLines}
+
                     </div>
+
                   </div>
 
                   <div class="metric">
+
                     <div class="metric-label">
                       Uncovered Conditions
                     </div>
-                    <div class="metric-value">
+
+                    <div class="metric-value danger-text">
+
                       ${uncoveredConditions}
+
                     </div>
+
                   </div>
 
                   <div class="metric">
+
+                    <div class="metric-label">
+                      New Lines
+                    </div>
+
+                    <div class="metric-value">
+
+                      ${newLines ||
+                        newLinesToCover}
+
+                    </div>
+
+                  </div>
+
+                  <div class="metric">
+
                     <div class="metric-label">
                       Uncovered New Lines
                     </div>
+
                     <div class="metric-value danger-text">
+
                       ${newUncoveredLines}
+
                     </div>
+
                   </div>
 
                   <div class="metric">
+
+                    <div class="metric-label">
+                      New Conditions
+                    </div>
+
+                    <div class="metric-value">
+
+                      ${newConditionsToCover}
+
+                    </div>
+
+                  </div>
+
+                  <div class="metric">
+
                     <div class="metric-label">
                       Uncovered New Conditions
                     </div>
+
                     <div class="metric-value danger-text">
+
                       ${newUncoveredConditions}
+
                     </div>
+
                   </div>
 
                 </div>
 
               </div>
+
+              <!-- ================================================= -->
+              <!-- HIGH -->
+              <!-- ================================================= -->
 
               <div class="section">
 
@@ -1144,12 +2082,21 @@ jobs:
                 </h2>
 
                 <p class="subtitle">
-                  ${highCount} active high-severity issue(s).
+
+                  ${highIssues.length}
+                  active high-severity issue(s).
+
                 </p>
 
-                ${issueTable(highIssues)}
+                ${issueTable(
+                  highIssues
+                )}
 
               </div>
+
+              <!-- ================================================= -->
+              <!-- MEDIUM -->
+              <!-- ================================================= -->
 
               <div class="section">
 
@@ -1158,12 +2105,21 @@ jobs:
                 </h2>
 
                 <p class="subtitle">
-                  ${mediumCount} active medium-severity issue(s).
+
+                  ${mediumIssues.length}
+                  active medium-severity issue(s).
+
                 </p>
 
-                ${issueTable(mediumIssues)}
+                ${issueTable(
+                  mediumIssues
+                )}
 
               </div>
+
+              <!-- ================================================= -->
+              <!-- BLOCKER -->
+              <!-- ================================================= -->
 
               <div class="section">
 
@@ -1172,32 +2128,95 @@ jobs:
                 </h2>
 
                 <p class="subtitle">
-                  ${blockerCount} active blocker issue(s).
+
+                  ${blockerIssues.length}
+                  active blocker issue(s).
+
                 </p>
 
-                ${issueTable(blockerIssues)}
+                ${issueTable(
+                  blockerIssues
+                )}
 
               </div>
+
+              <!-- ================================================= -->
+              <!-- CRITICAL -->
+              <!-- ================================================= -->
 
               <div class="section">
 
                 <h2>
-                  📊 New Code Coverage by File
+                  🟠 Critical Issues
                 </h2>
 
                 <p class="subtitle">
-                  Files are sorted by uncovered new lines first.
-                  This makes the files requiring additional tests
-                  immediately visible.
+
+                  ${criticalIssues.length}
+                  active critical issue(s).
+
                 </p>
 
-                ${coverageTable()}
+                ${issueTable(
+                  criticalIssues
+                )}
 
               </div>
 
+              <!-- ================================================= -->
+              <!-- NEW CODE -->
+              <!-- ================================================= -->
+
+              <div class="section">
+
+                <h2>
+                  🧪 New Code Coverage by File
+                </h2>
+
+                <p class="subtitle">
+
+                  This section contains only JavaScript/
+                  TypeScript source files for which SonarCloud
+                  reports new-code coverage information.
+
+                  Files are sorted by uncovered new lines.
+
+                </p>
+
+                ${newCodeTable()}
+
+              </div>
+
+              <!-- ================================================= -->
+              <!-- OVERALL SOURCE COVERAGE -->
+              <!-- ================================================= -->
+
+              <div class="section">
+
+                <h2>
+                  📊 Overall Source Coverage by File
+                </h2>
+
+                <p class="subtitle">
+
+                  JavaScript/TypeScript source files sorted
+                  by total uncovered lines.
+
+                </p>
+
+                ${overallCoverageTable()}
+
+              </div>
+
+              <!-- ================================================= -->
+              <!-- FOOTER -->
+              <!-- ================================================= -->
+
               <div class="footer">
-                Generated automatically by GitHub Actions →
-                SonarCloud Security Analysis
+
+                Generated automatically by
+                GitHub Actions → SonarCloud Security Analysis
+
               </div>
 
             </div>
@@ -1205,6 +2224,7 @@ jobs:
           </body>
 
           </html>
+
           `;
 
           fs.writeFileSync(
@@ -1213,18 +2233,88 @@ jobs:
             "utf8"
           );
 
+          // ==========================================================
+          // CONSOLE SUMMARY
+          // ==========================================================
+
           console.log("");
-          console.log("============================================================");
-          console.log("SonarCloud HTML report generated");
-          console.log("============================================================");
-          console.log(`Issues: ${totalIssues}`);
-          console.log(`High: ${highCount}`);
-          console.log(`Medium: ${mediumCount}`);
-          console.log(`Blocker: ${blockerCount}`);
-          console.log(`Overall coverage: ${overallCoverage ?? "N/A"}`);
-          console.log(`New coverage: ${newCoverage ?? "N/A"}`);
-          console.log(`Files: ${files.length}`);
-          console.log("============================================================");
+          console.log(
+            "============================================================"
+          );
+          console.log(
+            "SONARCLOUD REPORT SUMMARY"
+          );
+          console.log(
+            "============================================================"
+          );
+
+          console.log(
+            `Total issues: ${issues.length}`
+          );
+
+          console.log(
+            `Blocker: ${severityCounts.BLOCKER}`
+          );
+
+          console.log(
+            `Critical: ${severityCounts.CRITICAL}`
+          );
+
+          console.log(
+            `High: ${severityCounts.HIGH}`
+          );
+
+          console.log(
+            `Medium: ${severityCounts.MEDIUM}`
+          );
+
+          console.log(
+            `Low: ${severityCounts.LOW}`
+          );
+
+          console.log(
+            `Info: ${severityCounts.INFO}`
+          );
+
+          console.log(
+            `Overall coverage: ${
+              overallCoverage ?? "N/A"
+            }`
+          );
+
+          console.log(
+            `New code coverage: ${
+              newCoverage ?? "N/A"
+            }`
+          );
+
+          console.log(
+            `Uncovered lines: ${
+              uncoveredLines
+            }`
+          );
+
+          console.log(
+            `Uncovered new lines: ${
+              newUncoveredLines
+            }`
+          );
+
+          console.log(
+            `New-code files returned: ${
+              newCodeFiles.length
+            }`
+          );
+
+          console.log(
+            `Coverage files returned: ${
+              files.length
+            }`
+          );
+
+          console.log(
+            "============================================================"
+          );
 
           EOF
 
@@ -1245,13 +2335,13 @@ jobs:
           set -e
 
           echo "============================================================"
-          echo "Generating SonarCloud report"
+          echo "Generating SonarCloud HTML report"
           echo "============================================================"
 
           node generate-sonar-report.mjs
 
       # ============================================================
-      # UPLOAD REPORT
+      # UPLOAD HTML
       # ============================================================
       - name: Upload SonarCloud HTML report
         if: always()
@@ -1259,4 +2349,17 @@ jobs:
         with:
           name: sonar-summary-report
           path: sonar-summary.html
+          if-no-files-found: warn
+
+      # ============================================================
+      # UPLOAD RAW DATA FOR DEBUGGING
+      # ============================================================
+      - name: Upload SonarCloud diagnostic files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonarcloud-diagnostics
+          path: |
+            .scannerwork/report-task.txt
+            coverage/lcov.info
           if-no-files-found: warn
