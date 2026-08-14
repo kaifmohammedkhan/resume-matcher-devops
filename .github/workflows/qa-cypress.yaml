@@ -58,7 +58,7 @@ jobs:
           cache: npm
 
       - name: Install Dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts=false
 
       - name: Build Application
         run: |
@@ -186,7 +186,7 @@ jobs:
         run: |
           mkdir -p cypress/reports
 
-          npx cypress run \
+          ./node_modules/.bin/cypress run \
             --browser chrome \
             --headless \
             --reporter junit \

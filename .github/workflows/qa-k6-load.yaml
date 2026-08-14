@@ -64,7 +64,7 @@ jobs:
           cache: npm
 
       - name: Install Dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts=false
 
       - name: Build Application
         run: |
@@ -104,11 +104,13 @@ jobs:
               echo "Application is READY."
               exit 0
             fi
+
             if ! kill -0 "$APP_PID" 2>/dev/null; then
               echo "Application exited unexpectedly."
               cat results/app.log || true
               exit 1
             fi
+
             echo "Waiting for application... attempt $i/30"
             sleep 2
           done
@@ -120,13 +122,21 @@ jobs:
       - name: Verify Application Before Load Test
         run: |
           mkdir -p results
-          HTTP_STATUS=$(curl --silent --output /dev/null --write-out "%{http_code}" http://127.0.0.1:3000/ || true)
+
+          HTTP_STATUS=$(curl \
+            --silent \
+            --output /dev/null \
+            --write-out "%{http_code}" \
+            http://127.0.0.1:3000/ || true)
+
           echo "HTTP status: $HTTP_STATUS"
+
           if [ "$HTTP_STATUS" = "000" ]; then
             echo "ERROR: Application is unreachable."
             cat results/app.log || true
             exit 1
           fi
+
           echo "Application is reachable."
           echo "Target: http://127.0.0.1:3000"
 
@@ -135,6 +145,7 @@ jobs:
         continue-on-error: true
         run: |
           mkdir -p results
+
           echo "=========================================="
           echo "k6 LOAD TEST"
           echo "=========================================="
@@ -146,6 +157,7 @@ jobs:
           echo ""
 
           set +e
+
           k6 run \
             --vus 10 \
             --duration 30s \
@@ -153,45 +165,60 @@ jobs:
             --summary-export=results/summary.json \
             tests/load.js \
             2>&1 | tee results/k6-console.log
+
           K6_EXIT=${PIPESTATUS[0]}
+
           set -e
 
           echo "$K6_EXIT" > results/k6-exit-code.txt
+
           echo "k6 exit code: $K6_EXIT"
+
           exit "$K6_EXIT"
 
       - name: Capture Load Diagnostics
         if: always()
         run: |
           mkdir -p results
+
           {
             echo "=========================================="
             echo "k6 Load Diagnostics"
             echo "=========================================="
+
             echo ""
             echo "Timestamp:"
             date -u '+%Y-%m-%dT%H:%M:%SZ'
+
             echo ""
             echo "k6 step outcome:"
             echo "${{ steps.k6_load.outcome }}"
+
             echo ""
             echo "k6 exit code:"
             cat results/k6-exit-code.txt 2>/dev/null || true
+
             echo ""
             echo "=========================================="
             echo "Application Log"
             echo "=========================================="
+
             cat results/app.log 2>/dev/null || true
+
             echo ""
             echo "=========================================="
             echo "k6 Console Log"
             echo "=========================================="
+
             cat results/k6-console.log 2>/dev/null || true
+
             echo ""
             echo "=========================================="
             echo "k6 Summary"
             echo "=========================================="
+
             cat results/summary.json 2>/dev/null || true
+
           } > results/diagnostics.log
 
       - name: Upload k6 Load Reports
@@ -215,4 +242,5 @@ jobs:
           echo "  results/output.json"
           echo "  results/k6-console.log"
           echo "  results/diagnostics.log"
+
           exit 1
