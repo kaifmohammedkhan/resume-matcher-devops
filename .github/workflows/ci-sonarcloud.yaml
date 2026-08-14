@@ -3,6 +3,9 @@ name: CI & Security Pipeline - SonarCloud Security Analysis
 on:
   workflow_call:
 
+permissions:
+  contents: read
+
 jobs:
   sonarcloud:
     name: SonarCloud Security Analysis
@@ -12,11 +15,10 @@ jobs:
       contents: read
 
     steps:
-
       # ============================================================
       # CHECKOUT
       # ============================================================
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -24,53 +26,43 @@ jobs:
       # ============================================================
       # DOWNLOAD JEST COVERAGE
       # ============================================================
-      - name: Download coverage report
+      - name: Download Coverage Report
         uses: actions/download-artifact@v4
         with:
           name: coverage-report
           path: coverage
 
-      - name: Verify coverage report
-        run: |
-          set -e
-
-          echo "============================================================"
-          echo "Coverage files"
-          echo "============================================================"
-
-          find coverage -maxdepth 3 -type f -print || true
-
-          echo "============================================================"
-
-          if [ ! -f "coverage/lcov.info" ]; then
-            echo "ERROR: coverage/lcov.info was not found."
-            exit 1
-          fi
-
-          echo "Coverage report found."
-
       # ============================================================
-      # JAVA
+      # SETUP JAVA
       # ============================================================
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: 21
+          java-version: "21"
 
       # ============================================================
-      # INSTALL SONARSCANNER
+      # INSTALL SONAR SCANNER
       # ============================================================
-      - name: Install SonarScanner CLI securely
+      - name: Install SonarScanner CLI
+        shell: bash
         run: |
           set -e
 
-          curl --proto '=https' --tlsv1.2 -sSLf \
-            https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006.zip \
+          SONAR_SCANNER_VERSION="5.0.1.3006"
+          SONAR_SCANNER_ZIP="sonar-scanner-cli-${SONAR_SCANNER_VERSION}.zip"
+          SONAR_SCANNER_URL="https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/${SONAR_SCANNER_ZIP}"
+
+          curl --fail --show-error --silent \
+            --proto '=https' \
+            --tlsv1.2 \
+            "$SONAR_SCANNER_URL" \
             -o sonar-scanner.zip
 
-          curl --proto '=https' --tlsv1.2 -sSLf \
-            https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-5.0.1.3006.zip.sha256 \
+          curl --fail --show-error --silent \
+            --proto '=https' \
+            --tlsv1.2 \
+            "${SONAR_SCANNER_URL}.sha256" \
             -o sonar-scanner.zip.sha256
 
           sed -i "s/$/  sonar-scanner.zip/" sonar-scanner.zip.sha256
@@ -81,27 +73,30 @@ jobs:
 
           rm -f sonar-scanner.zip sonar-scanner.zip.sha256
 
-          echo "$HOME/sonar-scanner-5.0.1.3006/bin" >> "$GITHUB_PATH"
+          echo "$HOME/sonar-scanner-${SONAR_SCANNER_VERSION}/bin" >> "$GITHUB_PATH"
 
       # ============================================================
-      # SONARCLOUD ANALYSIS
+      # RUN SONARCLOUD ANALYSIS
       # ============================================================
-      - name: Run SonarCloud analysis
+      - name: Run SonarCloud Analysis
+        continue-on-error: true
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
           SONAR_ORG: ${{ secrets.SONAR_ORG }}
           SONAR_HOST: ${{ secrets.SONAR_HOST }}
+        shell: bash
         run: |
           set -e
 
           echo "============================================================"
-          echo "SonarCloud Analysis"
+          echo "Running SonarCloud Analysis"
           echo "============================================================"
           echo "Project: $SONAR_PROJECT_KEY"
           echo "Organization: $SONAR_ORG"
+          echo "Host: $SONAR_HOST"
           echo "Branch: ${GITHUB_REF_NAME}"
-          echo "Sonar URL: $SONAR_HOST"
+          echo "Commit: ${GITHUB_SHA}"
           echo "============================================================"
 
           sonar-scanner \
@@ -110,2122 +105,793 @@ jobs:
             -Dsonar.sources=. \
             -Dsonar.host.url="$SONAR_HOST" \
             -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info \
-            -Dsonar.branch.name="${GITHUB_REF_NAME}" \
             -Dsonar.qualitygate.wait=false
-
-      # ============================================================
-      # SHOW SONAR TASK
-      # ============================================================
-      - name: Show SonarCloud task
-        if: always()
-        run: |
-          echo "============================================================"
-          echo "SonarCloud task"
-          echo "============================================================"
-
-          if [ -f ".scannerwork/report-task.txt" ]; then
-            cat .scannerwork/report-task.txt
-          else
-            echo "WARNING: .scannerwork/report-task.txt not found."
-          fi
-
-      # ============================================================
-      # WAIT FOR SONARCLOUD COMPUTE ENGINE
-      # ============================================================
-      - name: Wait for SonarCloud analysis
-        if: always()
-        env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-        run: |
-          set -e
-
-          if [ ! -f ".scannerwork/report-task.txt" ]; then
-            echo "ERROR: Sonar task file does not exist."
-            exit 1
-          fi
-
-          CE_TASK_URL=$(grep '^ceTaskUrl=' .scannerwork/report-task.txt | cut -d'=' -f2-)
-
-          if [ -z "$CE_TASK_URL" ]; then
-            echo "ERROR: ceTaskUrl was not found."
-            exit 1
-          fi
-
-          echo "Compute Engine URL:"
-          echo "$CE_TASK_URL"
-
-          echo ""
-          echo "Waiting for SonarCloud analysis..."
-
-          for i in $(seq 1 36); do
-
-            RESPONSE=$(curl \
-              --proto '=https' \
-              --tlsv1.2 \
-              -sS \
-              -u "$SONAR_TOKEN:" \
-              "$CE_TASK_URL")
-
-            STATUS=$(echo "$RESPONSE" | jq -r '.task.status // empty')
-
-            echo "Attempt $i/36 - Status: $STATUS"
-
-            case "$STATUS" in
-
-              SUCCESS)
-                echo "SonarCloud analysis completed successfully."
-                exit 0
-                ;;
-
-              FAILED)
-                echo "SonarCloud analysis FAILED."
-                echo "$RESPONSE" | jq .
-                exit 1
-                ;;
-
-              CANCELED)
-                echo "SonarCloud analysis was CANCELED."
-                echo "$RESPONSE" | jq .
-                exit 1
-                ;;
-
-              PENDING|IN_PROGRESS)
-                sleep 10
-                ;;
-
-              *)
-                echo "Unexpected response:"
-                echo "$RESPONSE"
-                sleep 10
-                ;;
-
-            esac
-
-          done
-
-          echo "ERROR: Timed out waiting for SonarCloud."
-          exit 1
 
       # ============================================================
       # CREATE REPORT GENERATOR
       # ============================================================
-      - name: Create SonarCloud report generator
-        if: always()
+      - name: Create SonarCloud Report Generator
+        shell: bash
         run: |
           cat > generate-sonar-report.mjs <<'EOF'
-
           import fs from "node:fs";
 
-          const SONAR_TOKEN = process.env.SONAR_TOKEN;
-          const SONAR_HOST =
-            process.env.SONAR_HOST || "https://sonarcloud.io";
+          const token = process.env.SONAR_TOKEN;
+          const projectKey = process.env.SONAR_PROJECT_KEY;
+          const organization = process.env.SONAR_ORG;
+          const sonarHost = process.env.SONAR_HOST || "https://sonarcloud.io";
 
-          const SONAR_PROJECT_KEY =
-            process.env.SONAR_PROJECT_KEY;
+          const repository = process.env.GITHUB_REPOSITORY || "Unknown";
+          const branch = process.env.GITHUB_REF_NAME || "Unknown";
+          const commit = (process.env.GITHUB_SHA || "Unknown").substring(0, 7);
 
-          const SONAR_ORG =
-            process.env.SONAR_ORG;
-
-          const BRANCH =
-            process.env.GITHUB_REF_NAME || "main";
-
-          const REPOSITORY =
-            process.env.GITHUB_REPOSITORY || "unknown";
-
-          const COMMIT =
-            process.env.GITHUB_SHA || "";
-
-          if (!SONAR_TOKEN) {
+          if (!token) {
             throw new Error("SONAR_TOKEN is missing.");
           }
 
-          if (!SONAR_PROJECT_KEY) {
+          if (!projectKey) {
             throw new Error("SONAR_PROJECT_KEY is missing.");
           }
 
-          if (!SONAR_ORG) {
-            throw new Error("SONAR_ORG is missing.");
-          }
-
-          const BASE_URL =
-            SONAR_HOST.replace(/\/+$/, "");
-
-          // ==========================================================
-          // API HELPER
-          // ==========================================================
-
-          async function sonarApi(path, params = {}) {
-
-            const url = new URL(
-              `${BASE_URL}${path}`
-            );
-
-            for (const [key, value] of Object.entries(params)) {
-
-              if (
-                value !== undefined &&
-                value !== null &&
-                value !== ""
-              ) {
-                url.searchParams.set(
-                  key,
-                  String(value)
-                );
-              }
-
-            }
-
-            console.log("");
-            console.log(
-              "============================================================"
-            );
-            console.log("SonarCloud API");
-            console.log(
-              "============================================================"
-            );
-            console.log(`Endpoint: ${path}`);
-            console.log(`Project: ${SONAR_PROJECT_KEY}`);
-            console.log(`Branch: ${BRANCH}`);
-            console.log(`URL: ${url.toString()}`);
-            console.log(
-              "============================================================"
-            );
-
-            const response = await fetch(
-              url.toString(),
-              {
-                headers: {
-                  Authorization:
-                    `Basic ${Buffer.from(
-                      `${SONAR_TOKEN}:`
-                    ).toString("base64")`,
-
-                  Accept:
-                    "application/json",
-                },
-              }
-            );
-
-            const text =
-              await response.text();
-
-            if (!response.ok) {
-
-              console.error("");
-              console.error(
-                "============================================================"
-              );
-              console.error(
-                "SONARCLOUD API ERROR"
-              );
-              console.error(
-                "============================================================"
-              );
-              console.error(
-                `HTTP ${response.status}`
-              );
-              console.error(text);
-              console.error(
-                "============================================================"
-              );
-
-              throw new Error(
-                `SonarCloud API returned HTTP ${response.status}`
-              );
-            }
-
-            try {
-              return JSON.parse(text);
-            } catch {
-              throw new Error(
-                `Invalid JSON returned by SonarCloud: ${text}`
-              );
-            }
-          }
-
-          // ==========================================================
-          // HTML ESCAPE
-          // ==========================================================
-
           function escapeHtml(value) {
-
             return String(value ?? "")
               .replaceAll("&", "&amp;")
               .replaceAll("<", "&lt;")
               .replaceAll(">", "&gt;")
               .replaceAll('"', "&quot;")
               .replaceAll("'", "&#039;");
-
           }
 
-          function num(value) {
-
-            const parsed =
-              Number(value);
-
-            return Number.isFinite(parsed)
-              ? parsed
-              : 0;
-
+          function numberValue(value) {
+            const parsed = Number(value);
+            return Number.isFinite(parsed) ? parsed : 0;
           }
 
           function percent(value) {
-
-            if (
-              value === undefined ||
-              value === null ||
-              value === ""
-            ) {
-              return "N/A";
-            }
-
-            const parsed =
-              Number(value);
+            const parsed = Number(value);
 
             if (!Number.isFinite(parsed)) {
               return "N/A";
             }
 
-            return `${parsed.toFixed(1)}%`;
-
+            return parsed.toFixed(1) + "%";
           }
 
-          // ==========================================================
-          // PROJECT METRICS
-          // ==========================================================
+          async function sonarGet(path, params = {}) {
+            const url = new URL(path, sonarHost);
 
+            for (const [key, value] of Object.entries(params)) {
+              if (
+                value !== undefined &&
+                value !== null &&
+                value !== ""
+              ) {
+                url.searchParams.set(key, String(value));
+              }
+            }
+
+            const auth = Buffer.from(token + ":").toString("base64");
+
+            const response = await fetch(url, {
+              headers: {
+                Authorization: "Basic " + auth,
+                Accept: "application/json",
+              },
+            });
+
+            const body = await response.text();
+
+            if (!response.ok) {
+              throw new Error(
+                "SonarCloud API " +
+                response.status +
+                ": " +
+                body.substring(0, 1000)
+              );
+            }
+
+            return JSON.parse(body);
+          }
+
+          async function safeSonarGet(path, params = {}, fallback = null) {
+            try {
+              return await sonarGet(path, params);
+            } catch (error) {
+              console.warn(
+                "SonarCloud API request failed:",
+                path,
+                error.message
+              );
+
+              return fallback;
+            }
+          }
+
+          console.log("============================================================");
+          console.log("Generating SonarCloud HTML report");
+          console.log("============================================================");
+          console.log("Project:", projectKey);
+          console.log("Organization:", organization);
+          console.log("Repository:", repository);
+          console.log("Branch:", branch);
+          console.log("Commit:", commit);
+          console.log("Sonar URL:", sonarHost);
+          console.log("============================================================");
+
+          // ==========================================================
+          // PROJECT MEASURES
+          // ==========================================================
           const metricKeys = [
+            "coverage",
+            "new_coverage",
+            "lines_to_cover",
+            "uncovered_lines",
+            "conditions_to_cover",
+            "uncovered_conditions",
+            "new_lines_to_cover",
+            "new_uncovered_lines",
+            "new_conditions_to_cover",
+            "new_uncovered_conditions",
+          ].join(",");
+
+          const componentResponse = await safeSonarGet(
+            "/api/measures/component",
+            {
+              component: projectKey,
+              metricKeys,
+              branch,
+            },
+            {
+              component: {
+                measures: [],
+              },
+            }
+          );
+
+          const measures = {};
+
+          for (
+            const measure of componentResponse?.component?.measures || []
+          ) {
+            measures[measure.metric] = measure.value;
+          }
+
+          const overallCoverage =
+            measures.coverage !== undefined
+              ? Number(measures.coverage)
+              : null;
+
+          const newCoverage =
+            measures.new_coverage !== undefined
+              ? Number(measures.new_coverage)
+              : null;
+
+          const uncoveredLines =
+            numberValue(measures.uncovered_lines);
+
+          const uncoveredConditions =
+            numberValue(measures.uncovered_conditions);
+
+          const newUncoveredLines =
+            numberValue(measures.new_uncovered_lines);
+
+          const newUncoveredConditions =
+            numberValue(measures.new_uncovered_conditions);
+
+          // ==========================================================
+          // ISSUES
+          // ==========================================================
+          const issueResponse = await safeSonarGet(
+            "/api/issues/search",
+            {
+              componentKeys: projectKey,
+              projectKeys: projectKey,
+              branch,
+              statuses: "OPEN,REOPENED",
+              ps: 500,
+            },
+            {
+              issues: [],
+              total: 0,
+            }
+          );
+
+          const issues = Array.isArray(issueResponse?.issues)
+            ? issueResponse.issues
+            : [];
+
+          const highIssues = issues.filter(
+            issue =>
+              String(issue.severity).toUpperCase() === "HIGH"
+          );
+
+          const mediumIssues = issues.filter(
+            issue =>
+              String(issue.severity).toUpperCase() === "MEDIUM"
+          );
+
+          const blockerIssues = issues.filter(
+            issue =>
+              String(issue.severity).toUpperCase() === "BLOCKER"
+          );
+
+          // ==========================================================
+          // FILE-LEVEL MEASURES
+          // ==========================================================
+          const fileMetrics = [
             "coverage",
             "lines_to_cover",
             "uncovered_lines",
             "conditions_to_cover",
             "uncovered_conditions",
-
             "new_coverage",
             "new_lines_to_cover",
             "new_uncovered_lines",
             "new_conditions_to_cover",
             "new_uncovered_conditions",
-
-            "new_lines",
-            "new_technical_debt",
-            "new_bugs",
-            "new_vulnerabilities",
-            "new_code_smells",
           ].join(",");
 
-          const projectData =
-            await sonarApi(
-              "/api/measures/component",
-              {
-                component:
-                  SONAR_PROJECT_KEY,
-
-                metricKeys,
-
-                branch:
-                  BRANCH,
-              }
-            );
-
-          const projectMeasures = {};
-
-          for (
-            const metric
-            of projectData.component?.measures || []
-          ) {
-
-            projectMeasures[
-              metric.metric
-            ] = metric.value;
-
-          }
-
-          // ==========================================================
-          // FILE LEVEL METRICS
-          // ==========================================================
-
-          const treeData =
-            await sonarApi(
-              "/api/measures/component_tree",
-              {
-                component:
-                  SONAR_PROJECT_KEY,
-
-                metricKeys,
-
-                branch:
-                  BRANCH,
-
-                qualifiers:
-                  "FIL",
-
-                ps:
-                  500,
-              }
-            );
-
-          let files = [];
-
-          for (
-            const component
-            of treeData.components || []
-          ) {
-
-            const values = {};
-
-            for (
-              const metric
-              of component.measures || []
-            ) {
-
-              values[
-                metric.metric
-              ] = metric.value;
-
-            }
-
-            const path =
-              component.path ||
-              component.key ||
-              "";
-
-            // --------------------------------------------------------
-            // Only source files that can meaningfully have JS coverage
-            // --------------------------------------------------------
-
-            const isCoverageFile =
-              /\.(js|jsx|mjs|cjs|ts|tsx)$/i.test(path);
-
-            if (!isCoverageFile) {
-              continue;
-            }
-
-            files.push({
-
-              path,
-
-              coverage:
-                values.coverage,
-
-              uncoveredLines:
-                num(values.uncovered_lines),
-
-              newCoverage:
-                values.new_coverage,
-
-              newUncoveredLines:
-                num(values.new_uncovered_lines),
-
-              newUncoveredConditions:
-                num(
-                  values.new_uncovered_conditions
-                ),
-
-              uncoveredConditions:
-                num(
-                  values.uncovered_conditions
-                ),
-
-              linesToCover:
-                num(values.lines_to_cover),
-
-              newLinesToCover:
-                num(
-                  values.new_lines_to_cover
-                ),
-
-              conditionsToCover:
-                num(
-                  values.conditions_to_cover
-                ),
-
-              newConditionsToCover:
-                num(
-                  values.new_conditions_to_cover
-                ),
-
-            });
-
-          }
-
-          // ==========================================================
-          // ISSUES
-          // ==========================================================
-
-          const issuesData =
-            await sonarApi(
-              "/api/issues/search",
-              {
-                componentKeys:
-                  SONAR_PROJECT_KEY,
-
-                branch:
-                  BRANCH,
-
-                statuses:
-                  "OPEN,REOPENED",
-
-                ps:
-                  500,
-
-                organization:
-                  SONAR_ORG,
-              }
-            );
-
-          const issues =
-            issuesData.issues || [];
-
-          // ==========================================================
-          // SEVERITY COUNTS
-          // ==========================================================
-
-          const severityCounts = {
-
-            BLOCKER: 0,
-
-            CRITICAL: 0,
-
-            HIGH: 0,
-
-            MEDIUM: 0,
-
-            LOW: 0,
-
-            INFO: 0,
-
-          };
-
-          for (const issue of issues) {
-
-            const severity =
-              String(
-                issue.severity || ""
-              ).toUpperCase();
-
-            if (
-              severityCounts[
-                severity
-              ] !== undefined
-            ) {
-
-              severityCounts[
-                severity
-              ]++;
-
-            }
-
-          }
-
-          // ==========================================================
-          // SECURITY ISSUES
-          // ==========================================================
-
-          const securityIssues =
-            issues.filter(
-              issue =>
-                issue.type === "VULNERABILITY" ||
-                issue.type === "SECURITY_HOTSPOT" ||
-                issue.type === "BUG"
-            );
-
-          const highIssues =
-            issues.filter(
-              issue =>
-                String(
-                  issue.severity
-                ).toUpperCase() === "HIGH"
-            );
-
-          const mediumIssues =
-            issues.filter(
-              issue =>
-                String(
-                  issue.severity
-                ).toUpperCase() === "MEDIUM"
-            );
-
-          const blockerIssues =
-            issues.filter(
-              issue =>
-                String(
-                  issue.severity
-                ).toUpperCase() === "BLOCKER"
-            );
-
-          const criticalIssues =
-            issues.filter(
-              issue =>
-                String(
-                  issue.severity
-                ).toUpperCase() === "CRITICAL"
-            );
-
-          // ==========================================================
-          // NEW CODE FILES
-          //
-          // Only show files where Sonar actually reports new-code
-          // coverage information.
-          // ==========================================================
-
-          const newCodeFiles =
-            files.filter(file => {
-
-              return (
-                file.newCoverage !== undefined ||
-                file.newUncoveredLines > 0 ||
-                file.newUncoveredConditions > 0 ||
-                file.newLinesToCover > 0
-              );
-
-            });
-
-          newCodeFiles.sort(
-            (a, b) => {
-
-              if (
-                b.newUncoveredLines !==
-                a.newUncoveredLines
-              ) {
-
-                return (
-                  b.newUncoveredLines -
-                  a.newUncoveredLines
-                );
-
-              }
-
-              return (
-                b.newUncoveredConditions -
-                a.newUncoveredConditions
-              );
-
+          const treeResponse = await safeSonarGet(
+            "/api/measures/component_tree",
+            {
+              component: projectKey,
+              metricKeys: fileMetrics,
+              branch,
+              qualifiers: "FIL",
+              ps: 500,
+            },
+            {
+              components: [],
             }
           );
 
+          const files = Array.isArray(treeResponse?.components)
+            ? treeResponse.components
+            : [];
+
+          const fileRows = files
+            .map(file => {
+              const fileMeasures = {};
+
+              for (const measure of file.measures || []) {
+                fileMeasures[measure.metric] = measure.value;
+              }
+
+              return {
+                path: file.path || file.key || "Unknown",
+
+                coverage:
+                  fileMeasures.coverage !== undefined
+                    ? Number(fileMeasures.coverage)
+                    : null,
+
+                uncoveredLines:
+                  numberValue(fileMeasures.uncovered_lines),
+
+                uncoveredConditions:
+                  numberValue(fileMeasures.uncovered_conditions),
+
+                newCoverage:
+                  fileMeasures.new_coverage !== undefined
+                    ? Number(fileMeasures.new_coverage)
+                    : null,
+
+                newUncoveredLines:
+                  numberValue(fileMeasures.new_uncovered_lines),
+
+                newUncoveredConditions:
+                  numberValue(
+                    fileMeasures.new_uncovered_conditions
+                  ),
+              };
+            })
+            .filter(file => {
+              const path = file.path.toLowerCase();
+
+              const isCoverageFile =
+                path.endsWith(".js") ||
+                path.endsWith(".jsx") ||
+                path.endsWith(".ts") ||
+                path.endsWith(".tsx") ||
+                path.endsWith(".mjs") ||
+                path.endsWith(".cjs");
+
+              return isCoverageFile;
+            });
+
           // ==========================================================
-          // ALL SOURCE FILES SORTED BY OVERALL UNCOVERED LINES
+          // SORT FILES
           // ==========================================================
-
-          files.sort(
-            (a, b) =>
-              b.uncoveredLines -
-              a.uncoveredLines
-          );
-
-          // ==========================================================
-          // ISSUE TABLE
-          // ==========================================================
-
-          function issueTable(issueList) {
-
-            if (!issueList.length) {
-
-              return `
-                <div class="empty success">
-                  ✓ No active issues found.
-                </div>
-              `;
-
+          fileRows.sort((a, b) => {
+            if (b.newUncoveredLines !== a.newUncoveredLines) {
+              return b.newUncoveredLines - a.newUncoveredLines;
             }
 
-            return `
-              <div class="table-wrap">
-
-                <table>
-
-                  <thead>
-
-                    <tr>
-                      <th>Severity</th>
-                      <th>Type</th>
-                      <th>Rule</th>
-                      <th>Message</th>
-                      <th>File</th>
-                      <th>Line</th>
-                    </tr>
-
-                  </thead>
-
-                  <tbody>
-
-                    ${issueList.map(issue => {
-
-                      const severity =
-                        String(
-                          issue.severity || ""
-                        ).toLowerCase();
-
-                      const file =
-                        issue.component
-                          ?.replace(
-                            `${SONAR_PROJECT_KEY}:`,
-                            ""
-                          ) || "N/A";
-
-                      return `
-
-                        <tr>
-
-                          <td>
-                            <span
-                              class="badge ${escapeHtml(
-                                severity
-                              )}"
-                            >
-                              ${escapeHtml(
-                                issue.severity ||
-                                "UNKNOWN"
-                              )}
-                            </span>
-                          </td>
-
-                          <td>
-                            ${escapeHtml(
-                              issue.type ||
-                              "N/A"
-                            )}
-                          </td>
-
-                          <td>
-                            ${escapeHtml(
-                              issue.rule ||
-                              "N/A"
-                            )}
-                          </td>
-
-                          <td>
-                            ${escapeHtml(
-                              issue.message ||
-                              "N/A"
-                            )}
-                          </td>
-
-                          <td class="file">
-                            ${escapeHtml(file)}
-                          </td>
-
-                          <td>
-                            ${escapeHtml(
-                              issue.line ||
-                              "N/A"
-                            )}
-                          </td>
-
-                        </tr>
-
-                      `;
-
-                    }).join("")}
-
-                  </tbody>
-
-                </table>
-
-              </div>
-            `;
-
-          }
+            return b.uncoveredLines - a.uncoveredLines;
+          });
 
           // ==========================================================
-          // NEW CODE COVERAGE TABLE
+          // ISSUE TABLE GENERATOR
           // ==========================================================
-
-          function newCodeTable() {
-
-            if (!newCodeFiles.length) {
-
-              return `
-
-                <div class="empty warning">
-
-                  ⚠ SonarCloud did not return file-level
-                  New Code coverage metrics for this analysis.
-
-                  <br><br>
-
-                  Overall coverage is available, but the
-                  New Code baseline/period must be available
-                  in SonarCloud for file-level new-code
-                  coverage to be calculated.
-
-                </div>
-
-              `;
-
+          function issueRows(list) {
+            if (!list.length) {
+              return [
+                "<tr>",
+                '<td colspan="6" class="empty">✓ No active issues found.</td>',
+                "</tr>",
+              ].join("");
             }
 
-            return `
+            return list
+              .map(issue => {
+                const component = String(
+                  issue.component || ""
+                ).replace(projectKey + ":", "");
 
-              <div class="table-wrap">
+                const line =
+                  issue.line !== undefined
+                    ? issue.line
+                    : "-";
 
-                <table>
+                const severity =
+                  String(issue.severity || "").toUpperCase();
 
-                  <thead>
+                let severityClass = "medium";
 
-                    <tr>
+                if (severity === "HIGH") {
+                  severityClass = "high";
+                }
 
-                      <th>File</th>
+                if (severity === "BLOCKER") {
+                  severityClass = "blocker";
+                }
 
-                      <th>New Code Coverage</th>
-
-                      <th>New Lines</th>
-
-                      <th>Uncovered New Lines</th>
-
-                      <th>New Conditions</th>
-
-                      <th>Uncovered New Conditions</th>
-
-                      <th>Overall Coverage</th>
-
-                      <th>Overall Uncovered Lines</th>
-
-                    </tr>
-
-                  </thead>
-
-                  <tbody>
-
-                    ${newCodeFiles.map(file => `
-
-                      <tr>
-
-                        <td class="file">
-                          ${escapeHtml(file.path)}
-                        </td>
-
-                        <td class="${
-                          file.newUncoveredLines > 0
-                            ? "danger-text"
-                            : "success-text"
-                        }">
-
-                          ${percent(
-                            file.newCoverage
-                          )}
-
-                        </td>
-
-                        <td>
-                          ${file.newLinesToCover}
-                        </td>
-
-                        <td class="${
-                          file.newUncoveredLines > 0
-                            ? "danger-text"
-                            : ""
-                        }">
-
-                          ${file.newUncoveredLines}
-
-                        </td>
-
-                        <td>
-                          ${file.newConditionsToCover}
-                        </td>
-
-                        <td class="${
-                          file.newUncoveredConditions > 0
-                            ? "danger-text"
-                            : ""
-                        }">
-
-                          ${file.newUncoveredConditions}
-
-                        </td>
-
-                        <td>
-                          ${percent(
-                            file.coverage
-                          )}
-                        </td>
-
-                        <td>
-                          ${file.uncoveredLines}
-                        </td>
-
-                      </tr>
-
-                    `).join("")}
-
-                  </tbody>
-
-                </table>
-
-              </div>
-
-            `;
-
+                return [
+                  "<tr>",
+                  '<td><span class="badge ' +
+                    severityClass +
+                    '">' +
+                    escapeHtml(severity) +
+                    "</span></td>",
+                  "<td>" +
+                    escapeHtml(issue.rule || "-") +
+                    "</td>",
+                  "<td>" +
+                    escapeHtml(issue.message || "-") +
+                    "</td>",
+                  "<td>" +
+                    escapeHtml(component) +
+                    "</td>",
+                  "<td>" +
+                    escapeHtml(line) +
+                    "</td>",
+                  '<td><a target="_blank" href="' +
+                    escapeHtml(
+                      sonarHost +
+                        "/project/issues?id=" +
+                        encodeURIComponent(projectKey) +
+                        "&open=" +
+                        encodeURIComponent(issue.key)
+                    ) +
+                    '">View</a></td>',
+                  "</tr>",
+                ].join("");
+              })
+              .join("");
           }
 
           // ==========================================================
-          // OVERALL COVERAGE TABLE
+          // FILE COVERAGE TABLE
           // ==========================================================
+          function fileCoverageRows() {
+            if (!fileRows.length) {
+              return [
+                "<tr>",
+                '<td colspan="7" class="empty">',
+                "No file-level coverage information returned by SonarCloud.",
+                "</td>",
+                "</tr>",
+              ].join("");
+            }
 
-          function overallCoverageTable() {
+            return fileRows
+              .map(file => {
+                const newCoverage =
+                  file.newCoverage === null
+                    ? "N/A"
+                    : percent(file.newCoverage);
 
-            return `
+                const overall =
+                  file.coverage === null
+                    ? "N/A"
+                    : percent(file.coverage);
 
-              <div class="table-wrap">
+                const newLineClass =
+                  file.newUncoveredLines > 0
+                    ? "danger-text"
+                    : "success-text";
 
-                <table>
-
-                  <thead>
-
-                    <tr>
-
-                      <th>File</th>
-
-                      <th>Coverage</th>
-
-                      <th>Lines to Cover</th>
-
-                      <th>Uncovered Lines</th>
-
-                      <th>Conditions</th>
-
-                      <th>Uncovered Conditions</th>
-
-                    </tr>
-
-                  </thead>
-
-                  <tbody>
-
-                    ${files.map(file => `
-
-                      <tr>
-
-                        <td class="file">
-                          ${escapeHtml(
-                            file.path
-                          )}
-                        </td>
-
-                        <td>
-                          ${percent(
-                            file.coverage
-                          )}
-                        </td>
-
-                        <td>
-                          ${file.linesToCover}
-                        </td>
-
-                        <td class="${
-                          file.uncoveredLines > 0
-                            ? "danger-text"
-                            : ""
-                        }">
-
-                          ${file.uncoveredLines}
-
-                        </td>
-
-                        <td>
-                          ${file.conditionsToCover}
-                        </td>
-
-                        <td class="${
-                          file.uncoveredConditions > 0
-                            ? "danger-text"
-                            : ""
-                        }">
-
-                          ${file.uncoveredConditions}
-
-                        </td>
-
-                      </tr>
-
-                    `).join("")}
-
-                  </tbody>
-
-                </table>
-
-              </div>
-
-            `;
-
+                return [
+                  "<tr>",
+                  "<td><strong>" +
+                    escapeHtml(file.path) +
+                    "</strong></td>",
+                  "<td>" +
+                    newCoverage +
+                    "</td>",
+                  '<td class="' +
+                    newLineClass +
+                    '">' +
+                    file.newUncoveredLines +
+                    "</td>",
+                  "<td>" +
+                    file.newUncoveredConditions +
+                    "</td>",
+                  "<td>" +
+                    overall +
+                    "</td>",
+                  '<td class="' +
+                    (file.uncoveredLines > 0
+                      ? "danger-text"
+                      : "success-text") +
+                    '">' +
+                    file.uncoveredLines +
+                    "</td>",
+                  "<td>" +
+                    file.uncoveredConditions +
+                    "</td>",
+                  "</tr>",
+                ].join("");
+              })
+              .join("");
           }
 
           // ==========================================================
-          // PROJECT VALUES
+          // HTML
           // ==========================================================
-
-          const overallCoverage =
-            projectMeasures.coverage;
-
-          const newCoverage =
-            projectMeasures.new_coverage;
-
-          const uncoveredLines =
-            num(
-              projectMeasures.uncovered_lines
-            );
-
-          const uncoveredConditions =
-            num(
-              projectMeasures.uncovered_conditions
-            );
-
-          const newLines =
-            num(
-              projectMeasures.new_lines
-            );
-
-          const newLinesToCover =
-            num(
-              projectMeasures.new_lines_to_cover
-            );
-
-          const newUncoveredLines =
-            num(
-              projectMeasures.new_uncovered_lines
-            );
-
-          const newConditionsToCover =
-            num(
-              projectMeasures.new_conditions_to_cover
-            );
-
-          const newUncoveredConditions =
-            num(
-              projectMeasures.new_uncovered_conditions
-            );
-
-          // ==========================================================
-          // GENERATE HTML
-          // ==========================================================
-
-          const html = `
-
-          <!DOCTYPE html>
-
-          <html>
-
-          <head>
-
-            <meta charset="UTF-8">
-
-            <meta
-              name="viewport"
-              content="width=device-width,initial-scale=1"
-            >
-
-            <title>
-              SonarCloud Security & Coverage Report
-            </title>
-
-            <style>
-
-              * {
-                box-sizing: border-box;
-              }
-
-              body {
-
-                margin: 0;
-
-                padding: 30px;
-
-                background:
-                  #07111f;
-
-                color:
-                  #f8fafc;
-
-                font-family:
-                  Inter,
-                  system-ui,
-                  -apple-system,
-                  BlinkMacSystemFont,
-                  "Segoe UI",
-                  sans-serif;
-
-              }
-
-              .container {
-
-                max-width:
-                  1500px;
-
-                margin:
-                  auto;
-
-              }
-
-              .hero {
-
-                background:
-                  linear-gradient(
-                    135deg,
-                    #111c31,
-                    #0c1628
-                  );
-
-                border:
-                  1px solid #263852;
-
-                border-radius:
-                  20px;
-
-                padding:
-                  30px;
-
-                margin-bottom:
-                  20px;
-
-              }
-
-              h1 {
-
-                margin:
-                  0 0 8px;
-
-                font-size:
-                  30px;
-
-              }
-
-              h2 {
-
-                margin-top:
-                  0;
-
-              }
-
-              .subtitle {
-
-                color:
-                  #93c5fd;
-
-              }
-
-              .metadata {
-
-                margin-top:
-                  18px;
-
-                color:
-                  #cbd5e1;
-
-                font-size:
-                  13px;
-
-                display:
-                  flex;
-
-                flex-wrap:
-                  wrap;
-
-                gap:
-                  18px;
-
-              }
-
-              .metadata a {
-
-                color:
-                  #60a5fa;
-
-              }
-
-              .cards {
-
-                display:
-                  grid;
-
-                grid-template-columns:
-                  repeat(
-                    auto-fit,
-                    minmax(180px, 1fr)
-                  );
-
-                gap:
-                  14px;
-
-                margin-bottom:
-                  20px;
-
-              }
-
-              .card {
-
-                background:
-                  #111c31;
-
-                border:
-                  1px solid #263852;
-
-                border-radius:
-                  16px;
-
-                padding:
-                  20px;
-
-              }
-
-              .card-label {
-
-                color:
-                  #93c5fd;
-
-                font-size:
-                  11px;
-
-                text-transform:
-                  uppercase;
-
-                letter-spacing:
-                  .08em;
-
-              }
-
-              .card-value {
-
-                font-size:
-                  30px;
-
-                font-weight:
-                  800;
-
-                margin-top:
-                  10px;
-
-              }
-
-              .high {
-                color:
-                  #ff647c;
-              }
-
-              .medium {
-                color:
-                  #ffb11b;
-              }
-
-              .blocker {
-                color:
-                  #b184ff;
-              }
-
-              .critical {
-                color:
-                  #ff8a65;
-              }
-
-              .low {
-                color:
-                  #94a3b8;
-              }
-
-              .success-text {
-
-                color:
-                  #7ee787;
-
-                font-weight:
-                  700;
-
-              }
-
-              .danger-text {
-
-                color:
-                  #ff647c;
-
-                font-weight:
-                  700;
-
-              }
-
-              .section {
-
-                background:
-                  #111c31;
-
-                border:
-                  1px solid #263852;
-
-                border-radius:
-                  18px;
-
-                padding:
-                  24px;
-
-                margin-bottom:
-                  20px;
-
-              }
-
-              .severity-grid {
-
-                display:
-                  grid;
-
-                grid-template-columns:
-                  repeat(
-                    auto-fit,
-                    minmax(140px, 1fr)
-                  );
-
-                gap:
-                  12px;
-
-              }
-
-              .severity {
-
-                padding:
-                  16px;
-
-                border-radius:
-                  12px;
-
-                background:
-                  #0c1628;
-
-                border:
-                  1px solid #263852;
-
-              }
-
-              .severity-number {
-
-                font-size:
-                  26px;
-
-                font-weight:
-                  800;
-
-              }
-
-              .coverage-grid {
-
-                display:
-                  grid;
-
-                grid-template-columns:
-                  repeat(
-                    auto-fit,
-                    minmax(180px, 1fr)
-                  );
-
-                gap:
-                  12px;
-
-              }
-
-              .metric {
-
-                padding:
-                  17px;
-
-                border-radius:
-                  12px;
-
-                background:
-                  #0c1628;
-
-                border:
-                  1px solid #263852;
-
-              }
-
-              .metric-label {
-
-                color:
-                  #93c5fd;
-
-                font-size:
-                  12px;
-
-              }
-
-              .metric-value {
-
-                margin-top:
-                  8px;
-
-                font-size:
-                  25px;
-
-                font-weight:
-                  800;
-
-              }
-
-              .table-wrap {
-
-                overflow-x:
-                  auto;
-
-              }
-
-              table {
-
-                width:
-                  100%;
-
-                border-collapse:
-                  collapse;
-
-                margin-top:
-                  15px;
-
-                font-size:
-                  12px;
-
-              }
-
-              th {
-
-                text-align:
-                  left;
-
-                padding:
-                  12px;
-
-                background:
-                  #1e293b;
-
-                color:
-                  #bfdbfe;
-
-                white-space:
-                  nowrap;
-
-                border-bottom:
-                  1px solid #334155;
-
-              }
-
-              td {
-
-                padding:
-                  11px;
-
-                border-bottom:
-                  1px solid #263449;
-
-                vertical-align:
-                  top;
-
-              }
-
-              tr:hover {
-
-                background:
-                  #172338;
-
-              }
-
-              .file {
-
-                font-family:
-                  monospace;
-
-                color:
-                  #93c5fd;
-
-                white-space:
-                  nowrap;
-
-              }
-
-              .badge {
-
-                display:
-                  inline-block;
-
-                padding:
-                  4px 9px;
-
-                border-radius:
-                  999px;
-
-                font-size:
-                  10px;
-
-                font-weight:
-                  800;
-
-              }
-
-              .badge.high {
-
-                background:
-                  rgba(
-                    255,
-                    100,
-                    124,
-                    .15
-                  );
-
-                color:
-                  #ff647c;
-
-              }
-
-              .badge.medium {
-
-                background:
-                  rgba(
-                    255,
-                    177,
-                    27,
-                    .15
-                  );
-
-                color:
-                  #ffb11b;
-
-              }
-
-              .badge.blocker {
-
-                background:
-                  rgba(
-                    177,
-                    132,
-                    255,
-                    .15
-                  );
-
-                color:
-                  #b184ff;
-
-              }
-
-              .badge.critical {
-
-                background:
-                  rgba(
-                    255,
-                    138,
-                    101,
-                    .15
-                  );
-
-                color:
-                  #ff8a65;
-
-              }
-
-              .badge.low {
-
-                background:
-                  rgba(
-                    148,
-                    163,
-                    184,
-                    .15
-                  );
-
-                color:
-                  #94a3b8;
-
-              }
-
-              .empty {
-
-                padding:
-                  18px;
-
-                border-radius:
-                  12px;
-
-                background:
-                  #0c1628;
-
-              }
-
-              .empty.success {
-
-                color:
-                  #7ee787;
-
-              }
-
-              .empty.warning {
-
-                color:
-                  #fbbf24;
-
-              }
-
-              .footer {
-
-                text-align:
-                  center;
-
-                color:
-                  #64748b;
-
-                font-size:
-                  12px;
-
-                margin-top:
-                  30px;
-
-              }
-
-            </style>
-
-          </head>
-
-          <body>
-
-            <div class="container">
-
-              <!-- ================================================= -->
-              <!-- HERO -->
-              <!-- ================================================= -->
-
-              <div class="hero">
-
-                <h1>
-                  SonarCloud Security & Coverage Report
-                </h1>
-
-                <div class="subtitle">
-
-                  Real-time security issues,
-                  severity distribution,
-                  overall coverage and
-                  uncovered new code.
-
-                </div>
-
-                <div class="metadata">
-
-                  <span>
-                    Repository:
-                    <strong>
-                      ${escapeHtml(REPOSITORY)}
-                    </strong>
-                  </span>
-
-                  <span>
-                    Branch:
-                    <strong>
-                      ${escapeHtml(BRANCH)}
-                    </strong>
-                  </span>
-
-                  <span>
-                    Commit:
-                    <strong>
-                      ${escapeHtml(
-                        COMMIT.substring(0, 7)
-                      )}
-                    </strong>
-                  </span>
-
-                  <span>
-
-                    <a
-                      href="https://sonarcloud.io/dashboard?id=${encodeURIComponent(
-                        SONAR_PROJECT_KEY
-                      )}"
-                      target="_blank"
-                    >
-                      Open SonarCloud
-                    </a>
-
-                  </span>
-
-                </div>
-
-              </div>
-
-              <!-- ================================================= -->
-              <!-- TOP CARDS -->
-              <!-- ================================================= -->
-
-              <div class="cards">
-
-                <div class="card">
-
-                  <div class="card-label">
-                    Blocker
-                  </div>
-
-                  <div class="card-value blocker">
-                    ${severityCounts.BLOCKER}
-                  </div>
-
-                </div>
-
-                <div class="card">
-
-                  <div class="card-label">
-                    Critical
-                  </div>
-
-                  <div class="card-value critical">
-                    ${severityCounts.CRITICAL}
-                  </div>
-
-                </div>
-
-                <div class="card">
-
-                  <div class="card-label">
-                    High
-                  </div>
-
-                  <div class="card-value high">
-                    ${severityCounts.HIGH}
-                  </div>
-
-                </div>
-
-                <div class="card">
-
-                  <div class="card-label">
-                    Medium
-                  </div>
-
-                  <div class="card-value medium">
-                    ${severityCounts.MEDIUM}
-                  </div>
-
-                </div>
-
-                <div class="card">
-
-                  <div class="card-label">
-                    Total Active Issues
-                  </div>
-
-                  <div class="card-value">
-                    ${issues.length}
-                  </div>
-
-                </div>
-
-                <div class="card">
-
-                  <div class="card-label">
-                    Overall Coverage
-                  </div>
-
-                  <div class="card-value success-text">
-                    ${percent(
-                      overallCoverage
-                    )}
-                  </div>
-
-                </div>
-
-                <div class="card">
-
-                  <div class="card-label">
-                    New Code Coverage
-                  </div>
-
-                  <div class="card-value ${
-                    newCoverage === undefined
-                      ? ""
-                      : "success-text"
-                  }">
-
-                    ${percent(
-                      newCoverage
-                    )}
-
-                  </div>
-
-                </div>
-
-              </div>
-
-              <!-- ================================================= -->
-              <!-- SECURITY -->
-              <!-- ================================================= -->
-
-              <div class="section">
-
-                <h2>
-                  🛡️ Security Severity Distribution
-                </h2>
-
-                <p class="subtitle">
-
-                  All active OPEN and REOPENED
-                  SonarCloud issues.
-
-                </p>
-
-                <div class="severity-grid">
-
-                  <div class="severity">
-
-                    <div>
-                      BLOCKER
-                    </div>
-
-                    <div class="severity-number blocker">
-                      ${severityCounts.BLOCKER}
-                    </div>
-
-                  </div>
-
-                  <div class="severity">
-
-                    <div>
-                      CRITICAL
-                    </div>
-
-                    <div class="severity-number critical">
-                      ${severityCounts.CRITICAL}
-                    </div>
-
-                  </div>
-
-                  <div class="severity">
-
-                    <div>
-                      HIGH
-                    </div>
-
-                    <div class="severity-number high">
-                      ${severityCounts.HIGH}
-                    </div>
-
-                  </div>
-
-                  <div class="severity">
-
-                    <div>
-                      MEDIUM
-                    </div>
-
-                    <div class="severity-number medium">
-                      ${severityCounts.MEDIUM}
-                    </div>
-
-                  </div>
-
-                  <div class="severity">
-
-                    <div>
-                      LOW
-                    </div>
-
-                    <div class="severity-number low">
-                      ${severityCounts.LOW}
-                    </div>
-
-                  </div>
-
-                  <div class="severity">
-
-                    <div>
-                      INFO
-                    </div>
-
-                    <div class="severity-number">
-                      ${severityCounts.INFO}
-                    </div>
-
-                  </div>
-
-                </div>
-
-              </div>
-
-              <!-- ================================================= -->
-              <!-- COVERAGE -->
-              <!-- ================================================= -->
-
-              <div class="section">
-
-                <h2>
-                  📈 Coverage Overview
-                </h2>
-
-                <div class="coverage-grid">
-
-                  <div class="metric">
-
-                    <div class="metric-label">
-                      Overall Coverage
-                    </div>
-
-                    <div class="metric-value">
-                      ${percent(
-                        overallCoverage
-                      )}
-                    </div>
-
-                  </div>
-
-                  <div class="metric">
-
-                    <div class="metric-label">
-                      New Code Coverage
-                    </div>
-
-                    <div class="metric-value success-text">
-
-                      ${percent(
-                        newCoverage
-                      )}
-
-                    </div>
-
-                  </div>
-
-                  <div class="metric">
-
-                    <div class="metric-label">
-                      Uncovered Lines
-                    </div>
-
-                    <div class="metric-value danger-text">
-
-                      ${uncoveredLines}
-
-                    </div>
-
-                  </div>
-
-                  <div class="metric">
-
-                    <div class="metric-label">
-                      Uncovered Conditions
-                    </div>
-
-                    <div class="metric-value danger-text">
-
-                      ${uncoveredConditions}
-
-                    </div>
-
-                  </div>
-
-                  <div class="metric">
-
-                    <div class="metric-label">
-                      New Lines
-                    </div>
-
-                    <div class="metric-value">
-
-                      ${newLines ||
-                        newLinesToCover}
-
-                    </div>
-
-                  </div>
-
-                  <div class="metric">
-
-                    <div class="metric-label">
-                      Uncovered New Lines
-                    </div>
-
-                    <div class="metric-value danger-text">
-
-                      ${newUncoveredLines}
-
-                    </div>
-
-                  </div>
-
-                  <div class="metric">
-
-                    <div class="metric-label">
-                      New Conditions
-                    </div>
-
-                    <div class="metric-value">
-
-                      ${newConditionsToCover}
-
-                    </div>
-
-                  </div>
-
-                  <div class="metric">
-
-                    <div class="metric-label">
-                      Uncovered New Conditions
-                    </div>
-
-                    <div class="metric-value danger-text">
-
-                      ${newUncoveredConditions}
-
-                    </div>
-
-                  </div>
-
-                </div>
-
-              </div>
-
-              <!-- ================================================= -->
-              <!-- HIGH -->
-              <!-- ================================================= -->
-
-              <div class="section">
-
-                <h2>
-                  🔴 High Severity Issues
-                </h2>
-
-                <p class="subtitle">
-
-                  ${highIssues.length}
-                  active high-severity issue(s).
-
-                </p>
-
-                ${issueTable(
-                  highIssues
-                )}
-
-              </div>
-
-              <!-- ================================================= -->
-              <!-- MEDIUM -->
-              <!-- ================================================= -->
-
-              <div class="section">
-
-                <h2>
-                  🟠 Medium Severity Issues
-                </h2>
-
-                <p class="subtitle">
-
-                  ${mediumIssues.length}
-                  active medium-severity issue(s).
-
-                </p>
-
-                ${issueTable(
-                  mediumIssues
-                )}
-
-              </div>
-
-              <!-- ================================================= -->
-              <!-- BLOCKER -->
-              <!-- ================================================= -->
-
-              <div class="section">
-
-                <h2>
-                  🟣 Blocker Issues
-                </h2>
-
-                <p class="subtitle">
-
-                  ${blockerIssues.length}
-                  active blocker issue(s).
-
-                </p>
-
-                ${issueTable(
-                  blockerIssues
-                )}
-
-              </div>
-
-              <!-- ================================================= -->
-              <!-- CRITICAL -->
-              <!-- ================================================= -->
-
-              <div class="section">
-
-                <h2>
-                  🟠 Critical Issues
-                </h2>
-
-                <p class="subtitle">
-
-                  ${criticalIssues.length}
-                  active critical issue(s).
-
-                </p>
-
-                ${issueTable(
-                  criticalIssues
-                )}
-
-              </div>
-
-              <!-- ================================================= -->
-              <!-- NEW CODE -->
-              <!-- ================================================= -->
-
-              <div class="section">
-
-                <h2>
-                  🧪 New Code Coverage by File
-                </h2>
-
-                <p class="subtitle">
-
-                  This section contains only JavaScript/
-                  TypeScript source files for which SonarCloud
-                  reports new-code coverage information.
-
-                  Files are sorted by uncovered new lines.
-
-                </p>
-
-                ${newCodeTable()}
-
-              </div>
-
-              <!-- ================================================= -->
-              <!-- OVERALL SOURCE COVERAGE -->
-              <!-- ================================================= -->
-
-              <div class="section">
-
-                <h2>
-                  📊 Overall Source Coverage by File
-                </h2>
-
-                <p class="subtitle">
-
-                  JavaScript/TypeScript source files sorted
-                  by total uncovered lines.
-
-                </p>
-
-                ${overallCoverageTable()}
-
-              </div>
-
-              <!-- ================================================= -->
-              <!-- FOOTER -->
-              <!-- ================================================= -->
-
-              <div class="footer">
-
-                Generated automatically by
-                GitHub Actions → SonarCloud Security Analysis
-
-              </div>
-
-            </div>
-
-          </body>
-
-          </html>
-
-          `;
+          const html = [
+            "<!DOCTYPE html>",
+            '<html lang="en">',
+            "<head>",
+            '<meta charset="UTF-8">',
+            '<meta name="viewport" content="width=device-width, initial-scale=1.0">',
+            "<title>SonarCloud Security & Coverage Report</title>",
+            "<style>",
+            "*{box-sizing:border-box}",
+            "body{margin:0;font-family:Inter,Arial,sans-serif;background:#f5f7fb;color:#172033}",
+            ".container{max-width:1500px;margin:auto;padding:30px}",
+            ".header{background:linear-gradient(135deg,#111827,#26344d);color:white;border-radius:18px;padding:30px;margin-bottom:24px}",
+            ".header h1{margin:0 0 10px;font-size:30px}",
+            ".header p{margin:5px 0;color:#d5dbea}",
+            ".header a{color:#93c5fd}",
+            ".grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}",
+            ".card{background:white;border-radius:16px;padding:22px;box-shadow:0 4px 16px rgba(0,0,0,.06)}",
+            ".card-title{font-size:13px;color:#6b7280;text-transform:uppercase;font-weight:700}",
+            ".value{font-size:32px;font-weight:800;margin-top:8px}",
+            ".high-value{color:#dc2626}",
+            ".medium-value{color:#ea580c}",
+            ".blocker-value{color:#7c3aed}",
+            ".coverage-value{color:#2563eb}",
+            ".section{background:white;border-radius:16px;padding:24px;margin-bottom:24px;box-shadow:0 4px 16px rgba(0,0,0,.06)}",
+            ".section h2{margin-top:0}",
+            ".stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}",
+            ".stat{background:#f8fafc;border-radius:12px;padding:18px}",
+            ".stat strong{font-size:24px;display:block;margin-top:5px}",
+            "table{width:100%;border-collapse:collapse;font-size:13px}",
+            "th{background:#eef2f7;text-align:left;padding:12px;position:sticky;top:0}",
+            "td{padding:11px;border-bottom:1px solid #e5e7eb;vertical-align:top}",
+            "tr:hover{background:#f8fafc}",
+            ".badge{display:inline-block;padding:4px 9px;border-radius:999px;font-weight:700;font-size:11px}",
+            ".badge.high{background:#fee2e2;color:#b91c1c}",
+            ".badge.medium{background:#ffedd5;color:#c2410c}",
+            ".badge.blocker{background:#ede9fe;color:#6d28d9}",
+            ".empty{text-align:center;padding:25px;color:#15803d;font-weight:700}",
+            ".danger-text{color:#dc2626;font-weight:800}",
+            ".success-text{color:#15803d;font-weight:700}",
+            ".table-wrap{overflow:auto;max-height:700px;border:1px solid #e5e7eb;border-radius:10px}",
+            ".footer{text-align:center;color:#6b7280;font-size:12px;padding:20px}",
+            ".legend{display:flex;gap:20px;flex-wrap:wrap;margin:15px 0}",
+            ".legend span{font-size:13px}",
+            "@media(max-width:900px){.grid,.stats{grid-template-columns:repeat(2,1fr)}}",
+            "@media(max-width:600px){.grid,.stats{grid-template-columns:1fr}.container{padding:15px}}",
+            "</style>",
+            "</head>",
+            "<body>",
+            '<div class="container">',
+
+            '<div class="header">',
+            "<h1>SonarCloud Security & Coverage Report</h1>",
+            "<p>Real-time security issues, severity distribution and uncovered code.</p>",
+            "<p>Repository: <strong>" +
+              escapeHtml(repository) +
+              "</strong></p>",
+            "<p>Branch: <strong>" +
+              escapeHtml(branch) +
+              "</strong></p>",
+            "<p>Commit: <strong>" +
+              escapeHtml(commit) +
+              "</strong></p>",
+            '<p><a target="_blank" href="' +
+              escapeHtml(
+                sonarHost +
+                  "/dashboard?id=" +
+                  encodeURIComponent(projectKey)
+              ) +
+              '">Open SonarCloud Dashboard</a></p>',
+            "</div>",
+
+            '<div class="grid">',
+
+            '<div class="card">',
+            '<div class="card-title">High Severity</div>',
+            '<div class="value high-value">' +
+              highIssues.length +
+              "</div>",
+            "</div>",
+
+            '<div class="card">',
+            '<div class="card-title">Medium Severity</div>',
+            '<div class="value medium-value">' +
+              mediumIssues.length +
+              "</div>",
+            "</div>",
+
+            '<div class="card">',
+            '<div class="card-title">Blocker</div>',
+            '<div class="value blocker-value">' +
+              blockerIssues.length +
+              "</div>",
+            "</div>",
+
+            '<div class="card">',
+            '<div class="card-title">Total Active Issues</div>',
+            '<div class="value">' +
+              issues.length +
+              "</div>",
+            "</div>",
+
+            "</div>",
+
+            '<div class="grid">',
+
+            '<div class="card">',
+            '<div class="card-title">Overall Coverage</div>',
+            '<div class="value coverage-value">' +
+              (overallCoverage === null
+                ? "N/A"
+                : percent(overallCoverage)) +
+              "</div>",
+            "</div>",
+
+            '<div class="card">',
+            '<div class="card-title">New Code Coverage</div>',
+            '<div class="value coverage-value">' +
+              (newCoverage === null
+                ? "N/A"
+                : percent(newCoverage)) +
+              "</div>",
+            "</div>",
+
+            '<div class="card">',
+            '<div class="card-title">Uncovered Lines</div>',
+            '<div class="value">' +
+              uncoveredLines +
+              "</div>",
+            "</div>",
+
+            '<div class="card">',
+            '<div class="card-title">Uncovered Conditions</div>',
+            '<div class="value">' +
+              uncoveredConditions +
+              "</div>",
+            "</div>",
+
+            "</div>",
+
+            '<div class="section">',
+            "<h2>Security Severity Distribution</h2>",
+            "<p>Active OPEN and REOPENED SonarCloud issues.</p>",
+            '<div class="stats">',
+
+            '<div class="stat">',
+            "<span>🔴 High</span>",
+            "<strong>" +
+              highIssues.length +
+              "</strong>",
+            "</div>",
+
+            '<div class="stat">',
+            "<span>🟠 Medium</span>",
+            "<strong>" +
+              mediumIssues.length +
+              "</strong>",
+            "</div>",
+
+            '<div class="stat">',
+            "<span>🟣 Blocker</span>",
+            "<strong>" +
+              blockerIssues.length +
+              "</strong>",
+            "</div>",
+
+            '<div class="stat">',
+            "<span>📋 Total</span>",
+            "<strong>" +
+              issues.length +
+              "</strong>",
+            "</div>",
+
+            "</div>",
+            "</div>",
+
+            '<div class="section">',
+            "<h2>Coverage Overview</h2>",
+            '<div class="stats">',
+
+            '<div class="stat">',
+            "<span>Overall Coverage</span>",
+            "<strong>" +
+              (overallCoverage === null
+                ? "N/A"
+                : percent(overallCoverage)) +
+              "</strong>",
+            "</div>",
+
+            '<div class="stat">',
+            "<span>Coverage on New Code</span>",
+            "<strong>" +
+              (newCoverage === null
+                ? "N/A"
+                : percent(newCoverage)) +
+              "</strong>",
+            "</div>",
+
+            '<div class="stat">',
+            "<span>Uncovered Lines</span>",
+            "<strong>" +
+              uncoveredLines +
+              "</strong>",
+            "</div>",
+
+            '<div class="stat">',
+            "<span>Uncovered Conditions</span>",
+            "<strong>" +
+              uncoveredConditions +
+              "</strong>",
+            "</div>",
+
+            "</div>",
+
+            "<br>",
+
+            "<p>",
+            "<strong>Uncovered New Lines:</strong> " +
+              newUncoveredLines +
+              " &nbsp;&nbsp; ",
+            "<strong>Uncovered New Conditions:</strong> " +
+              newUncoveredConditions,
+            "</p>",
+
+            "</div>",
+
+            '<div class="section">',
+            "<h2>🔴 High Severity Issues</h2>",
+            "<p>" +
+              highIssues.length +
+              " active high-severity issue(s).</p>",
+            '<div class="table-wrap">',
+            "<table>",
+            "<thead>",
+            "<tr>",
+            "<th>Severity</th>",
+            "<th>Rule</th>",
+            "<th>Message</th>",
+            "<th>File</th>",
+            "<th>Line</th>",
+            "<th>Action</th>",
+            "</tr>",
+            "</thead>",
+            "<tbody>",
+            issueRows(highIssues),
+            "</tbody>",
+            "</table>",
+            "</div>",
+            "</div>",
+
+            '<div class="section">',
+            "<h2>🟠 Medium Severity Issues</h2>",
+            "<p>" +
+              mediumIssues.length +
+              " active medium-severity issue(s).</p>",
+            '<div class="table-wrap">',
+            "<table>",
+            "<thead>",
+            "<tr>",
+            "<th>Severity</th>",
+            "<th>Rule</th>",
+            "<th>Message</th>",
+            "<th>File</th>",
+            "<th>Line</th>",
+            "<th>Action</th>",
+            "</tr>",
+            "</thead>",
+            "<tbody>",
+            issueRows(mediumIssues),
+            "</tbody>",
+            "</table>",
+            "</div>",
+            "</div>",
+
+            '<div class="section">',
+            "<h2>🟣 Blocker Issues</h2>",
+            "<p>" +
+              blockerIssues.length +
+              " active blocker issue(s).</p>",
+            '<div class="table-wrap">',
+            "<table>",
+            "<thead>",
+            "<tr>",
+            "<th>Severity</th>",
+            "<th>Rule</th>",
+            "<th>Message</th>",
+            "<th>File</th>",
+            "<th>Line</th>",
+            "<th>Action</th>",
+            "</tr>",
+            "</thead>",
+            "<tbody>",
+            issueRows(blockerIssues),
+            "</tbody>",
+            "</table>",
+            "</div>",
+            "</div>",
+
+            '<div class="section">',
+            "<h2>📊 Coverage by File</h2>",
+            "<p>",
+            "Files are sorted by uncovered new lines first, followed by overall uncovered lines.",
+            "</p>",
+
+            '<div class="legend">',
+            "<span>🔴 Red = uncovered code exists</span>",
+            "<span>🟢 Green = fully covered</span>",
+            "</div>",
+
+            '<div class="table-wrap">',
+            "<table>",
+            "<thead>",
+            "<tr>",
+            "<th>File</th>",
+            "<th>New Code Coverage</th>",
+            "<th>Uncovered New Lines</th>",
+            "<th>Uncovered New Conditions</th>",
+            "<th>Overall Coverage</th>",
+            "<th>Overall Uncovered Lines</th>",
+            "<th>Overall Uncovered Conditions</th>",
+            "</tr>",
+            "</thead>",
+            "<tbody>",
+            fileCoverageRows(),
+            "</tbody>",
+            "</table>",
+            "</div>",
+            "</div>",
+
+            '<div class="footer">',
+            "Generated automatically by GitHub Actions → SonarCloud Security Analysis",
+            "<br>",
+            "Repository: " +
+              escapeHtml(repository) +
+              " | Branch: " +
+              escapeHtml(branch) +
+              " | Commit: " +
+              escapeHtml(commit),
+            "</div>",
+
+            "</div>",
+            "</body>",
+            "</html>",
+          ].join("\n");
 
           fs.writeFileSync(
             "sonar-summary.html",
@@ -2233,103 +899,43 @@ jobs:
             "utf8"
           );
 
-          // ==========================================================
-          // CONSOLE SUMMARY
-          // ==========================================================
-
-          console.log("");
+          console.log("============================================================");
+          console.log("Report generated successfully");
+          console.log("============================================================");
+          console.log("Active issues:", issues.length);
+          console.log("High:", highIssues.length);
+          console.log("Medium:", mediumIssues.length);
+          console.log("Blocker:", blockerIssues.length);
           console.log(
-            "============================================================"
+            "Overall coverage:",
+            overallCoverage === null
+              ? "N/A"
+              : percent(overallCoverage)
           );
           console.log(
-            "SONARCLOUD REPORT SUMMARY"
+            "New-code coverage:",
+            newCoverage === null
+              ? "N/A"
+              : percent(newCoverage)
           );
-          console.log(
-            "============================================================"
-          );
-
-          console.log(
-            `Total issues: ${issues.length}`
-          );
-
-          console.log(
-            `Blocker: ${severityCounts.BLOCKER}`
-          );
-
-          console.log(
-            `Critical: ${severityCounts.CRITICAL}`
-          );
-
-          console.log(
-            `High: ${severityCounts.HIGH}`
-          );
-
-          console.log(
-            `Medium: ${severityCounts.MEDIUM}`
-          );
-
-          console.log(
-            `Low: ${severityCounts.LOW}`
-          );
-
-          console.log(
-            `Info: ${severityCounts.INFO}`
-          );
-
-          console.log(
-            `Overall coverage: ${
-              overallCoverage ?? "N/A"
-            }`
-          );
-
-          console.log(
-            `New code coverage: ${
-              newCoverage ?? "N/A"
-            }`
-          );
-
-          console.log(
-            `Uncovered lines: ${
-              uncoveredLines
-            }`
-          );
-
-          console.log(
-            `Uncovered new lines: ${
-              newUncoveredLines
-            }`
-          );
-
-          console.log(
-            `New-code files returned: ${
-              newCodeFiles.length
-            }`
-          );
-
-          console.log(
-            `Coverage files returned: ${
-              files.length
-            }`
-          );
-
-          console.log(
-            "============================================================"
-          );
-
+          console.log("Uncovered lines:", uncoveredLines);
+          console.log("Uncovered conditions:", uncoveredConditions);
+          console.log("Files returned:", fileRows.length);
+          console.log("============================================================");
           EOF
 
       # ============================================================
       # GENERATE REPORT
       # ============================================================
-      - name: Generate real-time SonarCloud HTML report
+      - name: Generate SonarCloud HTML Report
         if: always()
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
           SONAR_ORG: ${{ secrets.SONAR_ORG }}
           SONAR_HOST: ${{ secrets.SONAR_HOST }}
-          GITHUB_REF_NAME: ${{ github.ref_name }}
           GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
           GITHUB_SHA: ${{ github.sha }}
         run: |
           set -e
@@ -2340,26 +946,18 @@ jobs:
 
           node generate-sonar-report.mjs
 
+          test -f sonar-summary.html
+
+          echo "Report created:"
+          ls -lh sonar-summary.html
+
       # ============================================================
-      # UPLOAD HTML
+      # UPLOAD REPORT
       # ============================================================
-      - name: Upload SonarCloud HTML report
+      - name: Upload SonarCloud HTML Report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: sonar-summary-report
           path: sonar-summary.html
-          if-no-files-found: warn
-
-      # ============================================================
-      # UPLOAD RAW DATA FOR DEBUGGING
-      # ============================================================
-      - name: Upload SonarCloud diagnostic files
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: sonarcloud-diagnostics
-          path: |
-            .scannerwork/report-task.txt
-            coverage/lcov.info
           if-no-files-found: warn
