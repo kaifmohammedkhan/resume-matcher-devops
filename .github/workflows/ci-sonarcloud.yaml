@@ -12,41 +12,21 @@ jobs:
       contents: read
 
     steps:
+
       # ============================================================
       # CHECKOUT
       # ============================================================
-      - name: Checkout repository
+      - name: Checkout Repository
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       # ============================================================
       # DOWNLOAD JEST COVERAGE
       # ============================================================
-      - name: Download coverage report
+      - name: Download Coverage Report
         uses: actions/download-artifact@v4
         with:
           name: coverage-report
           path: coverage
-
-      - name: Verify LCOV coverage report
-        run: |
-          echo "Checking coverage directory..."
-          find coverage -maxdepth 3 -type f -print || true
-
-          if [ ! -f "coverage/lcov.info" ]; then
-            echo "::error::coverage/lcov.info was not found."
-            echo "The SonarCloud coverage metrics cannot be calculated without the LCOV report."
-            exit 1
-          fi
-
-          if [ ! -s "coverage/lcov.info" ]; then
-            echo "::error::coverage/lcov.info exists but is empty."
-            exit 1
-          fi
-
-          echo "LCOV report found:"
-          wc -l coverage/lcov.info
 
       # ============================================================
       # JAVA
@@ -58,9 +38,9 @@ jobs:
           java-version: 21
 
       # ============================================================
-      # SONAR SCANNER
+      # INSTALL SONARSCANNER SECURELY
       # ============================================================
-      - name: Install SonarScanner CLI securely
+      - name: Install SonarScanner CLI (secure)
         run: |
           set -e
 
@@ -84,13 +64,8 @@ jobs:
 
       # ============================================================
       # SONARCLOUD ANALYSIS
-      #
-      # IMPORTANT:
-      # qualitygate.wait=true makes the scanner wait until the
-      # SonarCloud background analysis has finished.
       # ============================================================
-      - name: Run SonarCloud analysis
-        continue-on-error: true
+      - name: Run SonarCloud Analysis
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
@@ -98,6 +73,26 @@ jobs:
           SONAR_HOST: ${{ secrets.SONAR_HOST }}
         run: |
           set -e
+
+          echo "============================================================"
+          echo "SonarCloud Analysis"
+          echo "============================================================"
+          echo "Project: $SONAR_PROJECT_KEY"
+          echo "Organization: $SONAR_ORG"
+          echo "Branch: $GITHUB_REF_NAME"
+          echo "Commit: $GITHUB_SHA"
+          echo "Sonar URL: $SONAR_HOST"
+          echo "============================================================"
+
+          if [ ! -f "coverage/lcov.info" ]; then
+            echo "❌ coverage/lcov.info was not found."
+            echo "Available coverage files:"
+            find coverage -maxdepth 3 -type f -print || true
+            exit 1
+          fi
+
+          echo "✅ Coverage report found:"
+          ls -lh coverage/lcov.info
 
           sonar-scanner \
             -Dsonar.projectKey="$SONAR_PROJECT_KEY" \
@@ -105,400 +100,583 @@ jobs:
             -Dsonar.sources=. \
             -Dsonar.host.url="$SONAR_HOST" \
             -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info \
-            -Dsonar.qualitygate.wait=true \
-            -Dsonar.qualitygate.timeout=600
+            -Dsonar.qualitygate.wait=false
 
       # ============================================================
-      # INSTALL JQ
+      # WAIT FOR SONARCLOUD BACKGROUND ANALYSIS
+      #
+      # SonarScanner uploads the analysis asynchronously.
+      # Give SonarCloud time to process it before querying APIs.
       # ============================================================
-      - name: Install jq
-        if: always()
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y jq
-
-      # ============================================================
-      # COLLECT REAL SONARCLOUD DATA
-      # ============================================================
-      - name: Fetch real-time SonarCloud data
+      - name: Wait for SonarCloud Analysis
         if: always()
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
-          SONAR_ORG: ${{ secrets.SONAR_ORG }}
           SONAR_HOST: ${{ secrets.SONAR_HOST }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_REF_NAME: ${{ github.ref_name }}
-          GITHUB_SHA: ${{ github.sha }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
         run: |
           set -e
 
-          SONAR_URL="${SONAR_HOST:-https://sonarcloud.io}"
-
           echo "============================================================"
-          echo "SonarCloud API"
-          echo "============================================================"
-          echo "Project: $SONAR_PROJECT_KEY"
-          echo "Organization: $SONAR_ORG"
-          echo "Branch: $GITHUB_REF_NAME"
-          echo "Sonar URL: $SONAR_URL"
+          echo "Waiting for SonarCloud Background Processing"
           echo "============================================================"
 
-          # --------------------------------------------------------
-          # 1. ACTIVE ISSUES
-          #
-          # Use componentKeys + branch.
-          # Use impactSeverities for current High/Medium/Blocker
-          # terminology.
-          # --------------------------------------------------------
-          curl --fail-with-body \
-            --proto '=https' \
-            --tlsv1.2 \
-            -sS \
-            -u "$SONAR_TOKEN:" \
-            --get \
-            --data-urlencode "componentKeys=$SONAR_PROJECT_KEY" \
-            --data-urlencode "branch=$GITHUB_REF_NAME" \
-            --data-urlencode "organization=$SONAR_ORG" \
-            --data-urlencode "issueStatuses=OPEN,CONFIRMED,REOPENED" \
-            --data-urlencode "impactSeverities=HIGH,MEDIUM,BLOCKER" \
-            --data-urlencode "ps=500" \
-            --data-urlencode "facets=impactSeverities" \
-            "$SONAR_URL/api/issues/search" \
-            -o sonar-issues.json
-
-          # --------------------------------------------------------
-          # 2. OVERALL + NEW CODE COVERAGE
-          # --------------------------------------------------------
-          curl --fail-with-body \
-            --proto '=https' \
-            --tlsv1.2 \
-            -sS \
-            -u "$SONAR_TOKEN:" \
+          CE_RESPONSE=$(curl \
+            --silent \
+            --show-error \
+            --fail-with-body \
+            --user "$SONAR_TOKEN:" \
             --get \
             --data-urlencode "component=$SONAR_PROJECT_KEY" \
-            --data-urlencode "branch=$GITHUB_REF_NAME" \
-            --data-urlencode "metricKeys=coverage,new_coverage,lines_to_cover,new_lines_to_cover,uncovered_lines,new_uncovered_lines,conditions_to_cover,new_conditions_to_cover,uncovered_conditions,new_uncovered_conditions" \
-            "$SONAR_URL/api/measures/component" \
-            -o sonar-measures.json
+            "$SONAR_HOST/api/ce/component")
 
-          # --------------------------------------------------------
-          # 3. FILE-LEVEL COVERAGE
-          #
-          # strategy=leaves returns file-level components.
-          # --------------------------------------------------------
-          curl --fail-with-body \
-            --proto '=https' \
-            --tlsv1.2 \
-            -sS \
-            -u "$SONAR_TOKEN:" \
-            --get \
-            --data-urlencode "component=$SONAR_PROJECT_KEY" \
-            --data-urlencode "branch=$GITHUB_REF_NAME" \
-            --data-urlencode "metricKeys=coverage,new_coverage,lines_to_cover,new_lines_to_cover,uncovered_lines,new_uncovered_lines,conditions_to_cover,new_conditions_to_cover,uncovered_conditions,new_uncovered_conditions" \
-            --data-urlencode "strategy=leaves" \
-            --data-urlencode "ps=500" \
-            "$SONAR_URL/api/measures/component_tree" \
-            -o sonar-files.json
+          echo "$CE_RESPONSE" > sonar-ce.json
 
-          # --------------------------------------------------------
-          # VERIFY API RESPONSES
-          # --------------------------------------------------------
-          echo ""
-          echo "Checking SonarCloud API responses..."
+          STATUS=$(jq -r '.current.status // empty' sonar-ce.json)
+          TASK_ID=$(jq -r '.current.id // empty' sonar-ce.json)
 
-          if jq -e '.errors and (.errors | length > 0)' sonar-issues.json >/dev/null 2>&1; then
-            echo "::error::SonarCloud Issues API returned an error:"
-            jq '.' sonar-issues.json
-            exit 1
+          echo "Current analysis status: ${STATUS:-UNKNOWN}"
+          echo "Task ID: ${TASK_ID:-UNKNOWN}"
+
+          if [ -z "$TASK_ID" ]; then
+            echo "⚠️ No active background task was returned."
+            echo "Continuing with existing SonarCloud data."
+            exit 0
           fi
 
-          if jq -e '.errors and (.errors | length > 0)' sonar-measures.json >/dev/null 2>&1; then
-            echo "::error::SonarCloud Measures API returned an error:"
-            jq '.' sonar-measures.json
-            exit 1
-          fi
+          for i in $(seq 1 30); do
 
-          if jq -e '.errors and (.errors | length > 0)' sonar-files.json >/dev/null 2>&1; then
-            echo "::error::SonarCloud Component Tree API returned an error:"
-            jq '.' sonar-files.json
-            exit 1
-          fi
+            TASK_RESPONSE=$(curl \
+              --silent \
+              --show-error \
+              --fail-with-body \
+              --user "$SONAR_TOKEN:" \
+              "$SONAR_HOST/api/ce/task?id=$TASK_ID")
 
-          echo ""
-          echo "SonarCloud data successfully retrieved."
+            echo "$TASK_RESPONSE" > sonar-task.json
 
-          echo ""
-          echo "Issue count:"
-          jq '.total // 0' sonar-issues.json
+            TASK_STATUS=$(jq -r '.task.status // empty' sonar-task.json)
 
-          echo ""
-          echo "Overall/New coverage measures:"
-          jq '.component.measures' sonar-measures.json
+            echo "SonarCloud task status: $TASK_STATUS"
+
+            if [ "$TASK_STATUS" = "SUCCESS" ]; then
+              echo "✅ SonarCloud analysis completed successfully."
+              break
+            fi
+
+            if [ "$TASK_STATUS" = "FAILED" ] || [ "$TASK_STATUS" = "CANCELED" ]; then
+              echo "⚠️ SonarCloud background task ended with status: $TASK_STATUS"
+              jq '.' sonar-task.json || true
+              break
+            fi
+
+            sleep 5
+
+            if [ "$i" -eq 30 ]; then
+              echo "⚠️ Timed out waiting for SonarCloud processing."
+              echo "Continuing with available SonarCloud data."
+            fi
+
+          done
 
       # ============================================================
-      # CREATE REAL-TIME HTML REPORT
+      # FETCH ACTIVE SONARCLOUD ISSUES
       # ============================================================
-      - name: Generate SonarCloud infographic report
+      - name: Fetch SonarCloud Issues
         if: always()
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST: ${{ secrets.SONAR_HOST }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+        run: |
+          set -e
+
+          echo "============================================================"
+          echo "SonarCloud Issues API"
+          echo "============================================================"
+          echo "Project: $SONAR_PROJECT_KEY"
+          echo "Branch: $GITHUB_REF_NAME"
+          echo "============================================================"
+
+          HTTP_CODE=$(curl \
+            --silent \
+            --show-error \
+            --output sonar-issues.json \
+            --write-out "%{http_code}" \
+            --user "$SONAR_TOKEN:" \
+            --get \
+            --data-urlencode "componentKeys=$SONAR_PROJECT_KEY" \
+            --data-urlencode "branch=$GITHUB_REF_NAME" \
+            --data-urlencode "statuses=OPEN,REOPENED" \
+            --data-urlencode "ps=500" \
+            "$SONAR_HOST/api/issues/search")
+
+          echo "SonarCloud Issues HTTP status: $HTTP_CODE"
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ SonarCloud Issues API failed:"
+            cat sonar-issues.json
+            exit 1
+          fi
+
+          echo "✅ SonarCloud Issues API succeeded."
+
+          ISSUE_COUNT=$(jq '.issues | length' sonar-issues.json)
+
+          echo "Active issues returned: $ISSUE_COUNT"
+
+      # ============================================================
+      # FETCH PROJECT COVERAGE / MEASURES
+      # ============================================================
+      - name: Fetch SonarCloud Project Measures
+        if: always()
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST: ${{ secrets.SONAR_HOST }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+        run: |
+          set -e
+
+          echo "============================================================"
+          echo "SonarCloud Measures API"
+          echo "============================================================"
+
+          HTTP_CODE=$(curl \
+            --silent \
+            --show-error \
+            --output sonar-measures.json \
+            --write-out "%{http_code}" \
+            --user "$SONAR_TOKEN:" \
+            --get \
+            --data-urlencode "component=$SONAR_PROJECT_KEY" \
+            --data-urlencode "branch=$GITHUB_REF_NAME" \
+            --data-urlencode "metricKeys=coverage,new_coverage,uncovered_lines,uncovered_conditions,new_uncovered_lines,new_uncovered_conditions,lines_to_cover,new_lines_to_cover,conditions_to_cover,new_conditions_to_cover" \
+            "$SONAR_HOST/api/measures/component")
+
+          echo "SonarCloud Measures HTTP status: $HTTP_CODE"
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ SonarCloud Measures API failed:"
+            cat sonar-measures.json
+            exit 1
+          fi
+
+          echo "✅ SonarCloud Measures API succeeded."
+
+          echo "Project measures:"
+          jq '.' sonar-measures.json
+
+      # ============================================================
+      # FETCH FILE-BY-FILE COVERAGE
+      # ============================================================
+      - name: Fetch SonarCloud File Coverage
+        if: always()
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST: ${{ secrets.SONAR_HOST }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+        run: |
+          set -e
+
+          echo "============================================================"
+          echo "SonarCloud Component Tree API"
+          echo "============================================================"
+
+          HTTP_CODE=$(curl \
+            --silent \
+            --show-error \
+            --output sonar-components.json \
+            --write-out "%{http_code}" \
+            --user "$SONAR_TOKEN:" \
+            --get \
+            --data-urlencode "component=$SONAR_PROJECT_KEY" \
+            --data-urlencode "branch=$GITHUB_REF_NAME" \
+            --data-urlencode "qualifiers=FIL" \
+            --data-urlencode "metricKeys=coverage,new_coverage,uncovered_lines,new_uncovered_lines,uncovered_conditions,new_uncovered_conditions,lines_to_cover,new_lines_to_cover,conditions_to_cover,new_conditions_to_cover" \
+            --data-urlencode "ps=500" \
+            "$SONAR_HOST/api/measures/component_tree")
+
+          echo "SonarCloud Component Tree HTTP status: $HTTP_CODE"
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "❌ SonarCloud Component Tree API failed:"
+            cat sonar-components.json
+            exit 1
+          fi
+
+          echo "✅ SonarCloud Component Tree API succeeded."
+
+          COMPONENT_COUNT=$(jq '.components | length' sonar-components.json)
+
+          echo "Files returned: $COMPONENT_COUNT"
+
+      # ============================================================
+      # GENERATE REAL-TIME HTML INFOGRAPHIC REPORT
+      # ============================================================
+      - name: Generate SonarCloud Infographic Report
+        if: always()
+        env:
           SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
           SONAR_ORG: ${{ secrets.SONAR_ORG }}
           SONAR_HOST: ${{ secrets.SONAR_HOST }}
           REPOSITORY: ${{ github.repository }}
           BRANCH: ${{ github.ref_name }}
           COMMIT: ${{ github.sha }}
+          RUN_NUMBER: ${{ github.run_number }}
         run: |
-          python3 <<'PY'
-          import json
-          import html
-          import os
-          from pathlib import Path
+          set -e
 
-          SONAR_URL = os.environ.get("SONAR_HOST") or "https://sonarcloud.io"
-          PROJECT_KEY = os.environ.get("SONAR_PROJECT_KEY", "")
-          REPOSITORY = os.environ.get("REPOSITORY", "")
-          BRANCH = os.environ.get("BRANCH", "")
-          COMMIT = os.environ.get("COMMIT", "")
-          SHORT_COMMIT = COMMIT[:7]
+          cat > generate-sonar-report.js <<'NODE'
+          const fs = require("fs");
 
-          def load_json(path, fallback):
-              try:
-                  with open(path, "r", encoding="utf-8") as f:
-                      return json.load(f)
-              except Exception:
-                  return fallback
+          function readJson(file, fallback) {
+            try {
+              return JSON.parse(fs.readFileSync(file, "utf8"));
+            } catch {
+              return fallback;
+            }
+          }
 
-          issues_data = load_json("sonar-issues.json", {"issues": [], "total": 0})
-          measures_data = load_json(
-              "sonar-measures.json",
-              {"component": {"measures": []}}
-          )
-          files_data = load_json(
-              "sonar-files.json",
-              {"components": []}
-          )
+          const issuesData = readJson("sonar-issues.json", { issues: [] });
+          const measuresData = readJson("sonar-measures.json", { component: { measures: [] } });
+          const componentsData = readJson("sonar-components.json", { components: [] });
 
-          issues = issues_data.get("issues", [])
-          total_issues = issues_data.get("total", len(issues))
+          const issues = Array.isArray(issuesData.issues)
+            ? issuesData.issues
+            : [];
 
-          # ==========================================================
-          # ISSUE COUNTS
-          # ==========================================================
-          def impact_severity(issue):
-              return (
-                  issue.get("impactSeverity")
-                  or issue.get("impact", {}).get("severity")
-                  or issue.get("severity")
-                  or ""
-              ).upper()
+          const measures = Array.isArray(measuresData.component?.measures)
+            ? measuresData.component.measures
+            : [];
 
-          high_issues = [
-              i for i in issues
-              if impact_severity(i) == "HIGH"
-          ]
+          const components = Array.isArray(componentsData.components)
+            ? componentsData.components
+            : [];
 
-          medium_issues = [
-              i for i in issues
-              if impact_severity(i) == "MEDIUM"
-          ]
+          function getMeasure(metric) {
+            const item = measures.find(m => m.metric === metric);
+            return item ? item.value : null;
+          }
 
-          blocker_issues = [
-              i for i in issues
-              if impact_severity(i) == "BLOCKER"
-          ]
+          function number(value, fallback = 0) {
+            const parsed = Number(value);
+            return Number.isFinite(parsed) ? parsed : fallback;
+          }
 
-          # ==========================================================
-          # MEASURES
-          # ==========================================================
-          measures = {}
+          function escapeHtml(value) {
+            return String(value ?? "")
+              .replace(/&/g, "&amp;")
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;")
+              .replace(/"/g, "&quot;")
+              .replace(/'/g, "&#039;");
+          }
 
-          for measure in measures_data.get("component", {}).get("measures", []):
-              metric = measure.get("metric")
+          function formatPercent(value) {
+            if (value === null || value === undefined || value === "") {
+              return "N/A";
+            }
 
-              value = measure.get("value")
+            const parsed = Number(value);
 
-              if value is None and isinstance(measure.get("period"), dict):
-                  value = measure["period"].get("value")
+            if (!Number.isFinite(parsed)) {
+              return "N/A";
+            }
 
-              if value is None and measure.get("periods"):
-                  value = measure["periods"][0].get("value")
+            return `${parsed.toFixed(1)}%`;
+          }
 
-              measures[metric] = value
+          function getMetric(component, metric) {
+            const item = component.measures?.find(m => m.metric === metric);
+            return item ? item.value : null;
+          }
 
-          def metric_value(metric, default="0"):
-              value = measures.get(metric)
+          const highIssues = issues.filter(i => i.severity === "HIGH");
+          const mediumIssues = issues.filter(i => i.severity === "MEDIUM");
+          const blockerIssues = issues.filter(i => i.severity === "BLOCKER");
 
-              if value is None or value == "":
-                  return default
+          const totalIssues = issues.length;
 
-              return value
+          const overallCoverage = getMeasure("coverage");
+          const newCoverage = getMeasure("new_coverage");
 
-          overall_coverage = metric_value("coverage", "N/A")
-          new_coverage = metric_value("new_coverage", "N/A")
+          const uncoveredLines = number(
+            getMeasure("uncovered_lines"),
+            0
+          );
 
-          uncovered_lines = metric_value("uncovered_lines", "0")
-          uncovered_conditions = metric_value("uncovered_conditions", "0")
+          const uncoveredConditions = number(
+            getMeasure("uncovered_conditions"),
+            0
+          );
 
-          new_uncovered_lines = metric_value("new_uncovered_lines", "0")
-          new_uncovered_conditions = metric_value(
-              "new_uncovered_conditions",
-              "0"
-          )
+          const newUncoveredLines = number(
+            getMeasure("new_uncovered_lines"),
+            0
+          );
 
-          lines_to_cover = metric_value("lines_to_cover", "0")
-          new_lines_to_cover = metric_value("new_lines_to_cover", "0")
+          const newUncoveredConditions = number(
+            getMeasure("new_uncovered_conditions"),
+            0
+          );
 
-          # ==========================================================
-          # FILE-LEVEL COVERAGE
-          # ==========================================================
-          file_rows = []
+          const newLinesToCover = number(
+            getMeasure("new_lines_to_cover"),
+            0
+          );
 
-          for component in files_data.get("components", []):
-              if component.get("qualifier") != "FIL":
-                  continue
+          const newConditionsToCover = number(
+            getMeasure("new_conditions_to_cover"),
+            0
+          );
 
-              measures_for_file = {}
+          const repository = process.env.REPOSITORY;
+          const branch = process.env.BRANCH;
+          const commit = process.env.COMMIT;
+          const shortCommit = commit.substring(0, 7);
 
-              for measure in component.get("measures", []):
-                  metric = measure.get("metric")
+          const sonarHost = process.env.SONAR_HOST || "https://sonarcloud.io";
 
-                  value = measure.get("value")
+          const sonarDashboard =
+            `${sonarHost}/dashboard?id=${encodeURIComponent(process.env.SONAR_PROJECT_KEY)}`;
 
-                  if value is None and isinstance(measure.get("period"), dict):
-                      value = measure["period"].get("value")
+          const issueUrl = (issue) => {
+            if (issue.key) {
+              return `${sonarHost}/project/issues?id=${encodeURIComponent(process.env.SONAR_PROJECT_KEY)}&open=${encodeURIComponent(issue.key)}`;
+            }
 
-                  if value is None and measure.get("periods"):
-                      value = measure["periods"][0].get("value")
+            return sonarDashboard;
+          };
 
-                  measures_for_file[metric] = value
+          /*
+           * Sort files:
+           *
+           * 1. Highest uncovered new lines
+           * 2. Highest uncovered new conditions
+           * 3. Lowest new-code coverage
+           */
+          const fileRows = components
+            .map(component => {
+              const newCoverageValue = getMetric(component, "new_coverage");
 
-              file_rows.append({
-                  "path": component.get("path") or component.get("name") or "Unknown",
-                  "new_coverage": measures_for_file.get("new_coverage"),
-                  "new_uncovered_lines": measures_for_file.get(
-                      "new_uncovered_lines"
-                  ),
-                  "new_uncovered_conditions": measures_for_file.get(
-                      "new_uncovered_conditions"
-                  ),
-                  "coverage": measures_for_file.get("coverage"),
-                  "uncovered_lines": measures_for_file.get(
-                      "uncovered_lines"
-                  ),
-              })
+              const uncoveredNewLines = number(
+                getMetric(component, "new_uncovered_lines"),
+                0
+              );
 
-          def number(value):
-              try:
-                  return float(value)
-              except Exception:
-                  return 0
+              const uncoveredNewConditions = number(
+                getMetric(component, "new_uncovered_conditions"),
+                0
+              );
 
-          file_rows.sort(
-              key=lambda row: (
-                  number(row["new_uncovered_lines"]),
-                  number(row["new_uncovered_conditions"])
-              ),
-              reverse=True
-          )
+              const overallCoverageValue = getMetric(component, "coverage");
 
-          # ==========================================================
-          # HELPERS
-          # ==========================================================
-          def esc(value):
-              if value is None:
-                  return ""
-              return html.escape(str(value))
+              const overallUncoveredLines = number(
+                getMetric(component, "uncovered_lines"),
+                0
+              );
 
-          def pct(value):
-              if value in (None, ""):
-                  return "N/A"
-              try:
-                  return f"{float(value):.1f}%"
-              except Exception:
-                  return esc(value)
+              const newLines = number(
+                getMetric(component, "new_lines_to_cover"),
+                0
+              );
 
-          def issue_rows(issue_list, empty_message):
-              if not issue_list:
-                  return (
-                      "<tr>"
-                      "<td colspan='7' class='empty'>"
-                      f"✓ {esc(empty_message)}"
-                      "</td>"
-                      "</tr>"
-                  )
+              const newConditions = number(
+                getMetric(component, "new_conditions_to_cover"),
+                0
+              );
 
-              rows = []
+              /*
+               * SonarCloud can return no new-code metric when the file
+               * has no new code. Keep this as N/A instead of inventing
+               * a percentage.
+               */
+              let calculatedNewCoverage = newCoverageValue;
 
-              for issue in issue_list:
-                  component = issue.get("component", "")
-                  file_name = component
+              if (
+                (calculatedNewCoverage === null ||
+                 calculatedNewCoverage === undefined) &&
+                newLines > 0
+              ) {
+                calculatedNewCoverage =
+                  ((newLines - uncoveredNewLines) / newLines) * 100;
+              }
 
-                  prefix = PROJECT_KEY + ":"
+              return {
+                path: component.path || component.name || "Unknown",
+                newCoverage: calculatedNewCoverage,
+                uncoveredNewLines,
+                uncoveredNewConditions,
+                overallCoverage: overallCoverageValue,
+                overallUncoveredLines
+              };
+            })
+            .sort((a, b) => {
+              if (b.uncoveredNewLines !== a.uncoveredNewLines) {
+                return b.uncoveredNewLines - a.uncoveredNewLines;
+              }
 
-                  if file_name.startswith(prefix):
-                      file_name = file_name[len(prefix):]
+              if (
+                b.uncoveredNewConditions !==
+                a.uncoveredNewConditions
+              ) {
+                return (
+                  b.uncoveredNewConditions -
+                  a.uncoveredNewConditions
+                );
+              }
 
-                  line = issue.get("line")
-                  if line is None:
-                      line = "-"
+              const ac =
+                a.newCoverage === null ||
+                a.newCoverage === undefined
+                  ? -1
+                  : Number(a.newCoverage);
 
-                  severity = (
-                      issue.get("impactSeverity")
-                      or issue.get("severity")
-                      or "UNKNOWN"
-                  )
+              const bc =
+                b.newCoverage === null ||
+                b.newCoverage === undefined
+                  ? -1
+                  : Number(b.newCoverage);
 
-                  rule = issue.get("rule", "-")
-                  message = issue.get("message", "-")
-                  issue_key = issue.get("key", "")
+              return ac - bc;
+            });
 
-                  sonar_issue_url = (
-                      f"{SONAR_URL}/project/issues"
-                      f"?id={PROJECT_KEY}"
-                      f"&open={issue_key}"
-                  )
+          const fileTable = fileRows.length
+            ? fileRows.map(file => `
+                <tr>
+                  <td class="file-name">
+                    ${escapeHtml(file.path)}
+                  </td>
 
-                  rows.append(
-                      "<tr>"
-                      f"<td><span class='badge {severity.lower()}'>"
-                      f"{esc(severity)}</span></td>"
-                      f"<td>{esc(rule)}</td>"
-                      f"<td>{esc(message)}</td>"
-                      f"<td class='file'>{esc(file_name)}</td>"
-                      f"<td>{esc(line)}</td>"
-                      f"<td><a href='{esc(sonar_issue_url)}' "
-                      f"target='_blank'>Open</a></td>"
-                      "</tr>"
-                  )
+                  <td>
+                    <span class="${
+                      file.newCoverage !== null &&
+                      Number(file.newCoverage) < 50
+                        ? "danger"
+                        : file.newCoverage !== null &&
+                          Number(file.newCoverage) < 80
+                        ? "warning"
+                        : "good"
+                    }">
+                      ${formatPercent(file.newCoverage)}
+                    </span>
+                  </td>
 
-              return "".join(rows)
+                  <td class="${
+                    file.uncoveredNewLines > 0
+                      ? "danger-text"
+                      : "good-text"
+                  }">
+                    ${file.uncoveredNewLines}
+                  </td>
 
-          # ==========================================================
-          # HTML
-          # ==========================================================
-          html_report = f"""
+                  <td class="${
+                    file.uncoveredNewConditions > 0
+                      ? "danger-text"
+                      : "good-text"
+                  }">
+                    ${file.uncoveredNewConditions}
+                  </td>
+
+                  <td>
+                    ${formatPercent(file.overallCoverage)}
+                  </td>
+
+                  <td>
+                    ${file.overallUncoveredLines}
+                  </td>
+                </tr>
+              `).join("")
+            : `
+              <tr>
+                <td colspan="6" class="empty">
+                  No file-level coverage data returned by SonarCloud.
+                </td>
+              </tr>
+            `;
+
+          function issueTable(issueList, emptyText) {
+            if (!issueList.length) {
+              return `
+                <tr>
+                  <td colspan="6" class="empty">
+                    ✓ ${emptyText}
+                  </td>
+                </tr>
+              `;
+            }
+
+            return issueList.map(issue => `
+              <tr>
+                <td>
+                  <span class="severity ${String(issue.severity).toLowerCase()}">
+                    ${escapeHtml(issue.severity)}
+                  </span>
+                </td>
+
+                <td>
+                  ${escapeHtml(issue.rule || "N/A")}
+                </td>
+
+                <td class="message">
+                  ${escapeHtml(issue.message || "N/A")}
+                </td>
+
+                <td class="file-name">
+                  ${escapeHtml(
+                    issue.component
+                      ? issue.component.replace(
+                          `${process.env.SONAR_PROJECT_KEY}:`,
+                          ""
+                        )
+                      : "N/A"
+                  )}
+                </td>
+
+                <td>
+                  ${escapeHtml(issue.line || "N/A")}
+                </td>
+
+                <td>
+                  <a
+                    class="review-link"
+                    href="${escapeHtml(issueUrl(issue))}"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    Review
+                  </a>
+                </td>
+              </tr>
+            `).join("");
+          }
+
+          const html = `
           <!DOCTYPE html>
           <html lang="en">
           <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <meta charset="UTF-8">
 
-          <title>SonarCloud Security & Coverage Report</title>
+            <meta
+              name="viewport"
+              content="width=device-width, initial-scale=1.0"
+            >
 
-          <style>
+            <title>
+              SonarCloud Security & Coverage Report
+            </title>
 
-          * {{
-              box-sizing: border-box;
-          }}
+            <style>
+              * {
+                box-sizing: border-box;
+              }
 
-          body {{
-              margin: 0;
-              padding: 34px;
-              background: #0b1324;
-              color: #e8eefc;
-              font-family:
+              body {
+                margin: 0;
+                padding: 32px;
+                background: #0b1220;
+                color: #e8eefc;
+                font-family:
                   Inter,
                   ui-sans-serif,
                   system-ui,
@@ -506,779 +684,868 @@ jobs:
                   BlinkMacSystemFont,
                   "Segoe UI",
                   sans-serif;
-          }}
+              }
 
-          .container {{
-              max-width: 1180px;
-              margin: auto;
-          }}
+              .container {
+                max-width: 1500px;
+                margin: auto;
+              }
 
-          .header {{
-              background: linear-gradient(
+              .header {
+                background: linear-gradient(
                   135deg,
-                  #111b31,
-                  #16223a
-              );
-              border: 1px solid #33425e;
-              border-radius: 18px;
-              padding: 28px;
-              margin-bottom: 20px;
-          }}
+                  #17233b,
+                  #101827
+                );
 
-          .header h1 {{
-              margin: 0 0 8px 0;
-              font-size: 27px;
-          }}
+                border: 1px solid #33435f;
+                border-radius: 18px;
+                padding: 28px;
+                margin-bottom: 20px;
+              }
 
-          .subtitle {{
-              color: #8fa7cf;
-              margin-bottom: 20px;
-          }}
+              h1 {
+                margin: 0 0 8px;
+                font-size: 28px;
+              }
 
-          .metadata {{
-              display: flex;
-              flex-wrap: wrap;
-              gap: 22px;
-              font-size: 13px;
-              color: #b9c9e5;
-          }}
+              h2 {
+                margin-top: 0;
+                font-size: 19px;
+              }
 
-          .metadata strong {{
-              color: #ffffff;
-          }}
+              .subtitle {
+                color: #9fb0cc;
+                margin-bottom: 18px;
+              }
 
-          .metadata a {{
-              color: #6fc8ff;
-              text-decoration: none;
-          }}
+              .metadata {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 22px;
+                color: #bdd0ee;
+                font-size: 13px;
+              }
 
-          .cards {{
-              display: grid;
-              grid-template-columns:
+              .metadata strong {
+                color: white;
+              }
+
+              a {
+                color: #65b8ff;
+              }
+
+              .dashboard {
+                display: grid;
+                grid-template-columns:
                   repeat(6, minmax(0, 1fr));
-              gap: 14px;
-              margin-bottom: 20px;
-          }}
 
-          .card {{
-              background: #121d32;
-              border: 1px solid #34425c;
-              border-radius: 16px;
-              padding: 18px;
-              min-height: 105px;
-          }}
+                gap: 14px;
+                margin-bottom: 20px;
+              }
 
-          .card-title {{
-              color: #8fa7cf;
-              font-size: 11px;
-              text-transform: uppercase;
-              letter-spacing: 0.08em;
-          }}
+              .card {
+                background: #151f32;
+                border: 1px solid #33435f;
+                border-radius: 16px;
+                padding: 20px;
+                min-height: 115px;
+              }
 
-          .card-value {{
-              margin-top: 10px;
-              font-size: 28px;
-              font-weight: 800;
-          }}
+              .card-label {
+                text-transform: uppercase;
+                letter-spacing: .08em;
+                font-size: 11px;
+                color: #9fb0cc;
+              }
 
-          .high {{
-              color: #ff6578;
-          }}
+              .card-value {
+                font-size: 29px;
+                font-weight: 800;
+                margin-top: 14px;
+              }
 
-          .medium {{
-              color: #ffb629;
-          }}
+              .high {
+                color: #ff6b81;
+              }
 
-          .blocker {{
-              color: #b27cff;
-          }}
+              .medium {
+                color: #ffb52e;
+              }
 
-          .cyan {{
-              color: #54dfff;
-          }}
+              .blocker {
+                color: #bb7cff;
+              }
 
-          .green {{
-              color: #72e6a3;
-          }}
+              .cyan {
+                color: #52ddff;
+              }
 
-          .section {{
-              background: #111b2e;
-              border: 1px solid #33425e;
-              border-radius: 18px;
-              padding: 20px;
-              margin-bottom: 20px;
-          }}
+              .green {
+                color: #73e69b;
+              }
 
-          .section h2 {{
-              margin: 0 0 6px 0;
-              font-size: 18px;
-          }}
+              .section {
+                background: #101a2b;
+                border: 1px solid #33435f;
+                border-radius: 18px;
+                padding: 22px;
+                margin-bottom: 20px;
+              }
 
-          .section-description {{
-              color: #8fa7cf;
-              font-size: 13px;
-              margin-bottom: 18px;
-          }}
+              .section-description {
+                color: #9fb0cc;
+                margin-top: -10px;
+                margin-bottom: 20px;
+                font-size: 13px;
+              }
 
-          .severity-bar {{
-              height: 14px;
-              width: 100%;
-              background: #202d45;
-              border-radius: 999px;
-              overflow: hidden;
-              display: flex;
-          }}
+              .severity-bar {
+                height: 18px;
+                width: 100%;
+                border-radius: 999px;
+                overflow: hidden;
+                background: #202c42;
+                display: flex;
+              }
 
-          .severity-high {{
-              background: #ff6578;
-          }}
+              .severity-high {
+                background: #ff647a;
+              }
 
-          .severity-medium {{
-              background: #ffb629;
-          }}
+              .severity-medium {
+                background: #ffb52e;
+              }
 
-          .severity-blocker {{
-              background: #b27cff;
-          }}
+              .severity-blocker {
+                background: #b875ff;
+              }
 
-          .legend {{
-              display: flex;
-              flex-wrap: wrap;
-              gap: 18px;
-              margin-top: 14px;
-              color: #9fb1d0;
-              font-size: 12px;
-          }}
+              .legend {
+                display: flex;
+                gap: 20px;
+                margin-top: 14px;
+                color: #aabbd5;
+                font-size: 12px;
+              }
 
-          .legend span::before {{
-              content: "●";
-              margin-right: 6px;
-          }}
+              .legend span::before {
+                content: "";
+                display: inline-block;
+                width: 8px;
+                height: 8px;
+                border-radius: 50%;
+                margin-right: 6px;
+              }
 
-          .legend .lh::before {{
-              color: #ff6578;
-          }}
+              .legend .lh::before {
+                background: #ff647a;
+              }
 
-          .legend .lm::before {{
-              color: #ffb629;
-          }}
+              .legend .lm::before {
+                background: #ffb52e;
+              }
 
-          .legend .lb::before {{
-              color: #b27cff;
-          }}
+              .legend .lb::before {
+                background: #b875ff;
+              }
 
-          .coverage-grid {{
-              display: grid;
-              grid-template-columns:
+              .coverage-grid {
+                display: grid;
+                grid-template-columns:
                   repeat(5, minmax(0, 1fr));
-              gap: 12px;
-          }}
 
-          .coverage-box {{
-              background: #162238;
-              border: 1px solid #2f3e59;
-              border-radius: 14px;
-              padding: 16px;
-          }}
+                gap: 12px;
+              }
 
-          .coverage-label {{
-              color: #8fa7cf;
-              font-size: 11px;
-          }}
+              .coverage-box {
+                background: #172238;
+                border: 1px solid #2e3e5a;
+                border-radius: 14px;
+                padding: 18px;
+              }
 
-          .coverage-value {{
-              margin-top: 7px;
-              font-size: 24px;
-              font-weight: 800;
-          }}
+              .coverage-title {
+                color: #94a8c6;
+                font-size: 12px;
+              }
 
-          table {{
-              width: 100%;
-              border-collapse: collapse;
-              font-size: 12px;
-          }}
+              .coverage-number {
+                font-size: 24px;
+                font-weight: 800;
+                margin-top: 9px;
+              }
 
-          th {{
-              background: #1b2942;
-              color: #c8d6ee;
-              text-align: left;
-              padding: 12px 10px;
-              border-bottom: 1px solid #35445e;
-          }}
+              table {
+                width: 100%;
+                border-collapse: collapse;
+                font-size: 13px;
+              }
 
-          td {{
-              padding: 11px 10px;
-              border-bottom: 1px solid #26354d;
-              vertical-align: top;
-          }}
+              th {
+                background: #1b273d;
+                color: #b8c8df;
+                text-align: left;
+                padding: 12px;
+                border-bottom: 1px solid #34445e;
+              }
 
-          tr:hover {{
-              background: #152239;
-          }}
+              td {
+                padding: 12px;
+                border-bottom: 1px solid #26364f;
+                vertical-align: top;
+              }
 
-          .file {{
-              color: #8fd5ff;
-              font-family: monospace;
-          }}
+              tr:hover {
+                background: #162238;
+              }
 
-          .badge {{
-              padding: 4px 8px;
-              border-radius: 999px;
-              font-size: 10px;
-              font-weight: 800;
-              display: inline-block;
-          }}
+              .file-name {
+                font-family:
+                  ui-monospace,
+                  SFMono-Regular,
+                  Menlo,
+                  Monaco,
+                  Consolas,
+                  monospace;
 
-          .badge.high {{
-              background: rgba(255,101,120,.15);
-              color: #ff7181;
-          }}
+                color: #d5e2f6;
+              }
 
-          .badge.medium {{
-              background: rgba(255,182,41,.15);
-              color: #ffbf42;
-          }}
+              .message {
+                max-width: 500px;
+              }
 
-          .badge.blocker {{
-              background: rgba(178,124,255,.15);
-              color: #bd8cff;
-          }}
+              .severity {
+                font-weight: 800;
+              }
 
-          .empty {{
-              text-align: center;
-              color: #74e2a0;
-              padding: 22px;
-          }}
+              .severity.high {
+                color: #ff6b81;
+              }
 
-          a {{
-              color: #67c7ff;
-              text-decoration: none;
-          }}
+              .severity.medium {
+                color: #ffb52e;
+              }
 
-          .footer {{
-              text-align: center;
-              color: #7083a4;
-              font-size: 11px;
-              padding: 15px;
-          }}
+              .severity.blocker {
+                color: #bb7cff;
+              }
 
-          @media (max-width: 1000px) {{
-              .cards {{
-                  grid-template-columns: repeat(3, 1fr);
-              }}
+              .danger {
+                color: #ff6b81;
+                font-weight: 800;
+              }
 
-              .coverage-grid {{
-                  grid-template-columns: repeat(2, 1fr);
-              }}
-          }}
+              .warning {
+                color: #ffb52e;
+                font-weight: 800;
+              }
 
-          @media (max-width: 650px) {{
-              body {{
-                  padding: 15px;
-              }}
+              .good {
+                color: #73e69b;
+                font-weight: 800;
+              }
 
-              .cards {{
+              .danger-text {
+                color: #ff6b81;
+                font-weight: 700;
+              }
+
+              .good-text {
+                color: #73e69b;
+              }
+
+              .review-link {
+                display: inline-block;
+                padding: 5px 10px;
+                border-radius: 7px;
+                background: #1c3554;
+                text-decoration: none;
+                font-weight: 700;
+              }
+
+              .empty {
+                text-align: center;
+                color: #73e69b;
+                padding: 25px;
+              }
+
+              .footer {
+                text-align: center;
+                color: #7285a4;
+                font-size: 12px;
+                padding: 20px;
+              }
+
+              @media (max-width: 1100px) {
+                .dashboard {
+                  grid-template-columns:
+                    repeat(3, minmax(0, 1fr));
+                }
+
+                .coverage-grid {
+                  grid-template-columns:
+                    repeat(2, minmax(0, 1fr));
+                }
+              }
+
+              @media (max-width: 700px) {
+                body {
+                  padding: 14px;
+                }
+
+                .dashboard {
                   grid-template-columns: 1fr 1fr;
-              }}
+                }
 
-              .coverage-grid {{
+                .coverage-grid {
                   grid-template-columns: 1fr;
-              }}
+                }
 
-              table {{
+                table {
                   display: block;
                   overflow-x: auto;
-              }}
-          }}
-
-          </style>
+                }
+              }
+            </style>
           </head>
 
           <body>
 
-          <div class="container">
+            <div class="container">
 
-          <div class="header">
+              <div class="header">
 
-              <h1>SonarCloud Security & Coverage Report</h1>
+                <h1>
+                  SonarCloud Security & Coverage Report
+                </h1>
 
-              <div class="subtitle">
-                  Real-time SonarCloud issues, severity distribution,
-                  overall coverage and uncovered new code.
+                <div class="subtitle">
+                  Security issues, severity distribution and uncovered new code.
+                </div>
+
+                <div class="metadata">
+
+                  <span>
+                    Repository:
+                    <strong>
+                      ${escapeHtml(repository)}
+                    </strong>
+                  </span>
+
+                  <span>
+                    Branch:
+                    <strong>
+                      ${escapeHtml(branch)}
+                    </strong>
+                  </span>
+
+                  <span>
+                    Commit:
+                    <strong>
+                      ${escapeHtml(shortCommit)}
+                    </strong>
+                  </span>
+
+                  <span>
+                    <a
+                      href="${escapeHtml(sonarDashboard)}"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      Open SonarCloud
+                    </a>
+                  </span>
+
+                </div>
+
               </div>
 
-              <div class="metadata">
 
-                  <span>
-                      Repository:
-                      <strong>{esc(REPOSITORY)}</strong>
-                  </span>
+              <!-- ================================================= -->
+              <!-- SECURITY SUMMARY -->
+              <!-- ================================================= -->
 
-                  <span>
-                      Branch:
-                      <strong>{esc(BRANCH)}</strong>
-                  </span>
+              <div class="dashboard">
 
-                  <span>
-                      Commit:
-                      <strong>{esc(SHORT_COMMIT)}</strong>
-                  </span>
+                <div class="card">
+                  <div class="card-label">
+                    High Severity
+                  </div>
 
-                  <span>
-                      <a
-                        href="{esc(SONAR_URL)}/dashboard?id={esc(PROJECT_KEY)}"
-                        target="_blank"
-                      >
-                        Open SonarCloud
-                      </a>
-                  </span>
-
-              </div>
-
-          </div>
-
-
-          <div class="cards">
-
-              <div class="card">
-                  <div class="card-title">High Severity</div>
                   <div class="card-value high">
-                      {len(high_issues)}
+                    ${highIssues.length}
                   </div>
-              </div>
+                </div>
 
-              <div class="card">
-                  <div class="card-title">Medium Severity</div>
+
+                <div class="card">
+                  <div class="card-label">
+                    Medium Severity
+                  </div>
+
                   <div class="card-value medium">
-                      {len(medium_issues)}
+                    ${mediumIssues.length}
                   </div>
-              </div>
+                </div>
 
-              <div class="card">
-                  <div class="card-title">Blocker</div>
+
+                <div class="card">
+                  <div class="card-label">
+                    Blocker
+                  </div>
+
                   <div class="card-value blocker">
-                      {len(blocker_issues)}
+                    ${blockerIssues.length}
                   </div>
-              </div>
+                </div>
 
-              <div class="card">
-                  <div class="card-title">Total Active Issues</div>
+
+                <div class="card">
+                  <div class="card-label">
+                    Total Active Issues
+                  </div>
+
                   <div class="card-value">
-                      {total_issues}
+                    ${totalIssues}
                   </div>
-              </div>
+                </div>
 
-              <div class="card">
-                  <div class="card-title">Overall Coverage</div>
+
+                <div class="card">
+                  <div class="card-label">
+                    Overall Coverage
+                  </div>
+
                   <div class="card-value cyan">
-                      {pct(overall_coverage)}
+                    ${formatPercent(overallCoverage)}
                   </div>
-              </div>
+                </div>
 
-              <div class="card">
-                  <div class="card-title">New Code Coverage</div>
+
+                <div class="card">
+                  <div class="card-label">
+                    New Code Coverage
+                  </div>
+
                   <div class="card-value green">
-                      {pct(new_coverage)}
+                    ${formatPercent(newCoverage)}
                   </div>
-              </div>
-
-          </div>
-
-
-          <div class="section">
-
-              <h2>Security Severity Distribution</h2>
-
-              <div class="section-description">
-                  Active OPEN, CONFIRMED and REOPENED SonarCloud issues.
-              </div>
-
-              <div class="severity-bar">
-
-                  <div
-                    class="severity-high"
-                    style="width: {
-                      (
-                        len(high_issues)
-                        / max(
-                            len(high_issues)
-                            + len(medium_issues)
-                            + len(blocker_issues),
-                            1
-                        )
-                        * 100
-                      )
-                    }%"
-                  ></div>
-
-                  <div
-                    class="severity-medium"
-                    style="width: {
-                      (
-                        len(medium_issues)
-                        / max(
-                            len(high_issues)
-                            + len(medium_issues)
-                            + len(blocker_issues),
-                            1
-                        )
-                        * 100
-                      )
-                    }%"
-                  ></div>
-
-                  <div
-                    class="severity-blocker"
-                    style="width: {
-                      (
-                        len(blocker_issues)
-                        / max(
-                            len(high_issues)
-                            + len(medium_issues)
-                            + len(blocker_issues),
-                            1
-                        )
-                        * 100
-                      )
-                    }%"
-                  ></div>
+                </div>
 
               </div>
 
-              <div class="legend">
+
+              <!-- ================================================= -->
+              <!-- SEVERITY DISTRIBUTION -->
+              <!-- ================================================= -->
+
+              <div class="section">
+
+                <h2>
+                  Security Severity Distribution
+                </h2>
+
+                <div class="section-description">
+                  Active OPEN and REOPENED SonarCloud issues.
+                </div>
+
+                ${
+                  totalIssues > 0
+                    ? `
+                      <div class="severity-bar">
+
+                        <div
+                          class="severity-high"
+                          style="width:${(
+                            highIssues.length /
+                            totalIssues *
+                            100
+                          ).toFixed(2)}%"
+                        ></div>
+
+                        <div
+                          class="severity-medium"
+                          style="width:${(
+                            mediumIssues.length /
+                            totalIssues *
+                            100
+                          ).toFixed(2)}%"
+                        ></div>
+
+                        <div
+                          class="severity-blocker"
+                          style="width:${(
+                            blockerIssues.length /
+                            totalIssues *
+                            100
+                          ).toFixed(2)}%"
+                        ></div>
+
+                      </div>
+                    `
+                    : `
+                      <div class="severity-bar"></div>
+                    `
+                }
+
+                <div class="legend">
 
                   <span class="lh">
-                      High: {len(high_issues)}
+                    High: ${highIssues.length}
                   </span>
 
                   <span class="lm">
-                      Medium: {len(medium_issues)}
+                    Medium: ${mediumIssues.length}
                   </span>
 
                   <span class="lb">
-                      Blocker: {len(blocker_issues)}
+                    Blocker: ${blockerIssues.length}
                   </span>
 
-              </div>
-
-          </div>
-
-
-          <div class="section">
-
-              <h2>Coverage Overview</h2>
-
-              <div class="section-description">
-                  Values are read directly from the SonarCloud Measures API
-                  after the analysis has completed.
-              </div>
-
-              <div class="coverage-grid">
-
-                  <div class="coverage-box">
-                      <div class="coverage-label">
-                          Overall Coverage
-                      </div>
-                      <div class="coverage-value cyan">
-                          {pct(overall_coverage)}
-                      </div>
-                  </div>
-
-                  <div class="coverage-box">
-                      <div class="coverage-label">
-                          Coverage on New Code
-                      </div>
-                      <div class="coverage-value green">
-                          {pct(new_coverage)}
-                      </div>
-                  </div>
-
-                  <div class="coverage-box">
-                      <div class="coverage-label">
-                          Uncovered Lines
-                      </div>
-                      <div class="coverage-value">
-                          {esc(uncovered_lines)}
-                      </div>
-                  </div>
-
-                  <div class="coverage-box">
-                      <div class="coverage-label">
-                          Uncovered Conditions
-                      </div>
-                      <div class="coverage-value">
-                          {esc(uncovered_conditions)}
-                      </div>
-                  </div>
-
-                  <div class="coverage-box">
-                      <div class="coverage-label">
-                          Uncovered New Lines
-                      </div>
-                      <div class="coverage-value high">
-                          {esc(new_uncovered_lines)}
-                      </div>
-                  </div>
+                </div>
 
               </div>
 
-              <div style="height:12px"></div>
 
-              <div class="coverage-grid">
+              <!-- ================================================= -->
+              <!-- COVERAGE -->
+              <!-- ================================================= -->
 
-                  <div class="coverage-box">
-                      <div class="coverage-label">
-                          Lines to Cover
-                      </div>
-                      <div class="coverage-value">
-                          {esc(lines_to_cover)}
-                      </div>
-                  </div>
+              <div class="section">
 
-                  <div class="coverage-box">
-                      <div class="coverage-label">
-                          New Lines to Cover
-                      </div>
-                      <div class="coverage-value">
-                          {esc(new_lines_to_cover)}
-                      </div>
-                  </div>
+                <h2>
+                  Coverage Overview
+                </h2>
+
+                <div class="coverage-grid">
 
                   <div class="coverage-box">
-                      <div class="coverage-label">
-                          Uncovered New Conditions
-                      </div>
-                      <div class="coverage-value high">
-                          {esc(new_uncovered_conditions)}
-                      </div>
+                    <div class="coverage-title">
+                      Overall Coverage
+                    </div>
+
+                    <div class="coverage-number cyan">
+                      ${formatPercent(overallCoverage)}
+                    </div>
                   </div>
+
+
+                  <div class="coverage-box">
+                    <div class="coverage-title">
+                      Coverage on New Code
+                    </div>
+
+                    <div class="coverage-number green">
+                      ${formatPercent(newCoverage)}
+                    </div>
+                  </div>
+
+
+                  <div class="coverage-box">
+                    <div class="coverage-title">
+                      Uncovered Lines
+                    </div>
+
+                    <div class="coverage-number">
+                      ${uncoveredLines}
+                    </div>
+                  </div>
+
+
+                  <div class="coverage-box">
+                    <div class="coverage-title">
+                      Uncovered Conditions
+                    </div>
+
+                    <div class="coverage-number">
+                      ${uncoveredConditions}
+                    </div>
+                  </div>
+
+
+                  <div class="coverage-box">
+                    <div class="coverage-title">
+                      Uncovered New Lines
+                    </div>
+
+                    <div class="coverage-number ${
+                      newUncoveredLines > 0
+                        ? "danger"
+                        : "good"
+                    }">
+                      ${newUncoveredLines}
+                    </div>
+                  </div>
+
+                </div>
 
               </div>
 
-          </div>
 
+              <!-- ================================================= -->
+              <!-- HIGH ISSUES -->
+              <!-- ================================================= -->
 
-          <div class="section">
+              <div class="section">
 
-              <h2>🔴 High Severity Issues</h2>
+                <h2>
+                  🔴 High Severity Issues
+                </h2>
 
-              <div class="section-description">
-                  {len(high_issues)} active high-severity issue(s).
-              </div>
+                <div class="section-description">
+                  ${highIssues.length}
+                  active high-severity issue(s).
+                </div>
 
-              <table>
+                <table>
 
                   <thead>
-                      <tr>
-                          <th>Severity</th>
-                          <th>Rule</th>
-                          <th>Message</th>
-                          <th>File</th>
-                          <th>Line</th>
-                          <th>Action</th>
-                      </tr>
+                    <tr>
+                      <th>Severity</th>
+                      <th>Rule</th>
+                      <th>Message</th>
+                      <th>File</th>
+                      <th>Line</th>
+                      <th>Action</th>
+                    </tr>
                   </thead>
 
                   <tbody>
-
-                      {issue_rows(
-                          high_issues,
-                          "No active high-severity issues found."
-                      )}
-
+                    ${issueTable(
+                      highIssues,
+                      "No active high-severity issues found."
+                    )}
                   </tbody>
 
-              </table>
+                </table>
 
-          </div>
-
-
-          <div class="section">
-
-              <h2>🟠 Medium Severity Issues</h2>
-
-              <div class="section-description">
-                  {len(medium_issues)} active medium-severity issue(s).
               </div>
 
-              <table>
+
+              <!-- ================================================= -->
+              <!-- MEDIUM ISSUES -->
+              <!-- ================================================= -->
+
+              <div class="section">
+
+                <h2>
+                  🟠 Medium Severity Issues
+                </h2>
+
+                <div class="section-description">
+                  ${mediumIssues.length}
+                  active medium-severity issue(s).
+                </div>
+
+                <table>
 
                   <thead>
-                      <tr>
-                          <th>Severity</th>
-                          <th>Rule</th>
-                          <th>Message</th>
-                          <th>File</th>
-                          <th>Line</th>
-                          <th>Action</th>
-                      </tr>
+                    <tr>
+                      <th>Severity</th>
+                      <th>Rule</th>
+                      <th>Message</th>
+                      <th>File</th>
+                      <th>Line</th>
+                      <th>Action</th>
+                    </tr>
                   </thead>
 
                   <tbody>
-
-                      {issue_rows(
-                          medium_issues,
-                          "No active medium-severity issues found."
-                      )}
-
+                    ${issueTable(
+                      mediumIssues,
+                      "No active medium-severity issues found."
+                    )}
                   </tbody>
 
-              </table>
+                </table>
 
-          </div>
-
-
-          <div class="section">
-
-              <h2>🟣 Blocker Issues</h2>
-
-              <div class="section-description">
-                  {len(blocker_issues)} active blocker issue(s).
               </div>
 
-              <table>
+
+              <!-- ================================================= -->
+              <!-- BLOCKER ISSUES -->
+              <!-- ================================================= -->
+
+              <div class="section">
+
+                <h2>
+                  🟣 Blocker Issues
+                </h2>
+
+                <div class="section-description">
+                  ${blockerIssues.length}
+                  active blocker issue(s).
+                </div>
+
+                <table>
 
                   <thead>
-                      <tr>
-                          <th>Severity</th>
-                          <th>Rule</th>
-                          <th>Message</th>
-                          <th>File</th>
-                          <th>Line</th>
-                          <th>Action</th>
-                      </tr>
+                    <tr>
+                      <th>Severity</th>
+                      <th>Rule</th>
+                      <th>Message</th>
+                      <th>File</th>
+                      <th>Line</th>
+                      <th>Action</th>
+                    </tr>
                   </thead>
 
                   <tbody>
-
-                      {issue_rows(
-                          blocker_issues,
-                          "No active blocker issues found."
-                      )}
-
+                    ${issueTable(
+                      blockerIssues,
+                      "No active blocker issues found."
+                    )}
                   </tbody>
 
-              </table>
+                </table>
 
-          </div>
-
-
-          <div class="section">
-
-              <h2>📊 New Code Coverage by File</h2>
-
-              <div class="section-description">
-                  Real SonarCloud file-level metrics, sorted by the number
-                  of uncovered new lines.
               </div>
 
-              <table>
+
+              <!-- ================================================= -->
+              <!-- FILE-BY-FILE NEW CODE COVERAGE -->
+              <!-- ================================================= -->
+
+              <div class="section">
+
+                <h2>
+                  📊 New Code Coverage by File
+                </h2>
+
+                <div class="section-description">
+                  Files are sorted by uncovered new lines,
+                  then uncovered new conditions,
+                  then lowest new-code coverage.
+                  Values are retrieved directly from SonarCloud.
+                </div>
+
+                <table>
 
                   <thead>
-                      <tr>
-                          <th>File</th>
-                          <th>New Code Coverage</th>
-                          <th>Uncovered New Lines</th>
-                          <th>Uncovered New Conditions</th>
-                          <th>Overall Coverage</th>
-                          <th>Overall Uncovered Lines</th>
-                      </tr>
+                    <tr>
+                      <th>File</th>
+                      <th>New Code Coverage</th>
+                      <th>Uncovered New Lines</th>
+                      <th>Uncovered New Conditions</th>
+                      <th>Overall Coverage</th>
+                      <th>Overall Uncovered Lines</th>
+                    </tr>
                   </thead>
 
                   <tbody>
-          """
-
-          if not file_rows:
-              html_report += """
-                      <tr>
-                          <td colspan="6" class="empty">
-                              No file-level coverage data returned by SonarCloud.
-                          </td>
-                      </tr>
-              """
-          else:
-              for row in file_rows:
-                  html_report += f"""
-                      <tr>
-                          <td class="file">
-                              {esc(row["path"])}
-                          </td>
-
-                          <td>
-                              {pct(row["new_coverage"])}
-                          </td>
-
-                          <td class="high">
-                              {esc(row["new_uncovered_lines"] or "0")}
-                          </td>
-
-                          <td class="high">
-                              {esc(row["new_uncovered_conditions"] or "0")}
-                          </td>
-
-                          <td>
-                              {pct(row["coverage"])}
-                          </td>
-
-                          <td>
-                              {esc(row["uncovered_lines"] or "0")}
-                          </td>
-                      </tr>
-                  """
-
-          html_report += """
+                    ${fileTable}
                   </tbody>
 
-              </table>
+                </table>
 
-          </div>
+              </div>
 
 
-          <div class="footer">
-              Generated automatically by GitHub Actions →
-              SonarCloud Security Analysis.
-              Data retrieved after SonarCloud background analysis completed.
-          </div>
+              <!-- ================================================= -->
+              <!-- FOOTER -->
+              <!-- ================================================= -->
 
-          </div>
+              <div class="footer">
+
+                Generated automatically by GitHub Actions
+                → SonarCloud Security Analysis
+
+                <br>
+
+                Repository:
+                ${escapeHtml(repository)}
+                |
+                Branch:
+                ${escapeHtml(branch)}
+                |
+                Commit:
+                ${escapeHtml(shortCommit)}
+                |
+                Run:
+                #${escapeHtml(process.env.RUN_NUMBER)}
+
+              </div>
+
+            </div>
 
           </body>
           </html>
-          """
+          `;
 
-          Path("sonar-summary.html").write_text(
-              html_report,
-              encoding="utf-8"
-          )
+          fs.writeFileSync(
+            "sonar-summary.html",
+            html,
+            "utf8"
+          );
 
-          print("Generated sonar-summary.html")
+          console.log(
+            "✅ SonarCloud infographic report generated."
+          );
 
-          print("")
-          print("============================================================")
-          print("REAL SONARCLOUD SUMMARY")
-          print("============================================================")
-          print(f"High:       {len(high_issues)}")
-          print(f"Medium:     {len(medium_issues)}")
-          print(f"Blocker:    {len(blocker_issues)}")
-          print(f"Total:      {total_issues}")
-          print(f"Coverage:   {overall_coverage}")
-          print(f"New code:   {new_coverage}")
-          print(f"Uncovered:  {uncovered_lines}")
-          print(f"New lines:  {new_uncovered_lines}")
-          print("============================================================")
-          PY
+          console.log(
+            `High: ${highIssues.length}`
+          );
+
+          console.log(
+            `Medium: ${mediumIssues.length}`
+          );
+
+          console.log(
+            `Blocker: ${blockerIssues.length}`
+          );
+
+          console.log(
+            `Total issues: ${totalIssues}`
+          );
+
+          console.log(
+            `Overall coverage: ${formatPercent(overallCoverage)}`
+          );
+
+          console.log(
+            `New code coverage: ${formatPercent(newCoverage)}`
+          );
+
+          console.log(
+            `Uncovered new lines: ${newUncoveredLines}`
+          );
+
+          console.log(
+            `Uncovered new conditions: ${newUncoveredConditions}`
+          );
+
+          console.log(
+            `Files returned: ${fileRows.length}`
+          );
+          NODE
+
+          node generate-sonar-report.js
 
       # ============================================================
-      # UPLOAD HTML REPORT
+      # UPLOAD SONARCLOUD REPORT
       # ============================================================
-      - name: Upload SonarCloud infographic report
+      - name: Upload SonarCloud Infographic Report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: sonar-summary-report
+          path: sonar-summary.html
+          if-no-files-found: warn
+
+      # ============================================================
+      # UPLOAD RAW SONARCLOUD DATA FOR DEBUGGING / AUDIT
+      # ============================================================
+      - name: Upload SonarCloud API Data
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonarcloud-api-data
           path: |
-            sonar-summary.html
             sonar-issues.json
             sonar-measures.json
-            sonar-files.json
-          if-no-files-found: warn
+            sonar-components.json
+            sonar-ce.json
+            sonar-task.json
+          if-no-files-found: ignore
