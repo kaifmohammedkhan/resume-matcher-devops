@@ -17,6 +17,8 @@ jobs:
       # ============================================================
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # ============================================================
       # DOWNLOAD REAL JEST COVERAGE
@@ -133,6 +135,11 @@ jobs:
       # VERIFY SONAR CONFIGURATION
       # ============================================================
       - name: Verify SonarCloud configuration
+        env:
+          SONAR_HOST: ${{ secrets.SONAR_HOST }}
+          SONAR_ORG: ${{ secrets.SONAR_ORG }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
           set -e
 
@@ -145,17 +152,108 @@ jobs:
             exit 1
           fi
 
-          echo "Found sonar-project.properties"
+          if [ -z "$SONAR_HOST" ]; then
+            echo "ERROR: SONAR_HOST secret is not configured."
+            exit 1
+          fi
+
+          if [ -z "$SONAR_ORG" ]; then
+            echo "ERROR: SONAR_ORG secret is not configured."
+            exit 1
+          fi
+
+          if [ -z "$SONAR_PROJECT_KEY" ]; then
+            echo "ERROR: SONAR_PROJECT_KEY secret is not configured."
+            exit 1
+          fi
+
+          if [ -z "$SONAR_TOKEN" ]; then
+            echo "ERROR: SONAR_TOKEN secret is not configured."
+            exit 1
+          fi
+
+          echo "Found sonar-project.properties."
 
           echo ""
-          echo "Effective project configuration:"
+          echo "SonarCloud values from repository secrets:"
+          echo "SONAR_HOST: ${SONAR_HOST}"
+          echo "SONAR_ORG: ${SONAR_ORG}"
+          echo "SONAR_PROJECT_KEY: ${SONAR_PROJECT_KEY}"
+          echo "SONAR_TOKEN: configured"
+
+          echo ""
+          echo "Values configured in sonar-project.properties:"
           grep -E \
             '^(sonar.projectKey|sonar.organization|sonar.host.url|sonar.sources|sonar.javascript.lcov.reportPaths|sonar.tests|sonar.test.inclusions|sonar.exclusions)' \
             sonar-project.properties || true
 
           echo ""
-          echo "Important: sonar.sources is controlled by sonar-project.properties."
-          echo "The workflow does NOT override sonar.sources."
+          echo "Scanner will explicitly use repository secrets for:"
+          echo "  - sonar.host.url"
+          echo "  - sonar.organization"
+          echo "  - sonar.projectKey"
+          echo "  - sonar.token"
+
+      # ============================================================
+      # VERIFY SONARCLOUD PROJECT ACCESS
+      # ============================================================
+      - name: Verify SonarCloud project access
+        env:
+          SONAR_HOST: ${{ secrets.SONAR_HOST }}
+          SONAR_ORG: ${{ secrets.SONAR_ORG }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        shell: bash
+        run: |
+          set -e
+
+          echo "============================================================"
+          echo "Verifying SonarCloud project access"
+          echo "============================================================"
+
+          SONAR_HOST="${SONAR_HOST%/}"
+
+          if ! curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            --proto '=https' \
+            --tlsv1.2 \
+            -u "${SONAR_TOKEN}:" \
+            "${SONAR_HOST}/api/projects/search?projects=${SONAR_PROJECT_KEY}&organization=${SONAR_ORG}" \
+            -o /tmp/sonar-project.json
+          then
+            echo "ERROR: Unable to authenticate with SonarCloud."
+            echo ""
+            echo "Check:"
+            echo "  1. SONAR_TOKEN is valid."
+            echo "  2. SONAR_ORG is the correct SonarCloud organization key."
+            echo "  3. SONAR_PROJECT_KEY is the exact SonarCloud project key."
+            echo "  4. SONAR_HOST points to the correct SonarCloud server."
+            exit 1
+          fi
+
+          echo ""
+          echo "SonarCloud project lookup response:"
+          cat /tmp/sonar-project.json
+
+          PROJECT_COUNT=$(node -e '
+            const fs = require("fs");
+            const data = JSON.parse(fs.readFileSync("/tmp/sonar-project.json", "utf8"));
+            process.stdout.write(String(Array.isArray(data.components) ? data.components.length : 0));
+          ')
+
+          if [ "$PROJECT_COUNT" -eq 0 ]; then
+            echo ""
+            echo "ERROR: SonarCloud project was not found."
+            echo "Project key: ${SONAR_PROJECT_KEY}"
+            echo "Organization: ${SONAR_ORG}"
+            exit 1
+          fi
+
+          echo ""
+          echo "SonarCloud project access verified successfully."
 
       # ============================================================
       # SONARCLOUD ANALYSIS
@@ -163,6 +261,9 @@ jobs:
       - name: Run SonarCloud analysis
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST: ${{ secrets.SONAR_HOST }}
+          SONAR_ORG: ${{ secrets.SONAR_ORG }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
         run: |
           set -e
 
@@ -175,7 +276,27 @@ jobs:
             exit 1
           fi
 
+          if [ -z "$SONAR_HOST" ]; then
+            echo "ERROR: SONAR_HOST is not configured."
+            exit 1
+          fi
+
+          if [ -z "$SONAR_ORG" ]; then
+            echo "ERROR: SONAR_ORG is not configured."
+            exit 1
+          fi
+
+          if [ -z "$SONAR_PROJECT_KEY" ]; then
+            echo "ERROR: SONAR_PROJECT_KEY is not configured."
+            exit 1
+          fi
+
+          SONAR_HOST="${SONAR_HOST%/}"
+
           sonar-scanner \
+            -Dsonar.host.url="$SONAR_HOST" \
+            -Dsonar.organization="$SONAR_ORG" \
+            -Dsonar.projectKey="$SONAR_PROJECT_KEY" \
             -Dsonar.token="$SONAR_TOKEN"
 
       # ============================================================
@@ -321,9 +442,6 @@ jobs:
             }
           }
 
-          // ==========================================================
-          // FETCH ALL ISSUES
-          // ==========================================================
           async function fetchAllIssues() {
             const all = [];
             let page = 1;
@@ -348,9 +466,7 @@ jobs:
 
               all.push(...issues);
 
-              const total = numberValue(
-                data.total
-              );
+              const total = numberValue(data.total);
 
               if (
                 issues.length === 0 ||
@@ -370,9 +486,6 @@ jobs:
             return all;
           }
 
-          // ==========================================================
-          // FETCH PROJECT MEASURES
-          // ==========================================================
           async function fetchProjectMeasures() {
             const metricKeys = [
               "coverage",
@@ -402,9 +515,6 @@ jobs:
               : [];
           }
 
-          // ==========================================================
-          // FETCH ALL FILE MEASURES
-          // ==========================================================
           async function fetchAllFileMeasures() {
             const metricKeys = [
               "coverage",
@@ -493,9 +603,6 @@ jobs:
             `File components retrieved: ${fileMeasures.length}`
           );
 
-          // ==========================================================
-          // NORMALIZE SONARCLOUD SEVERITY
-          // ==========================================================
           function normalizedSeverity(issue) {
             const severity =
               String(issue.severity || "")
@@ -550,9 +657,6 @@ jobs:
               normalizedSeverity(issue) === "INFO"
           );
 
-          // ==========================================================
-          // PROJECT COVERAGE
-          // ==========================================================
           const overallCoverage =
             metricValue(
               projectMeasures,
@@ -597,9 +701,6 @@ jobs:
               )
             );
 
-          // ==========================================================
-          // FILE COVERAGE
-          // ==========================================================
           const fileRows = fileMeasures
             .map(component => {
               const measures =
@@ -678,9 +779,6 @@ jobs:
             })
             .filter(Boolean);
 
-          // ==========================================================
-          // SORT FILES
-          // ==========================================================
           fileRows.sort((a, b) => {
             if (
               b.newUncoveredLines !==
@@ -698,9 +796,6 @@ jobs:
             );
           });
 
-          // ==========================================================
-          // ISSUE TABLE
-          // ==========================================================
           function issueRows(list) {
             if (!list.length) {
               return [
@@ -785,9 +880,6 @@ jobs:
               .join("");
           }
 
-          // ==========================================================
-          // FILE COVERAGE TABLE
-          // ==========================================================
           function fileCoverageRows() {
             if (!fileRows.length) {
               return [
@@ -866,9 +958,6 @@ jobs:
               .join("");
           }
 
-          // ==========================================================
-          // HTML REPORT
-          // ==========================================================
           const html = [
             "<!DOCTYPE html>",
             '<html lang="en">',
