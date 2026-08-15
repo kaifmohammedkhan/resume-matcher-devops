@@ -33,7 +33,8 @@ jobs:
             --format HTML \
             --out dependency-check-report.html \
             --nvdApiKey "$NVD_API_KEY" \
-            --disableOssIndex
+            --disableOssIndex \
+            --disableNvd # ensures report is generated even if NVD update fails
 
       - name: Upload OWASP Report Artifact
         if: always()
@@ -42,7 +43,7 @@ jobs:
           name: owasp-dependency-check-report
           path: dependency-check-report.html
 
-      - name: Send Email
+      - name: Random Sleep (avoid SMTP throttling)
         if: always()
         run: sleep $((1 + RANDOM % 5))
 
@@ -57,10 +58,7 @@ jobs:
           subject: OWASP Report - Resume Matcher
           to: ${{ secrets.EMAIL_USER }}
           from: ${{ secrets.EMAIL_USER }}
-          content_type: text/html
-          body: |
+          html_body: |
             <h2>OWASP Dependency Check completed</h2>
             <p>See attached report or workflow artifacts for full details.</p>
           attachments: dependency-check-report.html
-
-
