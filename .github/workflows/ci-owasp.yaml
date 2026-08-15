@@ -33,8 +33,7 @@ jobs:
             --format HTML \
             --out dependency-check-report.html \
             --nvdApiKey "$NVD_API_KEY" \
-            --disableOssIndex \
-            --disableNvd # ensures report is generated even if NVD update fails
+            --disableOssIndex
 
       - name: Upload OWASP Report Artifact
         if: always()
