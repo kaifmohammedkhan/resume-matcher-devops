@@ -16,17 +16,25 @@ fi
 echo "🌿 Switching to 'main' branch..."
 git checkout -B main || git switch -C main
 
-# 3. Bring your stashed changes back onto the main branch
+# 3. Merge pre-main into main (strict branch merge semantics)
+echo "🔀 Merging 'pre-main' into 'main'..."
+git fetch origin pre-main || true
+git merge pre-main || {
+    echo "❌ Merge conflicts detected. Please resolve them manually."
+    exit 1
+}
+
+# 4. Bring your stashed changes back onto the main branch
 if [[ "$STASHED" = true ]]; then
     echo "📥 Bringing your local changes back..."
     git stash pop --quiet || echo "⚠️ Stash pop had conflicts, please resolve them."
 fi
 
-# 4. Stage all changes
+# 5. Stage all changes
 echo "📦 Staging changes..."
 git add .
 
-# 5. Commit changes (forces an empty commit if no files changed to guarantee pipeline trigger)
+# 6. Commit changes (forces an empty commit if no files changed to guarantee pipeline trigger)
 echo "💾 Committing changes..."
 if git diff-index --quiet HEAD --; then
     echo "ℹ️ No code changes detected. Forcing empty commit to trigger pipeline..."
@@ -35,7 +43,7 @@ else
     git commit -m "DevSecOps GithubActions Docker Build"
 fi
 
-# 6. Sync with remote first (pull rebase) and push safely using force-with-lease
+# 7. Sync with remote first (pull rebase) and push safely using force-with-lease
 echo "🚀 Syncing and pushing to remote..."
 git pull --rebase origin main || true
 git push -u origin main --force-with-lease
