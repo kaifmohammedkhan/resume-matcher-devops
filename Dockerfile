@@ -31,7 +31,7 @@ WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 
-# Install correct Rollup native binary (pinned version)
+# Install correct Rollup native binary
 RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
       npm install --no-save --ignore-scripts @rollup/rollup-linux-arm64-gnu@4.62.3; \
     else \
@@ -73,13 +73,14 @@ WORKDIR /app
 
 ENV NODE_ENV=production
 
-# Apply latest Debian security updates only here
+# Apply latest Debian security updates
 RUN apt-get update && \
     apt-get dist-upgrade -y && \
     apt-get autoremove -y && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 
+# Copy only production application files
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/package.json ./
@@ -88,6 +89,16 @@ COPY --from=builder /app/api ./api
 COPY --from=builder /app/lib ./lib
 COPY --from=builder /app/uploads ./uploads
 COPY --from=builder /app/logs ./logs
+
+# Remove npm from the final runtime image.
+# npm is required during build stages but is not required
+# to execute the production application.
+RUN rm -rf \
+      /usr/local/lib/node_modules/npm \
+      /usr/local/bin/npm \
+      /usr/local/bin/npx \
+      /root/.npm \
+      /home/node/.npm
 
 USER node
 
