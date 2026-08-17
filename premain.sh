@@ -17,7 +17,7 @@ echo "🔄 Switching to 'pre-main' branch..."
 git checkout -B pre-main || git switch -C pre-main
 
 # 3. Bring your stashed changes back onto the branch
-if [ "$STASHED" = true ]; then
+if [[ "$STASHED" = true ]]; then
     echo "📥 Applying your local changes back..."
     git stash pop --quiet || echo "⚠️ Stash pop had conflicts, please resolve them."
 fi

@@ -17,7 +17,7 @@ echo "🌿 Switching to 'main' branch..."
 git checkout -B main || git switch -C main
 
 # 3. Bring your stashed changes back onto the main branch
-if [ "$STASHED" = true ]; then
+if [[ "$STASHED" = true ]]; then
     echo "📥 Bringing your local changes back..."
     git stash pop --quiet || echo "⚠️ Stash pop had conflicts, please resolve them."
 fi
