@@ -1,5 +1,7 @@
 #!/bin/bash
-set -e
+set -e  # exit immediately if a critical command fails
+
+echo "🔄 Checking working directory status..."
 
 # 1. Automatically stash any local changes so they don't block anything
 if [[ -n $(git status -s) ]]; then
@@ -10,8 +12,8 @@ else
     STASHED=false
 fi
 
-# 2. Switch to or create the target branch safely (e.g., 'main' or 'pre-main')
-echo "🔄 Switching branch..."
+# 2. Switch to or create the 'pre-main' branch safely
+echo "🔄 Switching to 'pre-main' branch..."
 git checkout -B pre-main || git switch -C pre-main
 
 # 3. Bring your stashed changes back onto the branch
@@ -25,10 +27,11 @@ git add .
 
 # 5. Force a commit (even if no files changed) so Git always registers a new commit
 echo "💾 Creating forced commit..."
-git commit --allow-empty -m "Force pipeline trigger at $(date)"
+git commit --allow-empty -m "DevSecOps CI at $(date)"
 
-# 6. Push to remote to guarantee GitHub Actions triggers
-echo "🚀 Pushing to remote..."
-git push -u origin pre-main
+# 6. Sync with remote first (pull rebase) and push safely using force-with-lease
+echo "🚀 Syncing and pushing to remote..."
+git pull --rebase origin pre-main || true
+git push -u origin pre-main --force-with-lease
 
 echo "✅ Done! Pipeline should now trigger."
