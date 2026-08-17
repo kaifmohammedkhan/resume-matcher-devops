@@ -12,7 +12,7 @@ fi
 
 # 2. Switch to or create the target branch safely (e.g., 'main' or 'pre-main')
 echo "🔄 Switching branch..."
-git checkout -B main || git switch -C main
+git checkout -B pre-main || git switch -C pre-main
 
 # 3. Bring your stashed changes back onto the branch
 if [ "$STASHED" = true ]; then
@@ -29,6 +29,6 @@ git commit --allow-empty -m "Force pipeline trigger at $(date)"
 
 # 6. Push to remote to guarantee GitHub Actions triggers
 echo "🚀 Pushing to remote..."
-git push -u origin main
+git push -u origin pre-main
 
 echo "✅ Done! Pipeline should now trigger."

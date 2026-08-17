@@ -2,9 +2,9 @@ name: CI & Security Pipeline
 
 on:
   push:
-    branches: [ "main" ]
+    branches: [ "pre-main" ]
   pull_request:
-    branches: [ "main" ]
+    branches: [ "pre-main" ]
   workflow_dispatch:
 
 permissions:
