@@ -21,8 +21,10 @@ jobs:
         run: |
           set -e
           git log --show-signature -1 > commit-signature.txt
-          if ! grep -q "Good signature" commit-signature.txt; then
-            echo "❌ Commit is not signed or not verified!"
+          if grep -q "Good signature" commit-signature.txt; then
+            echo "✅ Commit signature verified"
+          else
+            echo "::error::Commit is not signed or not verified!"
             exit 1
           fi
 
