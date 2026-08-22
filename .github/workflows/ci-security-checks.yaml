@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       # ==========================================================
-      # CHECKOUT (fetch full history for commit verification)
+      # CHECKOUT
       # ==========================================================
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -16,7 +16,7 @@ jobs:
           fetch-depth: 0
 
       # ==========================================================
-      # SETUP NODE + INSTALL NODEMAILER
+      # SETUP NODE + INSTALL DEPENDENCIES
       # ==========================================================
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -27,17 +27,57 @@ jobs:
         run: npm install nodemailer@9.0.3
 
       # ==========================================================
-      # VERIFY COMMIT SIGNATURE
+      # VERIFY COMMIT SIGNATURE VIA GITHUB API
       # ==========================================================
       - name: Verify Commit Signature
         id: verify
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          git log --show-signature -1 > commit-signature.txt || true
-          if grep -q "Good signature" commit-signature.txt; then
-            echo "✅ Commit signature verified"
-          else
-            echo "::warning::Commit is not signed or signature could not be verified in runner environment!"
-          fi
+          node <<'NODE'
+          const fs = require('fs');
+          const https = require('https');
+
+          const repo = process.env.GITHUB_REPOSITORY;
+          const sha = process.env.GITHUB_SHA;
+          const token = process.env.GH_TOKEN;
+
+          const options = {
+            hostname: 'api.github.com',
+            path: `/repos/${repo}/commits/${sha}`,
+            headers: {
+              'User-Agent': 'Node.js',
+              'Authorization': `token ${token}`
+            }
+          };
+
+          https.get(options, (res) => {
+            let data = '';
+            res.on('data', chunk => data += chunk);
+            res.on('end', () => {
+              try {
+                const commitData = JSON.parse(data);
+                const verification = commitData.commit.verification || {};
+                
+                const isVerified = verification.verified === true;
+                const reason = verification.reason || 'unknown';
+                const signatureText = `Commit SHA: ${sha}\nVerified: ${isVerified}\nReason: ${reason}\nSignature Present: ${!!verification.signature}`;
+
+                fs.writeFileSync('commit-signature.txt', signatureText);
+
+                if (isVerified) {
+                  console.log("✅ Commit signature verified via GitHub API");
+                } else {
+                  console.log(`⚠️ Commit signature status: ${reason}`);
+                }
+              } catch (err) {
+                fs.writeFileSync('commit-signature.txt', `Failed to verify commit via API: ${err.message}`);
+              }
+            });
+          }).on('error', (err) => {
+            fs.writeFileSync('commit-signature.txt', `API request failed: ${err.message}`);
+          });
+          NODE
 
       # ==========================================================
       # RUN GITLEAKS
@@ -63,7 +103,7 @@ jobs:
             commitLog = fs.readFileSync("commit-signature.txt","utf8");
           } catch {}
 
-          const commitStatus = commitLog.includes("Good signature")
+          const commitStatus = commitLog.includes("Verified: true")
             ? "Commit signature verified ✓"
             : "Commit not signed ✗";
 
