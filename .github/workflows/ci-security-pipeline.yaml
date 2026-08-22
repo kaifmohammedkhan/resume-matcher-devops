@@ -29,7 +29,17 @@ jobs:
     uses: ./.github/workflows/ci-trivy.yaml
     secrets: inherit
 
+  gitleaks:
+    needs: trivy
+    uses: ./.github/workflows/ci-gitleaks.yaml
+    secrets: inherit
+
+  commit-signing:
+    needs: gitleaks
+    uses: ./.github/workflows/ci-commit-signing.yaml
+    secrets: inherit
+
   email:
-    needs: [test, sonarcloud, trivy]
+    needs: [test, sonarcloud, trivy, gitleaks, commit-signing]
     uses: ./.github/workflows/ci-email.yaml
     secrets: inherit
