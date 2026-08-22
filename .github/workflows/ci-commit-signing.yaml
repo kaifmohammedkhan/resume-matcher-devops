@@ -1,0 +1,126 @@
+name: CI Commit Signing
+
+on:
+  workflow_call:
+
+jobs:
+  verify-commit-signature:
+    runs-on: ubuntu-latest
+    steps:
+      # ==========================================================
+      # CHECKOUT
+      # ==========================================================
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ==========================================================
+      # VERIFY COMMIT SIGNATURE
+      # ==========================================================
+      - name: Verify Commit Signature
+        id: verify
+        run: |
+          set -e
+          git log --show-signature -1 > commit-signature.txt
+          if ! grep -q "Good signature" commit-signature.txt; then
+            echo "❌ Commit is not signed or not verified!"
+            exit 1
+          fi
+
+      # ==========================================================
+      # GENERATE HTML REPORT
+      # ==========================================================
+      - name: Generate Commit Signing HTML Report
+        if: always()
+        run: |
+          mkdir -p reports/commit
+          node <<'NODE'
+          const fs = require("fs");
+          const log = fs.readFileSync("commit-signature.txt","utf8");
+
+          const status = log.includes("Good signature")
+            ? "Commit signature verified ✓"
+            : "Commit not signed ✗";
+
+          const html = `<!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <title>Commit Signing Report</title>
+            <style>
+              body { background:#07111f; color:#f8fafc; font-family:Arial,sans-serif; padding:24px; }
+              .panel { background:#0d1a2b; border:1px solid #263a56; border-radius:16px; padding:24px; max-width:700px; margin:auto; }
+              h1 { font-size:24px; margin:0 0 12px; }
+              .status { font-weight:bold; color:${status.includes("✓") ? "#34d399" : "#f87171"}; }
+              pre { background:#102138; padding:12px; border-radius:8px; font-size:12px; overflow-x:auto; }
+            </style>
+          </head>
+          <body>
+            <div class="panel">
+              <h1>Commit Signing Verification</h1>
+              <div class="status">${status}</div>
+              <h2>Raw Signature Output</h2>
+              <pre>${log}</pre>
+            </div>
+          </body>
+          </html>`;
+          fs.writeFileSync("reports/commit/commit-signing-report.html", html);
+          NODE
+
+      # ==========================================================
+      # UPLOAD HTML REPORT
+      # ==========================================================
+      - name: Upload Commit Signing Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: commit-signing-report
+          path: reports/commit/commit-signing-report.html
+          retention-days: 14
+
+      # ==========================================================
+      # INSTALL NODEMAILER
+      # ==========================================================
+      - name: Install Nodemailer
+        run: npm install --no-save nodemailer@9.0.3
+
+      # ==========================================================
+      # EMAIL HTML REPORT
+      # ==========================================================
+      - name: Email Commit Signing Report
+        if: always()
+        env:
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          QA_EMAIL_TO: ${{ secrets.QA_EMAIL_TO }}
+          QA_EMAIL_CC: ${{ secrets.QA_EMAIL_CC }}
+        run: |
+          node <<'NODE'
+          const nodemailer = require("nodemailer");
+          const fs = require("fs");
+
+          const emailUser = process.env.EMAIL_USER;
+          const emailPass = process.env.EMAIL_PASS;
+          const emailTo = process.env.QA_EMAIL_TO;
+          const emailCc = process.env.QA_EMAIL_CC || "";
+
+          const htmlBody = fs.readFileSync("reports/commit/commit-signing-report.html","utf8");
+
+          const transporter = nodemailer.createTransport({
+            service: "gmail",
+            auth: { user: emailUser, pass: emailPass }
+          });
+
+          (async () => {
+            await transporter.sendMail({
+              from: emailUser,
+              to: emailTo,
+              cc: emailCc,
+              subject: "Commit Signing Verification Report",
+              html: htmlBody,
+              attachments: [
+                { filename: "commit-signing-report.html", path: "reports/commit/commit-signing-report.html" }
+              ]
+            });
+            console.log("Commit signing report emailed successfully.");
+          })();
+          NODE
