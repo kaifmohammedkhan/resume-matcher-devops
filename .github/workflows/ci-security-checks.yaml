@@ -98,10 +98,15 @@ jobs:
           retention-days: 14
 
       # ==========================================================
-      # INSTALL NODEMAILER
+      # SETUP NODE + INSTALL NODEMAILER
       # ==========================================================
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
       - name: Install Nodemailer
-        run: npm install --no-save nodemailer@9.0.3
+        run: npm install nodemailer@9.0.3
 
       # ==========================================================
       # EMAIL HTML REPORT
