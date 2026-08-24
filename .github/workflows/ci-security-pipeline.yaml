@@ -11,30 +11,30 @@ permissions:
   contents: read
 
 jobs:
-  # owasp:
-  #   uses: ./.github/workflows/ci-owasp.yaml
-  #   secrets: inherit
+  owasp:
+    uses: ./.github/workflows/ci-owasp.yaml
+    secrets: inherit
 
-  # test:
-  #   uses: ./.github/workflows/ci-test.yaml
-  #   secrets: inherit
+  test:
+    uses: ./.github/workflows/ci-test.yaml
+    secrets: inherit
 
-  # sonarcloud:
-  #   needs: test
-  #   uses: ./.github/workflows/ci-sonarcloud.yaml
-  #   secrets: inherit
+  sonarcloud:
+    needs: test
+    uses: ./.github/workflows/ci-sonarcloud.yaml
+    secrets: inherit
 
-  # trivy:
-  #   needs: sonarcloud
-  #   uses: ./.github/workflows/ci-trivy.yaml
-  #   secrets: inherit
+  trivy:
+    needs: sonarcloud
+    uses: ./.github/workflows/ci-trivy.yaml
+    secrets: inherit
 
   security-checks:
-    # temporarily remove dependency so it runs standalone
+    needs: trivy
     uses: ./.github/workflows/ci-security-checks.yaml
     secrets: inherit
 
-  # email:
-  #   needs: [test, sonarcloud, trivy, security-checks]
-  #   uses: ./.github/workflows/ci-email.yaml
-  #   secrets: inherit
+  email:
+    needs: [test, sonarcloud, trivy, security-checks]
+    uses: ./.github/workflows/ci-email.yaml
+    secrets: inherit
