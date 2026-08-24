@@ -11,8 +11,143 @@ jobs:
   # ============================================================
   # STAGE 1 — BUILD AND PUSH
   # ============================================================
-  build-and-push:
-    name: Build & Push
+  #
+  # TEMPORARILY DISABLED
+  #
+  # We are debugging the Security Enhancements stage first.
+  # This prevents unnecessary Docker image builds and pushes
+  # while Cosign / Syft / provenance are being validated.
+  #
+  # Re-enable this entire job after the Security Enhancements
+  # stage is confirmed working.
+  #
+  # ============================================================
+
+  # build-and-push:
+  #   name: Build & Push
+  #   runs-on: ubuntu-latest
+  #
+  #   permissions:
+  #     contents: read
+  #     packages: write
+  #
+  #   steps:
+  #
+  #     # ========================================================
+  #     # CHECKOUT
+  #     # ========================================================
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v4
+  #
+  #     # ========================================================
+  #     # QEMU
+  #     # ========================================================
+  #     - name: Set up QEMU
+  #       uses: docker/setup-qemu-action@v3
+  #
+  #     # ========================================================
+  #     # DOCKER BUILDX
+  #     # ========================================================
+  #     - name: Set up Docker Buildx
+  #       uses: docker/setup-buildx-action@v3
+  #
+  #     # ========================================================
+  #     # GHCR LOGIN
+  #     # ========================================================
+  #     - name: Log in to GitHub Container Registry
+  #       uses: docker/login-action@v3
+  #       with:
+  #         registry: ghcr.io
+  #         username: ${{ github.actor }}
+  #         password: ${{ secrets.GITHUB_TOKEN }}
+  #
+  #     # ========================================================
+  #     # DOCKER HUB LOGIN
+  #     # ========================================================
+  #     - name: Log in to Docker Hub
+  #       uses: docker/login-action@v3
+  #       with:
+  #         username: ${{ secrets.DOCKERHUB_USERNAME }}
+  #         password: ${{ secrets.DOCKERHUB_TOKEN }}
+  #
+  #     # ========================================================
+  #     # DOCKER IMAGE METADATA
+  #     # ========================================================
+  #     - name: Extract metadata (tags, labels) for Docker
+  #       id: meta
+  #       uses: docker/metadata-action@v5
+  #       with:
+  #         images: |
+  #           ghcr.io/${{ github.repository }}
+  #           ${{ secrets.DOCKERHUB_USERNAME }}/resume-matcher-devops
+  #         tags: |
+  #           type=raw,value=latest
+  #           type=sha,format=short
+  #
+  #     # ========================================================
+  #     # BUILD AND PUSH
+  #     # ========================================================
+  #     - name: Build and push Docker image
+  #       id: build
+  #       uses: docker/build-push-action@v5
+  #       with:
+  #         context: .
+  #         platforms: linux/amd64,linux/arm64
+  #         push: true
+  #         tags: ${{ steps.meta.outputs.tags }}
+  #         labels: ${{ steps.meta.outputs.labels }}
+  #         cache-from: type=gha
+  #         cache-to: type=gha,mode=max
+  #
+  #     # ========================================================
+  #     # DOCKER BUILD REPORT
+  #     # ========================================================
+  #     - name: Generate Docker Build & Push HTML Report
+  #       if: success()
+  #       run: |
+  #         mkdir -p reports/docker
+  #         # (your existing Node script remains unchanged here)
+  #
+  #     - name: Upload Docker Build & Push Report
+  #       if: success()
+  #       uses: actions/upload-artifact@v4
+  #       with:
+  #         name: docker-build-push-report
+  #         path: reports/docker/docker-build-push-report.html
+  #         retention-days: 14
+  #
+  #     - name: Install Nodemailer
+  #       if: success()
+  #       run: npm install nodemailer@9.0.3
+  #
+  #     - name: Email Docker Build & Push Report
+  #       if: success()
+  #       env:
+  #         EMAIL_USER: ${{ secrets.EMAIL_USER }}
+  #         EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+  #         QA_EMAIL_TO: ${{ secrets.QA_EMAIL_TO }}
+  #         QA_EMAIL_CC: ${{ secrets.QA_EMAIL_CC }}
+  #       run: |
+  #         node <<'NODE'
+  #         // (your existing email script remains unchanged here)
+  #         NODE
+
+
+  # ============================================================
+  # STAGE 2 — SECURITY ENHANCEMENTS
+  # ============================================================
+  #
+  # Runs independently while Stage 1 is disabled.
+  #
+  # This stage works against the images that already exist in:
+  #
+  #   GHCR
+  #   Docker Hub
+  #
+  # ============================================================
+
+  security-enhancements:
+    name: Security Enhancements
     runs-on: ubuntu-latest
 
     permissions:
@@ -27,21 +162,51 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # ==========================================================
-      # QEMU
-      # ==========================================================
-      - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
 
       # ==========================================================
-      # DOCKER BUILDX
+      # INSTALL COSIGN
       # ==========================================================
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+      #
+      # GitHub-hosted runners do NOT include Cosign by default.
+      # This installs a known working Cosign release.
+      #
+      # ==========================================================
+
+      - name: Install Cosign
+        uses: sigstore/cosign-installer@v3
+
+      - name: Verify Cosign installation
+        run: |
+          cosign version
+
+
+      # ==========================================================
+      # INSTALL SYFT
+      # ==========================================================
+      #
+      # Syft is also not guaranteed to be preinstalled on the
+      # GitHub-hosted runner, so install it explicitly.
+      #
+      # ==========================================================
+
+      - name: Install Syft
+        run: |
+          curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
+            | sh -s -- -b /usr/local/bin
+
+      - name: Verify Syft installation
+        run: |
+          syft version
+
 
       # ==========================================================
       # GHCR LOGIN
       # ==========================================================
+      #
+      # Required so Cosign can access the GHCR image.
+      #
+      # ==========================================================
+
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -49,179 +214,226 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+
       # ==========================================================
       # DOCKER HUB LOGIN
       # ==========================================================
+      #
+      # Required so Cosign can access the Docker Hub image.
+      #
+      # ==========================================================
+
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      # ==========================================================
-      # DOCKER IMAGE METADATA
-      # ==========================================================
-      - name: Extract metadata (tags, labels) for Docker
-        id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: |
-            ghcr.io/${{ github.repository }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/resume-matcher-devops
-          tags: |
-            type=raw,value=latest
-            type=sha,format=short
 
       # ==========================================================
-      # BUILD AND PUSH
+      # VERIFY EXISTING IMAGES
       # ==========================================================
-      - name: Build and push Docker image
-        id: build
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+      #
+      # IMPORTANT:
+      # This does NOT build or push anything.
+      #
+      # It verifies that the images we intend to sign actually
+      # exist before continuing.
+      #
+      # ==========================================================
 
-      # ==========================================================
-      # DOCKER BUILD REPORT (UNCHANGED)
-      # ==========================================================
-      - name: Generate Docker Build & Push HTML Report
-        if: success()
+      - name: Verify GHCR image exists
         run: |
-          mkdir -p reports/docker
-          # (your existing Node script remains unchanged here)
+          docker manifest inspect \
+            ghcr.io/${{ github.repository }}:latest
 
-      - name: Upload Docker Build & Push Report
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: docker-build-push-report
-          path: reports/docker/docker-build-push-report.html
-          retention-days: 14
-
-      - name: Install Nodemailer
-        if: success()
-        run: npm install nodemailer@9.0.3
-
-      - name: Email Docker Build & Push Report
-        if: success()
-        env:
-          EMAIL_USER: ${{ secrets.EMAIL_USER }}
-          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
-          QA_EMAIL_TO: ${{ secrets.QA_EMAIL_TO }}
-          QA_EMAIL_CC: ${{ secrets.QA_EMAIL_CC }}
+      - name: Verify Docker Hub image exists
         run: |
-          node <<'NODE'
-          // (your existing email script remains unchanged here)
-          NODE
+          docker manifest inspect \
+            ${{ secrets.DOCKERHUB_USERNAME }}/resume-matcher-devops:latest
 
-
-  # ============================================================
-  # STAGE 2 — SECURITY ENHANCEMENTS
-  # ============================================================
-  security-enhancements:
-    name: Security Enhancements
-    runs-on: ubuntu-latest
-    needs: build-and-push
-
-    permissions:
-      contents: read
-      packages: write
-
-    steps:
-
-      # ==========================================================
-      # CHECKOUT
-      # ==========================================================
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      # ==========================================================
-      # INSTALL NODE DEPENDENCY FOR EMAIL
-      # ==========================================================
-      - name: Install Nodemailer
-        if: success()
-        run: npm install nodemailer@9.0.3
 
       # ==========================================================
       # COSIGN SIGN
       # ==========================================================
+
       - name: Cosign Sign Images
         if: success()
+        env:
+          COSIGN_YES: "true"
         run: |
-          cosign sign --yes ghcr.io/${{ github.repository }}:latest
-          cosign sign --yes ${{ secrets.DOCKERHUB_USERNAME }}/resume-matcher-devops:latest
+          cosign sign \
+            ghcr.io/${{ github.repository }}:latest
+
+          cosign sign \
+            ${{ secrets.DOCKERHUB_USERNAME }}/resume-matcher-devops:latest
+
 
       # ==========================================================
       # SYFT SBOM
       # ==========================================================
+
       - name: Generate SBOM with Syft
         if: success()
         run: |
           mkdir -p reports/docker
-          syft ghcr.io/${{ github.repository }}:latest -o json > reports/docker/sbom-ghcr.json
-          syft ${{ secrets.DOCKERHUB_USERNAME }}/resume-matcher-devops:latest -o json > reports/docker/sbom-dockerhub.json
+
+          syft \
+            ghcr.io/${{ github.repository }}:latest \
+            -o json \
+            > reports/docker/sbom-ghcr.json
+
+          syft \
+            ${{ secrets.DOCKERHUB_USERNAME }}/resume-matcher-devops:latest \
+            -o json \
+            > reports/docker/sbom-dockerhub.json
+
+
+      # ==========================================================
+      # VERIFY SBOM FILES
+      # ==========================================================
+
+      - name: Verify SBOM files
+        if: success()
+        run: |
+          test -s reports/docker/sbom-ghcr.json
+          test -s reports/docker/sbom-dockerhub.json
+
+          echo "GHCR SBOM generated successfully."
+          echo "Docker Hub SBOM generated successfully."
+
+          ls -lh reports/docker/
+
 
       # ==========================================================
       # COSIGN PROVENANCE ATTESTATION
       # ==========================================================
+
       - name: Cosign Attest Provenance
         if: success()
+        env:
+          COSIGN_YES: "true"
         run: |
-          cosign attest --predicate reports/docker/sbom-ghcr.json --type slsa ghcr.io/${{ github.repository }}:latest
-          cosign attest --predicate reports/docker/sbom-dockerhub.json --type slsa ${{ secrets.DOCKERHUB_USERNAME }}/resume-matcher-devops:latest
+          cosign attest \
+            --predicate reports/docker/sbom-ghcr.json \
+            --type slsa \
+            ghcr.io/${{ github.repository }}:latest
+
+          cosign attest \
+            --predicate reports/docker/sbom-dockerhub.json \
+            --type slsa \
+            ${{ secrets.DOCKERHUB_USERNAME }}/resume-matcher-devops:latest
+
 
       # ==========================================================
       # SECURITY ENHANCEMENTS REPORT
       # ==========================================================
+
       - name: Generate Security Enhancements HTML Report
         if: success()
         run: |
           mkdir -p reports/docker
+
           node <<'NODE'
           const fs = require("fs");
+
           const repo = process.env.GITHUB_REPOSITORY || "N/A";
           const commit = process.env.GITHUB_SHA || "N/A";
-          const shortCommit = commit.substring(0,7);
+          const shortCommit = commit.substring(0, 7);
 
           const html = `<!doctype html>
           <html lang="en">
           <head>
             <meta charset="utf-8">
             <title>Docker Security Enhancements Report</title>
+
             <style>
-              body { background:#07111f; color:#f8fafc; font-family:Arial,sans-serif; padding:28px; }
-              .panel { background:#0d1a2b; border:1px solid #263a56; border-radius:18px; padding:24px; max-width:900px; margin:auto; }
-              h1 { font-size:24px; margin:0 0 12px; }
-              .status { font-weight:bold; color:#34d399; }
-              pre { background:#102138; padding:12px; border-radius:8px; font-size:12px; overflow-x:auto; }
+              body {
+                background:#07111f;
+                color:#f8fafc;
+                font-family:Arial,sans-serif;
+                padding:28px;
+              }
+
+              .panel {
+                background:#0d1a2b;
+                border:1px solid #263a56;
+                border-radius:18px;
+                padding:24px;
+                max-width:900px;
+                margin:auto;
+              }
+
+              h1 {
+                font-size:24px;
+                margin:0 0 12px;
+              }
+
+              .status {
+                font-weight:bold;
+                color:#34d399;
+              }
+
+              pre {
+                background:#102138;
+                padding:12px;
+                border-radius:8px;
+                font-size:12px;
+                overflow-x:auto;
+              }
             </style>
           </head>
+
           <body>
+
             <div class="panel">
               <h1>Cosign Signing</h1>
-              <div class="status">✓ Images signed successfully</div>
-              <pre>Repository: ${repo}\nCommit: ${shortCommit}</pre>
+              <div class="status">
+                ✓ Images signed successfully
+              </div>
+
+              <pre>Repository: ${repo}
+          Commit: ${shortCommit}</pre>
             </div>
+
+
             <div class="panel" style="margin-top:20px;">
               <h1>Syft SBOM</h1>
-              <div class="status">✓ SBOM generated</div>
-              <pre>reports/docker/sbom-ghcr.json\nreports/docker/sbom-dockerhub.json</pre>
+
+              <div class="status">
+                ✓ SBOM generated
+              </div>
+
+              <pre>
+          reports/docker/sbom-ghcr.json
+          reports/docker/sbom-dockerhub.json
+              </pre>
             </div>
+
+
             <div class="panel" style="margin-top:20px;">
               <h1>Provenance Attestation</h1>
-              <div class="status">✓ Provenance attached</div>
+
+              <div class="status">
+                ✓ Provenance attached
+              </div>
+
               <pre>Commit: ${commit}</pre>
             </div>
+
           </body>
           </html>`;
-          fs.writeFileSync("reports/docker/docker-security-report.html", html);
+
+          fs.writeFileSync(
+            "reports/docker/docker-security-report.html",
+            html
+          );
           NODE
+
+
+      # ==========================================================
+      # UPLOAD DOCKER SECURITY REPORT
+      # ==========================================================
 
       - name: Upload Docker Security Report
         if: success()
@@ -230,6 +442,20 @@ jobs:
           name: docker-security-report
           path: reports/docker/docker-security-report.html
           retention-days: 14
+
+
+      # ==========================================================
+      # INSTALL NODEMAILER
+      # ==========================================================
+
+      - name: Install Nodemailer
+        if: success()
+        run: npm install nodemailer@9.0.3
+
+
+      # ==========================================================
+      # EMAIL DOCKER SECURITY REPORT
+      # ==========================================================
 
       - name: Email Docker Security Report
         if: success()
@@ -242,6 +468,7 @@ jobs:
           node <<'NODE'
           const nodemailer = require("nodemailer");
           const fs = require("fs");
+
           const emailUser = process.env.EMAIL_USER;
           const emailPass = process.env.EMAIL_PASS;
           const emailTo = process.env.QA_EMAIL_TO;
@@ -256,7 +483,10 @@ jobs:
 
           const transporter = nodemailer.createTransport({
             service: "gmail",
-            auth: { user: emailUser, pass: emailPass }
+            auth: {
+              user: emailUser,
+              pass: emailPass
+            }
           });
 
           (async () => {
@@ -267,9 +497,15 @@ jobs:
               subject: "Docker Security Enhancements Report",
               html: summaryHtml,
               attachments: [
-                { filename: "docker-security-report.html", path: "reports/docker/docker-security-report.html" }
+                {
+                  filename: "docker-security-report.html",
+                  path: "reports/docker/docker-security-report.html"
+                }
               ]
             });
-            console.log("Docker security report emailed successfully.");
+
+            console.log(
+              "Docker security report emailed successfully."
+            );
           })();
           NODE
