@@ -83,13 +83,12 @@ jobs:
 
       # ==========================================================
       # GENERATE DOCKER BUILD REPORT
-      # (unchanged from your current flow)
       # ==========================================================
       - name: Generate Docker Build & Push HTML Report
         if: success()
         run: |
           mkdir -p reports/docker
-          # ... your existing Node script for docker-build-push-report.html ...
+          # (your existing Node script remains unchanged here)
 
       - name: Upload Docker Build & Push Report
         if: success()
@@ -98,6 +97,22 @@ jobs:
           name: docker-build-push-report
           path: reports/docker/docker-build-push-report.html
           retention-days: 14
+
+      - name: Install Nodemailer
+        if: success()
+        run: npm install nodemailer@9.0.3
+
+      - name: Email Docker Build & Push Report
+        if: success()
+        env:
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          QA_EMAIL_TO: ${{ secrets.QA_EMAIL_TO }}
+          QA_EMAIL_CC: ${{ secrets.QA_EMAIL_CC }}
+        run: |
+          node <<'NODE'
+          // (your existing email script remains unchanged here)
+          NODE
 
       # ==========================================================
       # COSIGN SIGN
@@ -182,10 +197,7 @@ jobs:
           path: reports/docker/docker-security-report.html
           retention-days: 14
 
-      # ==========================================================
-      # EMAIL REPORTS
-      # ==========================================================
-      - name: Email Docker Reports
+      - name: Email Docker Security Report
         if: success()
         env:
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
@@ -201,15 +213,13 @@ jobs:
           const emailTo = process.env.QA_EMAIL_TO;
           const emailCc = process.env.QA_EMAIL_CC || "";
 
-          const buildReport = fs.readFileSync("reports/docker/docker-build-push-report.html","utf8");
           const securityReport = fs.readFileSync("reports/docker/docker-security-report.html","utf8");
 
           const summaryHtml = `
-            <p><strong>Docker Build & Push:</strong> ✓ Successful</p>
             <p><strong>Cosign:</strong> ✓ Signed</p>
             <p><strong>Syft SBOM:</strong> ✓ Generated</p>
             <p><strong>Provenance:</strong> ✓ Attested</p>
-            <p>Full details are attached in the HTML reports.</p>
+            <p>Full details are attached in the HTML report.</p>
           `;
 
           const transporter = nodemailer.createTransport({
@@ -222,13 +232,12 @@ jobs:
               from: emailUser,
               to: emailTo,
               cc: emailCc,
-              subject: "Docker Build & Security Reports",
+              subject: "Docker Security Enhancements Report",
               html: summaryHtml,
               attachments: [
-                { filename: "docker-build-push-report.html", path: "reports/docker/docker-build-push-report.html" },
                 { filename: "docker-security-report.html", path: "reports/docker/docker-security-report.html" }
               ]
             });
-            console.log("Docker build & security reports emailed successfully.");
+            console.log("Docker security report emailed successfully.");
           })();
           NODE
