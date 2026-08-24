@@ -7,7 +7,12 @@ on:
   workflow_dispatch:
 
 jobs:
+
+  # ============================================================
+  # STAGE 1 — BUILD AND PUSH
+  # ============================================================
   build-and-push:
+    name: Build & Push
     runs-on: ubuntu-latest
 
     permissions:
@@ -15,6 +20,7 @@ jobs:
       packages: write
 
     steps:
+
       # ==========================================================
       # CHECKOUT
       # ==========================================================
@@ -113,6 +119,34 @@ jobs:
           node <<'NODE'
           // (your existing email script remains unchanged here)
           NODE
+
+
+  # ============================================================
+  # STAGE 2 — SECURITY ENHANCEMENTS
+  # ============================================================
+  security-enhancements:
+    name: Security Enhancements
+    runs-on: ubuntu-latest
+    needs: build-and-push
+
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+
+      # ==========================================================
+      # CHECKOUT
+      # ==========================================================
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ==========================================================
+      # INSTALL NODE DEPENDENCY FOR EMAIL
+      # ==========================================================
+      - name: Install Nodemailer
+        if: success()
+        run: npm install nodemailer@9.0.3
 
       # ==========================================================
       # COSIGN SIGN
