@@ -80,14 +80,14 @@ jobs:
           NODE
 
       # ==========================================================
-      # RUN GITLEAKS
+      # RUN GITLEAKS (with official action)
       # ==========================================================
       - name: Run Gitleaks
         if: always()
         id: gitleaks
-        run: |
-          mkdir -p reports/gitleaks
-          gitleaks detect --source . \
+        uses: gitleaks/gitleaks-action@v2
+        with:
+          args: detect --source . \
             --report-format=json \
             --report-path reports/gitleaks/gitleaks-report.json \
             --no-banner
