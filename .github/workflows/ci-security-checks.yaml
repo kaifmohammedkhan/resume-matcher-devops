@@ -90,16 +90,24 @@ jobs:
             ? "Commit signature verified ✓"
             : "Commit not signed ✗";
 
-          let gitleaksReport = "No gitleaks report found.";
           let gitleaksStatus = "❌ Leaks found";
+          let gitleaksSummary = "No gitleaks report found.";
           try {
             const raw = fs.readFileSync("results.sarif","utf8");
-            gitleaksReport = raw;
-            if (raw.includes('"results": []')) {
+            const sarif = JSON.parse(raw);
+            const results = sarif.runs?.[0]?.results || [];
+            if (results.length === 0) {
               gitleaksStatus = "✅ No leaks detected";
+              gitleaksSummary = "Gitleaks scanned commits and found no secrets.";
+            } else {
+              gitleaksStatus = `❌ ${results.length} leaks detected`;
+              gitleaksSummary = results.map(r => {
+                return `Rule: ${r.ruleId}\nMessage: ${r.message.text}\nLocation: ${r.locations?.[0]?.physicalLocation?.artifactLocation?.uri || "unknown"}`;
+              }).join("\n---\n");
             }
           } catch {
             gitleaksStatus = "⚠️ Report missing";
+            gitleaksSummary = "Unable to parse gitleaks results.";
           }
 
           const html = `<!doctype html>
@@ -108,26 +116,25 @@ jobs:
             <meta charset="utf-8">
             <title>Security Report</title>
             <style>
-              body { background:#07111f; color:#f8fafc; font-family:Arial,sans-serif; padding:24px; }
-              .panel { background:#0d1a2b; border:1px solid #263a56; border-radius:16px; padding:24px; max-width:900px; margin:auto; }
-              h1 { font-size:24px; margin:0 0 12px; }
-              .status { font-weight:bold; }
-              .status.ok { color:#34d399; }
-              .status.fail { color:#f87171; }
-              pre { background:#102138; padding:12px; border-radius:8px; font-size:12px; overflow-x:auto; }
+              body { background:#f9fafb; color:#111827; font-family:Arial,sans-serif; padding:24px; }
+              .panel { background:#ffffff; border:1px solid #e5e7eb; border-radius:12px; padding:20px; max-width:700px; margin:auto; box-shadow:0 2px 4px rgba(0,0,0,0.1); }
+              h1 { font-size:20px; margin:0 0 8px; }
+              .status { font-weight:bold; margin-bottom:8px; }
+              .status.ok { color:#16a34a; }
+              .status.fail { color:#dc2626; }
+              pre { background:#f3f4f6; padding:12px; border-radius:8px; font-size:13px; overflow-x:auto; }
             </style>
           </head>
           <body>
             <div class="panel">
               <h1>Commit Signing Verification</h1>
               <div class="status ${commitStatus.includes("✓") ? "ok" : "fail"}">${commitStatus}</div>
-              <h2>Raw Signature Output</h2>
               <pre>${commitLog}</pre>
             </div>
             <div class="panel" style="margin-top:20px;">
               <h1>Gitleaks Secret Scan</h1>
               <div class="status ${gitleaksStatus.includes("No leaks") ? "ok" : "fail"}">${gitleaksStatus}</div>
-              <pre>${gitleaksReport}</pre>
+              <pre>${gitleaksSummary}</pre>
             </div>
           </body>
           </html>`;
@@ -163,15 +170,30 @@ jobs:
           const emailPass = process.env.EMAIL_PASS;
           const emailTo = process.env.QA_EMAIL_TO;
           const emailCc = process.env.QA_EMAIL_CC || "";
+
+          // Load concise summary from HTML
           const htmlBody = fs.readFileSync("reports/security/security-report.html","utf8");
-          const transporter = nodemailer.createTransport({ service: "gmail", auth: { user: emailUser, pass: emailPass } });
+
+          const transporter = nodemailer.createTransport({
+            service: "gmail",
+            auth: { user: emailUser, pass: emailPass }
+          });
+
           (async () => {
             await transporter.sendMail({
-              from: emailUser, to: emailTo, cc: emailCc,
-              subject: "Security Report - Commit Signing & Gitleaks",
-              html: htmlBody,
-              attachments: [{ filename: "security-report.html", path: "reports/security/security-report.html" }]
+              from: emailUser,
+              to: emailTo,
+              cc: emailCc,
+              subject: "CI Security Report",
+              html: `
+                <p><strong>Commit Verification:</strong> ${htmlBody.match(/Commit signature verified ✓/) ? "✓ Verified" : "✗ Not Signed"}</p>
+                <p><strong>Gitleaks Scan:</strong> ${htmlBody.match(/No leaks detected/) ? "✓ No leaks detected" : "❌ Leaks found"}</p>
+                <p>See attached detailed report for full context.</p>
+              `,
+              attachments: [
+                { filename: "security-report.html", path: "reports/security/security-report.html" }
+              ]
             });
-            console.log("Security report emailed successfully.");
+            console.log("Concise security report emailed successfully.");
           })();
           NODE
