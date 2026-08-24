@@ -18,7 +18,7 @@ jobs:
   # HAS BEEN SUCCESSFULLY DEBUGGED AND VERIFIED.
   #
   # This prevents unnecessary Docker image builds and pushes
-  # while Cosign / Syft / provenance are being tested.
+  # while Cosign / Syft / SBOM attestation are being tested.
   #
   # ============================================================
 
@@ -142,9 +142,6 @@ jobs:
   # No Docker build occurs here.
   # No Docker push occurs here.
   #
-  # IMPORTANT:
-  # id-token: write is REQUIRED for GitHub OIDC keyless signing.
-  #
   # ============================================================
 
   security-enhancements:
@@ -223,12 +220,6 @@ jobs:
       # ==========================================================
       # VERIFY EXISTING GHCR IMAGE
       # ==========================================================
-      #
-      # This does NOT build or push anything.
-      #
-      # It only confirms that the existing :latest image exists.
-      #
-      # ==========================================================
 
       - name: Verify GHCR image exists
         run: |
@@ -247,31 +238,7 @@ jobs:
 
 
       # ==========================================================
-      # VERIFY GITHUB OIDC ENVIRONMENT
-      # ==========================================================
-      #
-      # Cosign should now obtain the GitHub Actions OIDC token
-      # automatically instead of falling back to device flow.
-      #
-      # ==========================================================
-
-      - name: Verify GitHub Actions OIDC configuration
-        run: |
-          echo "GitHub Actions OIDC permission is enabled."
-          echo "Repository: $GITHUB_REPOSITORY"
-          echo "Workflow: $GITHUB_WORKFLOW"
-          echo "Run ID: $GITHUB_RUN_ID"
-
-
-      # ==========================================================
       # COSIGN SIGN — GHCR
-      # ==========================================================
-      #
-      # COSIGN_YES prevents interactive confirmation.
-      #
-      # id-token: write above allows Cosign to authenticate
-      # through GitHub Actions OIDC.
-      #
       # ==========================================================
 
       - name: Cosign Sign GHCR Image
@@ -297,32 +264,38 @@ jobs:
 
 
       # ==========================================================
-      # GENERATE SBOM — GHCR
+      # GENERATE SPDX SBOM — GHCR
+      # ==========================================================
+      #
+      # IMPORTANT:
+      # We explicitly request SPDX JSON so that the output format
+      # matches the Cosign "spdxjson" predicate type.
+      #
       # ==========================================================
 
-      - name: Generate GHCR SBOM
+      - name: Generate GHCR SPDX SBOM
         if: success()
         run: |
           mkdir -p reports/docker
 
           syft \
             ghcr.io/${{ github.repository }}:latest \
-            -o json \
+            -o spdx-json \
             > reports/docker/sbom-ghcr.json
 
 
       # ==========================================================
-      # GENERATE SBOM — DOCKER HUB
+      # GENERATE SPDX SBOM — DOCKER HUB
       # ==========================================================
 
-      - name: Generate Docker Hub SBOM
+      - name: Generate Docker Hub SPDX SBOM
         if: success()
         run: |
           mkdir -p reports/docker
 
           syft \
             ${{ secrets.DOCKERHUB_USERNAME }}/resume-matcher-devops:latest \
-            -o json \
+            -o spdx-json \
             > reports/docker/sbom-dockerhub.json
 
 
@@ -336,39 +309,56 @@ jobs:
           test -s reports/docker/sbom-ghcr.json
           test -s reports/docker/sbom-dockerhub.json
 
-          echo "GHCR SBOM generated successfully."
-          echo "Docker Hub SBOM generated successfully."
+          echo "GHCR SPDX SBOM generated successfully."
+          echo "Docker Hub SPDX SBOM generated successfully."
 
           ls -lh reports/docker/
 
 
       # ==========================================================
-      # COSIGN PROVENANCE ATTESTATION — GHCR
+      # COSIGN SBOM ATTESTATION — GHCR
+      # ==========================================================
+      #
+      # FIX:
+      #
+      # The previous version incorrectly used:
+      #
+      #   --type slsa
+      #
+      # "slsa" is not a valid predicate type.
+      #
+      # More importantly, the predicate being supplied is an
+      # SPDX SBOM, not an SLSA provenance document.
+      #
+      # Therefore we use:
+      #
+      #   --type spdxjson
+      #
       # ==========================================================
 
-      - name: Cosign Attest Provenance — GHCR
+      - name: Cosign Attest SPDX SBOM — GHCR
         if: success()
         env:
           COSIGN_YES: "true"
         run: |
           cosign attest \
             --predicate reports/docker/sbom-ghcr.json \
-            --type slsa \
+            --type spdxjson \
             ghcr.io/${{ github.repository }}:latest
 
 
       # ==========================================================
-      # COSIGN PROVENANCE ATTESTATION — DOCKER HUB
+      # COSIGN SBOM ATTESTATION — DOCKER HUB
       # ==========================================================
 
-      - name: Cosign Attest Provenance — Docker Hub
+      - name: Cosign Attest SPDX SBOM — Docker Hub
         if: success()
         env:
           COSIGN_YES: "true"
         run: |
           cosign attest \
             --predicate reports/docker/sbom-dockerhub.json \
-            --type slsa \
+            --type spdxjson \
             ${{ secrets.DOCKERHUB_USERNAME }}/resume-matcher-devops:latest
 
 
@@ -466,7 +456,7 @@ jobs:
               </h1>
 
               <div class="status">
-                ✓ SBOM generated
+                ✓ SPDX SBOM generated
               </div>
 
               <pre>
@@ -483,15 +473,16 @@ jobs:
             >
 
               <h1>
-                Provenance Attestation
+                SBOM Attestation
               </h1>
 
               <div class="status">
-                ✓ Provenance attached
+                ✓ SPDX SBOM attested with Cosign
               </div>
 
               <pre>
-          Commit: ${commit}
+          Predicate Type: spdxjson
+          GHCR: ${repo}:latest
               </pre>
 
             </div>
@@ -553,17 +544,22 @@ jobs:
           const summaryHtml = `
             <p>
               <strong>Cosign:</strong>
-              ✓ Signed
+              ✓ Images signed
             </p>
 
             <p>
-              <strong>Syft SBOM:</strong>
+              <strong>Syft SPDX SBOM:</strong>
               ✓ Generated
             </p>
 
             <p>
-              <strong>Provenance:</strong>
-              ✓ Attested
+              <strong>SBOM Attestation:</strong>
+              ✓ Attested with Cosign
+            </p>
+
+            <p>
+              <strong>Predicate Type:</strong>
+              spdxjson
             </p>
 
             <p>
