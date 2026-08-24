@@ -14,12 +14,11 @@ jobs:
   #
   # TEMPORARILY DISABLED
   #
-  # We are debugging the Security Enhancements stage first.
-  # This prevents unnecessary Docker image builds and pushes
-  # while Cosign / Syft / provenance are being validated.
+  # DO NOT ENABLE THIS UNTIL THE SECURITY ENHANCEMENTS STAGE
+  # HAS BEEN SUCCESSFULLY DEBUGGED AND VERIFIED.
   #
-  # Re-enable this entire job after the Security Enhancements
-  # stage is confirmed working.
+  # This prevents unnecessary Docker image builds and pushes
+  # while Cosign / Syft / provenance are being tested.
   #
   # ============================================================
 
@@ -137,12 +136,14 @@ jobs:
   # STAGE 2 — SECURITY ENHANCEMENTS
   # ============================================================
   #
-  # Runs independently while Stage 1 is disabled.
+  # This stage works against the EXISTING images already present
+  # in GHCR and Docker Hub.
   #
-  # This stage works against the images that already exist in:
+  # No Docker build occurs here.
+  # No Docker push occurs here.
   #
-  #   GHCR
-  #   Docker Hub
+  # IMPORTANT:
+  # id-token: write is REQUIRED for GitHub OIDC keyless signing.
   #
   # ============================================================
 
@@ -154,26 +155,28 @@ jobs:
       contents: read
       packages: write
 
+      # REQUIRED FOR COSIGN KEYLESS SIGNING
+      id-token: write
+
     steps:
 
       # ==========================================================
       # CHECKOUT
       # ==========================================================
+
       - name: Checkout repository
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          persist-credentials: false
 
 
       # ==========================================================
       # INSTALL COSIGN
       # ==========================================================
-      #
-      # GitHub-hosted runners do NOT include Cosign by default.
-      # This installs a known working Cosign release.
-      #
-      # ==========================================================
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@v3
+        uses: sigstore/cosign-installer@v4.1.0
 
       - name: Verify Cosign installation
         run: |
@@ -182,11 +185,6 @@ jobs:
 
       # ==========================================================
       # INSTALL SYFT
-      # ==========================================================
-      #
-      # Syft is also not guaranteed to be preinstalled on the
-      # GitHub-hosted runner, so install it explicitly.
-      #
       # ==========================================================
 
       - name: Install Syft
@@ -202,10 +200,6 @@ jobs:
       # ==========================================================
       # GHCR LOGIN
       # ==========================================================
-      #
-      # Required so Cosign can access the GHCR image.
-      #
-      # ==========================================================
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -218,10 +212,6 @@ jobs:
       # ==========================================================
       # DOCKER HUB LOGIN
       # ==========================================================
-      #
-      # Required so Cosign can access the Docker Hub image.
-      #
-      # ==========================================================
 
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
@@ -231,14 +221,12 @@ jobs:
 
 
       # ==========================================================
-      # VERIFY EXISTING IMAGES
+      # VERIFY EXISTING GHCR IMAGE
       # ==========================================================
       #
-      # IMPORTANT:
       # This does NOT build or push anything.
       #
-      # It verifies that the images we intend to sign actually
-      # exist before continuing.
+      # It only confirms that the existing :latest image exists.
       #
       # ==========================================================
 
@@ -247,6 +235,11 @@ jobs:
           docker manifest inspect \
             ghcr.io/${{ github.repository }}:latest
 
+
+      # ==========================================================
+      # VERIFY EXISTING DOCKER HUB IMAGE
+      # ==========================================================
+
       - name: Verify Docker Hub image exists
         run: |
           docker manifest inspect \
@@ -254,10 +247,34 @@ jobs:
 
 
       # ==========================================================
-      # COSIGN SIGN
+      # VERIFY GITHUB OIDC ENVIRONMENT
+      # ==========================================================
+      #
+      # Cosign should now obtain the GitHub Actions OIDC token
+      # automatically instead of falling back to device flow.
+      #
       # ==========================================================
 
-      - name: Cosign Sign Images
+      - name: Verify GitHub Actions OIDC configuration
+        run: |
+          echo "GitHub Actions OIDC permission is enabled."
+          echo "Repository: $GITHUB_REPOSITORY"
+          echo "Workflow: $GITHUB_WORKFLOW"
+          echo "Run ID: $GITHUB_RUN_ID"
+
+
+      # ==========================================================
+      # COSIGN SIGN — GHCR
+      # ==========================================================
+      #
+      # COSIGN_YES prevents interactive confirmation.
+      #
+      # id-token: write above allows Cosign to authenticate
+      # through GitHub Actions OIDC.
+      #
+      # ==========================================================
+
+      - name: Cosign Sign GHCR Image
         if: success()
         env:
           COSIGN_YES: "true"
@@ -265,15 +282,25 @@ jobs:
           cosign sign \
             ghcr.io/${{ github.repository }}:latest
 
+
+      # ==========================================================
+      # COSIGN SIGN — DOCKER HUB
+      # ==========================================================
+
+      - name: Cosign Sign Docker Hub Image
+        if: success()
+        env:
+          COSIGN_YES: "true"
+        run: |
           cosign sign \
             ${{ secrets.DOCKERHUB_USERNAME }}/resume-matcher-devops:latest
 
 
       # ==========================================================
-      # SYFT SBOM
+      # GENERATE SBOM — GHCR
       # ==========================================================
 
-      - name: Generate SBOM with Syft
+      - name: Generate GHCR SBOM
         if: success()
         run: |
           mkdir -p reports/docker
@@ -282,6 +309,16 @@ jobs:
             ghcr.io/${{ github.repository }}:latest \
             -o json \
             > reports/docker/sbom-ghcr.json
+
+
+      # ==========================================================
+      # GENERATE SBOM — DOCKER HUB
+      # ==========================================================
+
+      - name: Generate Docker Hub SBOM
+        if: success()
+        run: |
+          mkdir -p reports/docker
 
           syft \
             ${{ secrets.DOCKERHUB_USERNAME }}/resume-matcher-devops:latest \
@@ -306,10 +343,10 @@ jobs:
 
 
       # ==========================================================
-      # COSIGN PROVENANCE ATTESTATION
+      # COSIGN PROVENANCE ATTESTATION — GHCR
       # ==========================================================
 
-      - name: Cosign Attest Provenance
+      - name: Cosign Attest Provenance — GHCR
         if: success()
         env:
           COSIGN_YES: "true"
@@ -319,6 +356,16 @@ jobs:
             --type slsa \
             ghcr.io/${{ github.repository }}:latest
 
+
+      # ==========================================================
+      # COSIGN PROVENANCE ATTESTATION — DOCKER HUB
+      # ==========================================================
+
+      - name: Cosign Attest Provenance — Docker Hub
+        if: success()
+        env:
+          COSIGN_YES: "true"
+        run: |
           cosign attest \
             --predicate reports/docker/sbom-dockerhub.json \
             --type slsa \
@@ -343,11 +390,16 @@ jobs:
 
           const html = `<!doctype html>
           <html lang="en">
+
           <head>
             <meta charset="utf-8">
-            <title>Docker Security Enhancements Report</title>
+
+            <title>
+              Docker Security Enhancements Report
+            </title>
 
             <style>
+
               body {
                 background:#07111f;
                 color:#f8fafc;
@@ -381,24 +433,37 @@ jobs:
                 font-size:12px;
                 overflow-x:auto;
               }
+
             </style>
+
           </head>
 
           <body>
 
             <div class="panel">
-              <h1>Cosign Signing</h1>
+
+              <h1>
+                Cosign Signing
+              </h1>
+
               <div class="status">
                 ✓ Images signed successfully
               </div>
 
               <pre>Repository: ${repo}
           Commit: ${shortCommit}</pre>
+
             </div>
 
 
-            <div class="panel" style="margin-top:20px;">
-              <h1>Syft SBOM</h1>
+            <div
+              class="panel"
+              style="margin-top:20px;"
+            >
+
+              <h1>
+                Syft SBOM
+              </h1>
 
               <div class="status">
                 ✓ SBOM generated
@@ -408,20 +473,31 @@ jobs:
           reports/docker/sbom-ghcr.json
           reports/docker/sbom-dockerhub.json
               </pre>
+
             </div>
 
 
-            <div class="panel" style="margin-top:20px;">
-              <h1>Provenance Attestation</h1>
+            <div
+              class="panel"
+              style="margin-top:20px;"
+            >
+
+              <h1>
+                Provenance Attestation
+              </h1>
 
               <div class="status">
                 ✓ Provenance attached
               </div>
 
-              <pre>Commit: ${commit}</pre>
+              <pre>
+          Commit: ${commit}
+              </pre>
+
             </div>
 
           </body>
+
           </html>`;
 
           fs.writeFileSync(
@@ -450,7 +526,8 @@ jobs:
 
       - name: Install Nodemailer
         if: success()
-        run: npm install nodemailer@9.0.3
+        run: |
+          npm install nodemailer@9.0.3
 
 
       # ==========================================================
@@ -467,7 +544,6 @@ jobs:
         run: |
           node <<'NODE'
           const nodemailer = require("nodemailer");
-          const fs = require("fs");
 
           const emailUser = process.env.EMAIL_USER;
           const emailPass = process.env.EMAIL_PASS;
@@ -475,14 +551,29 @@ jobs:
           const emailCc = process.env.QA_EMAIL_CC || "";
 
           const summaryHtml = `
-            <p><strong>Cosign:</strong> ✓ Signed</p>
-            <p><strong>Syft SBOM:</strong> ✓ Generated</p>
-            <p><strong>Provenance:</strong> ✓ Attested</p>
-            <p>Full details are attached in the HTML report.</p>
+            <p>
+              <strong>Cosign:</strong>
+              ✓ Signed
+            </p>
+
+            <p>
+              <strong>Syft SBOM:</strong>
+              ✓ Generated
+            </p>
+
+            <p>
+              <strong>Provenance:</strong>
+              ✓ Attested
+            </p>
+
+            <p>
+              Full details are attached in the HTML report.
+            </p>
           `;
 
           const transporter = nodemailer.createTransport({
             service: "gmail",
+
             auth: {
               user: emailUser,
               pass: emailPass
@@ -490,22 +581,35 @@ jobs:
           });
 
           (async () => {
+
             await transporter.sendMail({
+
               from: emailUser,
+
               to: emailTo,
+
               cc: emailCc,
-              subject: "Docker Security Enhancements Report",
+
+              subject:
+                "Docker Security Enhancements Report",
+
               html: summaryHtml,
+
               attachments: [
                 {
-                  filename: "docker-security-report.html",
-                  path: "reports/docker/docker-security-report.html"
+                  filename:
+                    "docker-security-report.html",
+
+                  path:
+                    "reports/docker/docker-security-report.html"
                 }
               ]
+
             });
 
             console.log(
               "Docker security report emailed successfully."
             );
+
           })();
           NODE
