@@ -155,20 +155,6 @@ jobs:
       # REQUIRED FOR COSIGN KEYLESS SIGNING
       id-token: write
 
-    env:
-      # ==========================================================
-      # COSIGN KEYLESS VERIFICATION TRUST CONFIGURATION
-      # ==========================================================
-      #
-      # The images are signed using GitHub Actions OIDC.
-      #
-      # The certificate identity is tied to workflows inside
-      # this repository running from the main branch.
-      #
-      COSIGN_CERTIFICATE_OIDC_ISSUER: https://token.actions.githubusercontent.com
-
-      COSIGN_CERTIFICATE_IDENTITY_REGEXP: https://github.com/kaifmohammedkhan/resume-matcher-devops/.github/workflows/.*@refs/heads/main
-
     steps:
 
       # ==========================================================
@@ -185,9 +171,25 @@ jobs:
       # ==========================================================
       # INSTALL COSIGN
       # ==========================================================
+      #
+      # IMPORTANT:
+      #
+      # DO NOT define certificate identity variables at the
+      # job level.
+      #
+      # The Cosign installer itself uses Cosign to verify the
+      # Cosign release. That release is signed using the
+      # Sigstore release identity:
+      #
+      #   keyless@projectsigstore.iam.gserviceaccount.com
+      #
+      # Therefore our application's GitHub Actions certificate
+      # identity must NOT be applied during installation.
+      #
+      # ==========================================================
 
       - name: Install Cosign
-        uses: sigstore/cosign-installer@v4.1.0
+        uses: sigstore/cosign-installer@v4.1.2
 
       - name: Verify Cosign installation
         run: |
@@ -239,10 +241,14 @@ jobs:
         run: |
           mkdir -p reports/docker
 
-          echo "Docker security evidence directory created."
-          echo "Repository: $GITHUB_REPOSITORY"
-          echo "Commit: $GITHUB_SHA"
-          echo "Branch: $GITHUB_REF_NAME"
+          echo "=============================================="
+          echo "Docker Security Evidence"
+          echo "=============================================="
+          echo "Repository : $GITHUB_REPOSITORY"
+          echo "Branch     : $GITHUB_REF_NAME"
+          echo "Commit     : $GITHUB_SHA"
+          echo "Run        : #$GITHUB_RUN_NUMBER"
+          echo "=============================================="
 
 
       # ==========================================================
@@ -271,14 +277,11 @@ jobs:
 
       # ==========================================================
       # COSIGN SIGN — GHCR
-      # ============================================================
+      # ==========================================================
       #
       # Keyless signing uses GitHub Actions OIDC.
       #
-      # COSIGN_YES=true allows the signing operation to proceed
-      # without an interactive confirmation prompt.
-      #
-      # ============================================================
+      # ==========================================================
 
       - name: Cosign Sign GHCR Image
         if: success()
@@ -316,11 +319,10 @@ jobs:
       #
       #   --certificate-oidc-issuer
       #
-      # Without these, Cosign fails with:
+      # These options are supplied ONLY here.
       #
-      #   --certificate-identity or
-      #   --certificate-identity-regexp is required
-      #   for verification in keyless mode
+      # They are NOT global environment variables because doing
+      # so would affect the Cosign installer itself.
       #
       # ============================================================
 
@@ -328,20 +330,19 @@ jobs:
         if: success()
         run: |
           cosign verify \
-            --certificate-identity-regexp="${COSIGN_CERTIFICATE_IDENTITY_REGEXP}" \
-            --certificate-oidc-issuer="${COSIGN_CERTIFICATE_OIDC_ISSUER}" \
+            --certificate-identity-regexp="https://github.com/kaifmohammedkhan/resume-matcher-devops/.github/workflows/.*@refs/heads/main" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
             --output json \
             ghcr.io/${{ github.repository }}:latest \
             > reports/docker/cosign-ghcr-verify.json
 
           test -s reports/docker/cosign-ghcr-verify.json
 
-          echo "GHCR Cosign signature verification completed."
-          echo "Certificate identity:"
-          echo "${COSIGN_CERTIFICATE_IDENTITY_REGEXP}"
-          echo "OIDC issuer:"
-          echo "${COSIGN_CERTIFICATE_OIDC_ISSUER}"
-          echo "Evidence: reports/docker/cosign-ghcr-verify.json"
+          echo "=============================================="
+          echo "GHCR Cosign verification PASSED"
+          echo "=============================================="
+          echo "Evidence:"
+          echo "reports/docker/cosign-ghcr-verify.json"
 
 
       # ==========================================================
@@ -352,29 +353,23 @@ jobs:
         if: success()
         run: |
           cosign verify \
-            --certificate-identity-regexp="${COSIGN_CERTIFICATE_IDENTITY_REGEXP}" \
-            --certificate-oidc-issuer="${COSIGN_CERTIFICATE_OIDC_ISSUER}" \
+            --certificate-identity-regexp="https://github.com/kaifmohammedkhan/resume-matcher-devops/.github/workflows/.*@refs/heads/main" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
             --output json \
             ${{ secrets.DOCKERHUB_USERNAME }}/resume-matcher-devops:latest \
             > reports/docker/cosign-dockerhub-verify.json
 
           test -s reports/docker/cosign-dockerhub-verify.json
 
-          echo "Docker Hub Cosign signature verification completed."
-          echo "Certificate identity:"
-          echo "${COSIGN_CERTIFICATE_IDENTITY_REGEXP}"
-          echo "OIDC issuer:"
-          echo "${COSIGN_CERTIFICATE_OIDC_ISSUER}"
-          echo "Evidence: reports/docker/cosign-dockerhub-verify.json"
+          echo "=============================================="
+          echo "Docker Hub Cosign verification PASSED"
+          echo "=============================================="
+          echo "Evidence:"
+          echo "reports/docker/cosign-dockerhub-verify.json"
 
 
       # ==========================================================
       # GENERATE SPDX SBOM — GHCR
-      # ==========================================================
-      #
-      # We explicitly request SPDX JSON so that the generated
-      # predicate matches the Cosign spdxjson predicate type.
-      #
       # ==========================================================
 
       - name: Generate GHCR SPDX SBOM
@@ -414,6 +409,8 @@ jobs:
       - name: Verify SBOM files
         if: success()
         run: |
+          set -e
+
           test -s reports/docker/sbom-ghcr.json
           test -s reports/docker/sbom-dockerhub.json
 
@@ -421,7 +418,7 @@ jobs:
           echo "Docker Hub SPDX SBOM generated successfully."
 
           echo ""
-          echo "Current Docker security evidence:"
+          echo "Current evidence:"
           ls -lh reports/docker/
 
 
@@ -429,19 +426,13 @@ jobs:
       # COSIGN SBOM ATTESTATION — GHCR
       # ==========================================================
       #
-      # The SBOM is an SPDX document.
+      # The predicate is SPDX JSON.
       #
       # Therefore:
       #
       #   --type spdxjson
       #
       # is correct.
-      #
-      # DO NOT use:
-      #
-      #   --type slsa
-      #
-      # because this is not an SLSA provenance predicate.
       #
       # ==========================================================
 
@@ -477,19 +468,19 @@ jobs:
 
       # ==========================================================
       # VERIFY SBOM ATTESTATION — GHCR
-      # ============================================================
+      # ==========================================================
       #
-      # Keyless attestation verification ALSO requires the
-      # certificate identity and OIDC issuer.
+      # Keyless attestation verification requires the same
+      # certificate identity and OIDC issuer constraints.
       #
-      # ============================================================
+      # ==========================================================
 
       - name: Verify SPDX SBOM Attestation — GHCR
         if: success()
         run: |
           cosign verify-attestation \
-            --certificate-identity-regexp="${COSIGN_CERTIFICATE_IDENTITY_REGEXP}" \
-            --certificate-oidc-issuer="${COSIGN_CERTIFICATE_OIDC_ISSUER}" \
+            --certificate-identity-regexp="https://github.com/kaifmohammedkhan/resume-matcher-devops/.github/workflows/.*@refs/heads/main" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
             --type spdxjson \
             --output json \
             ghcr.io/${{ github.repository }}:latest \
@@ -497,8 +488,11 @@ jobs:
 
           test -s reports/docker/attestation-ghcr.json
 
-          echo "GHCR SPDX SBOM attestation verification completed."
-          echo "Evidence: reports/docker/attestation-ghcr.json"
+          echo "=============================================="
+          echo "GHCR SPDX attestation verification PASSED"
+          echo "=============================================="
+          echo "Evidence:"
+          echo "reports/docker/attestation-ghcr.json"
 
 
       # ==========================================================
@@ -509,8 +503,8 @@ jobs:
         if: success()
         run: |
           cosign verify-attestation \
-            --certificate-identity-regexp="${COSIGN_CERTIFICATE_IDENTITY_REGEXP}" \
-            --certificate-oidc-issuer="${COSIGN_CERTIFICATE_OIDC_ISSUER}" \
+            --certificate-identity-regexp="https://github.com/kaifmohammedkhan/resume-matcher-devops/.github/workflows/.*@refs/heads/main" \
+            --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
             --type spdxjson \
             --output json \
             ${{ secrets.DOCKERHUB_USERNAME }}/resume-matcher-devops:latest \
@@ -518,8 +512,11 @@ jobs:
 
           test -s reports/docker/attestation-dockerhub.json
 
-          echo "Docker Hub SPDX SBOM attestation verification completed."
-          echo "Evidence: reports/docker/attestation-dockerhub.json"
+          echo "=============================================="
+          echo "Docker Hub SPDX attestation verification PASSED"
+          echo "=============================================="
+          echo "Evidence:"
+          echo "reports/docker/attestation-dockerhub.json"
 
 
       # ==========================================================
@@ -541,22 +538,28 @@ jobs:
           )
 
           for file in "${required_files[@]}"; do
+
             if [ ! -s "$file" ]; then
               echo "ERROR: Required evidence file is missing or empty:"
               echo "$file"
               exit 1
             fi
 
-            echo "Verified evidence file: $file"
+            echo "Verified evidence file:"
+            echo "$file"
+
           done
 
           echo ""
-          echo "All Docker security evidence files are present."
+          echo "=============================================="
+          echo "ALL SECURITY EVIDENCE VERIFIED"
+          echo "=============================================="
+
           ls -lh reports/docker/
 
 
       # ==========================================================
-      # SECURITY ENHANCEMENTS REPORT
+      # GENERATE SECURITY ENHANCEMENTS HTML REPORT
       # ==========================================================
 
       - name: Generate Security Enhancements HTML Report
@@ -567,20 +570,36 @@ jobs:
           mkdir -p reports/docker
 
           node --input-type=commonjs <<'NODE'
+
           const fs = require("fs");
 
-          const repo = process.env.GITHUB_REPOSITORY || "N/A";
-          const commit = process.env.GITHUB_SHA || "N/A";
-          const shortCommit = commit.substring(0, 7);
-          const runNumber = process.env.GITHUB_RUN_NUMBER || "N/A";
-          const workflow = process.env.GITHUB_WORKFLOW || "N/A";
-          const branch = process.env.GITHUB_REF_NAME || "N/A";
-          const generatedAt = new Date().toISOString();
+          const repo =
+            process.env.GITHUB_REPOSITORY || "N/A";
+
+          const commit =
+            process.env.GITHUB_SHA || "N/A";
+
+          const shortCommit =
+            commit.substring(0, 7);
+
+          const runNumber =
+            process.env.GITHUB_RUN_NUMBER || "N/A";
+
+          const workflow =
+            process.env.GITHUB_WORKFLOW || "N/A";
+
+          const branch =
+            process.env.GITHUB_REF_NAME || "N/A";
+
+          const generatedAt =
+            new Date().toISOString();
 
           const dockerHubUsername =
             process.env.DOCKERHUB_USERNAME || "N/A";
 
+
           const evidenceFiles = {
+
             ghcrSignature:
               "reports/docker/cosign-ghcr-verify.json",
 
@@ -598,71 +617,127 @@ jobs:
 
             dockerHubAttestation:
               "reports/docker/attestation-dockerhub.json"
+
           };
 
+
           function readJson(file) {
+
             return JSON.parse(
               fs.readFileSync(file, "utf8")
             );
+
           }
+
 
           function readJsonSafely(file) {
+
             try {
+
               return readJson(file);
+
             } catch (error) {
+
               return {
+
                 _error:
                   `Unable to parse ${file}: ${error.message}`
+
               };
+
             }
+
           }
 
+
           function prettyJson(file) {
+
             return JSON.stringify(
               readJsonSafely(file),
               null,
               2
             );
+
           }
+
 
           function escapeHtml(value) {
+
             return String(value)
-              .replace(/&/g, "&amp;")
-              .replace(/</g, "&lt;")
-              .replace(/>/g, "&gt;")
-              .replace(/"/g, "&quot;")
-              .replace(/'/g, "&#039;");
+
+              .replace(
+                /&/g,
+                "&amp;"
+              )
+
+              .replace(
+                /</g,
+                "&lt;"
+              )
+
+              .replace(
+                />/g,
+                "&gt;"
+              )
+
+              .replace(
+                /"/g,
+                "&quot;"
+              )
+
+              .replace(
+                /'/g,
+                "&#039;"
+              );
+
           }
 
+
           function fileSize(file) {
+
             const bytes =
               fs.statSync(file).size;
 
             if (bytes < 1024) {
+
               return `${bytes} B`;
+
             }
 
             if (bytes < 1024 * 1024) {
-              return `${(bytes / 1024).toFixed(1)} KB`;
+
+              return `${(
+                bytes / 1024
+              ).toFixed(1)} KB`;
+
             }
 
             return `${(
               bytes /
               (1024 * 1024)
             ).toFixed(2)} MB`;
+
           }
 
+
           function sbomStats(file) {
-            const sbom = readJson(file);
+
+            const sbom =
+              readJson(file);
 
             return {
+
               packages:
-                Array.isArray(sbom.packages)
+                Array.isArray(
+                  sbom.packages
+                )
                   ? sbom.packages.length
                   : 0,
 
               files:
-                Array.isArray(sbom.files)
+                Array.isArray(
+                  sbom.files
+                )
                   ? sbom.files.length
                   : 0,
 
@@ -673,36 +748,59 @@ jobs:
               documentNamespace:
                 sbom.documentNamespace ||
                 "N/A"
+
             };
+
           }
 
+
           const evidence = [
+
             evidenceFiles.ghcrSignature,
+
             evidenceFiles.dockerHubSignature,
+
             evidenceFiles.ghcrSbom,
+
             evidenceFiles.dockerHubSbom,
+
             evidenceFiles.ghcrAttestation,
+
             evidenceFiles.dockerHubAttestation
+
           ];
 
+
           for (const file of evidence) {
+
             if (
               !fs.existsSync(file) ||
               fs.statSync(file).size === 0
             ) {
+
               throw new Error(
                 `Required evidence file is missing or empty: ${file}`
               );
+
             }
+
           }
 
+
           const ghcrSbom =
-            sbomStats(evidenceFiles.ghcrSbom);
+            sbomStats(
+              evidenceFiles.ghcrSbom
+            );
+
 
           const dockerHubSbom =
-            sbomStats(evidenceFiles.dockerHubSbom);
+            sbomStats(
+              evidenceFiles.dockerHubSbom
+            );
+
 
           const html = `<!doctype html>
+
           <html lang="en">
 
           <head>
@@ -718,125 +816,207 @@ jobs:
               Docker Security Enhancements Report
             </title>
 
+
             <style>
 
               body {
+
                 background:#07111f;
+
                 color:#f8fafc;
+
                 font-family:Arial,sans-serif;
+
                 padding:28px;
+
                 margin:0;
+
               }
+
 
               .container {
+
                 max-width:1100px;
+
                 margin:auto;
+
               }
+
 
               .panel {
+
                 background:#0d1a2b;
+
                 border:1px solid #263a56;
+
                 border-radius:18px;
+
                 padding:24px;
+
                 margin-bottom:20px;
+
               }
+
 
               h1 {
+
                 font-size:26px;
+
                 margin:0 0 10px;
+
               }
+
 
               h2 {
+
                 font-size:20px;
+
                 margin:0 0 12px;
+
               }
 
-              h3 {
-                font-size:15px;
-                margin:18px 0 8px;
-              }
 
               .status {
+
                 font-weight:bold;
+
                 color:#34d399;
+
                 font-size:16px;
+
                 margin-bottom:14px;
+
               }
+
 
               .meta {
+
                 color:#a9b8cc;
+
                 line-height:1.7;
+
               }
 
+
               .grid {
+
                 display:grid;
+
                 grid-template-columns:
                   repeat(
                     auto-fit,
                     minmax(280px,1fr)
                   );
+
                 gap:14px;
+
               }
+
 
               .card {
+
                 background:#102138;
+
                 border:1px solid #263a56;
+
                 border-radius:12px;
+
                 padding:16px;
+
               }
+
 
               .label {
+
                 color:#8fa4bd;
+
                 font-size:12px;
+
                 text-transform:uppercase;
+
                 letter-spacing:.05em;
+
               }
+
 
               .value {
+
                 margin-top:5px;
+
                 word-break:break-word;
+
               }
+
 
               pre {
+
                 background:#081522;
+
                 padding:14px;
+
                 border-radius:10px;
+
                 font-size:11px;
+
                 line-height:1.5;
+
                 overflow:auto;
+
                 max-height:520px;
+
                 white-space:pre-wrap;
+
                 word-break:break-word;
+
               }
+
 
               details {
+
                 margin-top:14px;
+
               }
+
 
               summary {
+
                 cursor:pointer;
+
                 color:#93c5fd;
+
                 font-weight:bold;
+
               }
+
 
               .file {
+
                 font-family:monospace;
+
                 font-size:12px;
+
                 word-break:break-all;
+
               }
 
+
               .small {
+
                 color:#8fa4bd;
+
                 font-size:12px;
+
               }
 
             </style>
 
           </head>
 
+
           <body>
 
             <div class="container">
+
 
               <div class="panel">
 
@@ -844,10 +1024,14 @@ jobs:
                   Docker Security Enhancements
                 </h1>
 
+
                 <div class="status">
+
                   ✓ Security evidence generated
                   and independently verified
+
                 </div>
+
 
                 <div class="meta">
 
@@ -885,11 +1069,16 @@ jobs:
                   Cosign Signing
                 </h2>
 
+
                 <div class="status">
+
                   ✓ Images signed and independently verified
+
                 </div>
 
+
                 <div class="grid">
+
 
                   <div class="card">
 
@@ -898,14 +1087,19 @@ jobs:
                     </div>
 
                     <div class="value">
+
                       ghcr.io/${escapeHtml(repo)}:latest
+
                     </div>
 
                     <div class="small">
+
                       Verification evidence:
+
                       <span class="file">
                         cosign-ghcr-verify.json
                       </span>
+
                     </div>
 
                   </div>
@@ -918,19 +1112,25 @@ jobs:
                     </div>
 
                     <div class="value">
+
                       ${escapeHtml(
                         dockerHubUsername
                       )}/resume-matcher-devops:latest
+
                     </div>
 
                     <div class="small">
+
                       Verification evidence:
+
                       <span class="file">
                         cosign-dockerhub-verify.json
                       </span>
+
                     </div>
 
                   </div>
+
 
                 </div>
 
@@ -973,12 +1173,17 @@ jobs:
                   Syft SPDX SBOM
                 </h2>
 
+
                 <div class="status">
+
                   ✓ SPDX SBOM generated from
                   the actual images
+
                 </div>
 
+
                 <div class="grid">
+
 
                   <div class="card">
 
@@ -1010,6 +1215,7 @@ jobs:
                       )}
 
                     </div>
+
 
                     <div class="small">
 
@@ -1053,6 +1259,7 @@ jobs:
 
                     </div>
 
+
                     <div class="small">
 
                       <span class="file">
@@ -1062,6 +1269,7 @@ jobs:
                     </div>
 
                   </div>
+
 
                 </div>
 
@@ -1104,12 +1312,17 @@ jobs:
                   SBOM Attestation
                 </h2>
 
+
                 <div class="status">
+
                   ✓ SPDX SBOM attestations created
                   and independently verified
+
                 </div>
 
+
                 <div class="grid">
+
 
                   <div class="card">
 
@@ -1118,7 +1331,10 @@ jobs:
                     </div>
 
                     <div class="value">
-                      Predicate Type: spdxjson
+
+                      Predicate Type:
+                      spdxjson
+
                     </div>
 
                     <div class="small">
@@ -1139,7 +1355,10 @@ jobs:
                     </div>
 
                     <div class="value">
-                      Predicate Type: spdxjson
+
+                      Predicate Type:
+                      spdxjson
+
                     </div>
 
                     <div class="small">
@@ -1151,6 +1370,7 @@ jobs:
                     </div>
 
                   </div>
+
 
                 </div>
 
@@ -1193,10 +1413,14 @@ jobs:
                   Downloadable Raw Evidence
                 </h2>
 
+
                 <div class="status">
+
                   ✓ Raw machine-readable evidence
                   included in this workflow artifact
+
                 </div>
+
 
                 <div class="grid">
 
@@ -1205,19 +1429,24 @@ jobs:
                     <div class="card">
 
                       <div class="file">
+
                         ${escapeHtml(
                           file.replace(
                             "reports/docker/",
                             ""
                           )
                         )}
+
                       </div>
 
+
                       <div class="small">
+
                         Size:
                         ${escapeHtml(
                           fileSize(file)
                         )}
+
                       </div>
 
                     </div>
@@ -1226,12 +1455,14 @@ jobs:
 
                 </div>
 
+
                 <p class="small">
 
                   The raw JSON files are preserved
                   separately from this HTML report
                   in the GitHub Actions artifact
                   named
+
                   <strong>
                     docker-security-evidence
                   </strong>.
@@ -1240,29 +1471,39 @@ jobs:
 
               </div>
 
+
             </div>
 
           </body>
 
           </html>`;
 
+
           fs.writeFileSync(
+
             "reports/docker/docker-security-report.html",
+
             html
+
           );
+
 
           console.log(
             "Docker security HTML report generated successfully."
           );
 
+
           console.log(
             "Evidence files:"
           );
 
+
           for (const file of evidence) {
+
             console.log(
               ` - ${file} (${fileSize(file)})`
             );
+
           }
 
           NODE
@@ -1305,7 +1546,9 @@ jobs:
         run: |
           node --input-type=commonjs <<'NODE'
 
-          const nodemailer = require("nodemailer");
+          const nodemailer =
+            require("nodemailer");
+
 
           const emailUser =
             process.env.EMAIL_USER;
@@ -1319,52 +1562,94 @@ jobs:
           const emailCc =
             process.env.QA_EMAIL_CC || "";
 
+
           const summaryHtml = `
 
             <h2>
               Docker Security Enhancements
             </h2>
 
+
             <p>
-              <strong>Cosign:</strong>
+
+              <strong>
+                Cosign:
+              </strong>
+
               ✓ Images signed and independently verified
+
             </p>
 
+
             <p>
-              <strong>Syft SPDX SBOM:</strong>
+
+              <strong>
+                Syft SPDX SBOM:
+              </strong>
+
               ✓ Generated from the actual images
+
             </p>
 
+
             <p>
-              <strong>SBOM Attestation:</strong>
+
+              <strong>
+                SBOM Attestation:
+              </strong>
+
               ✓ Created and independently verified
+
             </p>
 
+
             <p>
-              <strong>Predicate Type:</strong>
+
+              <strong>
+                Predicate Type:
+              </strong>
+
               spdxjson
+
             </p>
 
-            <p>
-              <strong>Keyless Verification:</strong>
-              ✓ GitHub Actions OIDC certificate verified
-            </p>
 
             <p>
-              <strong>Raw Evidence:</strong>
+
+              <strong>
+                Keyless Verification:
+              </strong>
+
+              ✓ GitHub Actions OIDC certificate verification
+
+            </p>
+
+
+            <p>
+
+              <strong>
+                Raw Evidence:
+              </strong>
+
               ✓ HTML report and all JSON evidence files
               are attached
+
             </p>
 
+
             <p>
+
               The same files are also available in the
               GitHub Actions artifact
+
               <strong>
                 docker-security-evidence
               </strong>.
+
             </p>
 
           `;
+
 
           const transporter =
             nodemailer.createTransport({
@@ -1372,92 +1657,118 @@ jobs:
               service: "gmail",
 
               auth: {
-                user: emailUser,
-                pass: emailPass
+
+                user:
+                  emailUser,
+
+                pass:
+                  emailPass
+
               }
 
             });
+
 
           (async () => {
 
             await transporter.sendMail({
 
-              from: emailUser,
+              from:
+                emailUser,
 
-              to: emailTo,
+              to:
+                emailTo,
 
-              cc: emailCc,
+              cc:
+                emailCc,
 
               subject:
                 "Docker Security Enhancements Report",
 
-              html: summaryHtml,
+              html:
+                summaryHtml,
 
               attachments: [
 
                 {
+
                   filename:
                     "docker-security-report.html",
 
                   path:
                     "reports/docker/docker-security-report.html"
+
                 },
 
                 {
+
                   filename:
                     "sbom-ghcr.json",
 
                   path:
                     "reports/docker/sbom-ghcr.json"
+
                 },
 
                 {
+
                   filename:
                     "sbom-dockerhub.json",
 
                   path:
                     "reports/docker/sbom-dockerhub.json"
+
                 },
 
                 {
+
                   filename:
                     "cosign-ghcr-verify.json",
 
                   path:
                     "reports/docker/cosign-ghcr-verify.json"
+
                 },
 
                 {
+
                   filename:
                     "cosign-dockerhub-verify.json",
 
                   path:
                     "reports/docker/cosign-dockerhub-verify.json"
+
                 },
 
                 {
+
                   filename:
                     "attestation-ghcr.json",
 
                   path:
                     "reports/docker/attestation-ghcr.json"
+
                 },
 
                 {
+
                   filename:
                     "attestation-dockerhub.json",
 
                   path:
                     "reports/docker/attestation-dockerhub.json"
+
                 }
 
               ]
 
             });
 
+
             console.log(
               "Docker security report emailed successfully."
             );
+
 
           })().catch(error => {
 
