@@ -7,33 +7,49 @@ on:
   workflow_dispatch:
 
 jobs:
+
   # ============================================================
   # STAGE 1 — BUILD AND PUSH
   # ============================================================
+  #
+  # TEMPORARILY DISABLED
+  #
+  # DO NOT ENABLE THIS UNTIL THE SECURITY ENHANCEMENTS STAGE
+  # HAS BEEN SUCCESSFULLY DEBUGGED AND VERIFIED.
+  #
+  # ============================================================
+
   # build-and-push:
   #   name: Build & Push
   #   runs-on: ubuntu-latest
+  #
   #   permissions:
   #     contents: read
   #     packages: write
+  #
   #   steps:
   #     - name: Checkout repository
   #       uses: actions/checkout@v4
+  #
   #     - name: Set up QEMU
   #       uses: docker/setup-qemu-action@v3
+  #
   #     - name: Set up Docker Buildx
   #       uses: docker/setup-buildx-action@v3
+  #
   #     - name: Log in to GitHub Container Registry
   #       uses: docker/login-action@v3
   #       with:
   #         registry: ghcr.io
   #         username: ${{ github.actor }}
   #         password: ${{ secrets.GITHUB_TOKEN }}
+  #
   #     - name: Log in to Docker Hub
   #       uses: docker/login-action@v3
   #       with:
   #         username: ${{ secrets.DOCKERHUB_USERNAME }}
   #         password: ${{ secrets.DOCKERHUB_TOKEN }}
+  #
   #     - name: Extract metadata (tags, labels) for Docker
   #       id: meta
   #       uses: docker/metadata-action@v5
@@ -44,6 +60,7 @@ jobs:
   #         tags: |
   #           type=raw,value=latest
   #           type=sha,format=short
+  #
   #     - name: Build and push Docker image
   #       id: build
   #       uses: docker/build-push-action@v5
@@ -56,9 +73,11 @@ jobs:
   #         cache-from: type=gha
   #         cache-to: type=gha,mode=max
 
+
   # ============================================================
   # STAGE 2 — SECURITY ENHANCEMENTS
   # ============================================================
+
   security-enhancements:
     name: Security Enhancements
     runs-on: ubuntu-latest
@@ -69,11 +88,21 @@ jobs:
       id-token: write
 
     steps:
+
+      # ==========================================================
+      # CHECKOUT
+      # ==========================================================
+
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
           fetch-depth: 1
           persist-credentials: false
+
+
+      # ==========================================================
+      # INSTALL COSIGN
+      # ==========================================================
 
       - name: Install Cosign
         uses: sigstore/cosign-installer@v3.8.1
@@ -84,7 +113,13 @@ jobs:
           COSIGN_CERTIFICATE_OIDC_ISSUER_REGEXP: ""
 
       - name: Verify Cosign installation
-        run: cosign version
+        run: |
+          cosign version
+
+
+      # ==========================================================
+      # INSTALL SYFT
+      # ==========================================================
 
       - name: Install Syft
         run: |
@@ -92,12 +127,23 @@ jobs:
             | sh -s -- -b /usr/local/bin
 
       - name: Verify Syft installation
-        run: syft version
+        run: |
+          syft version
+
+
+      # ==========================================================
+      # PREPARE REPORT DIRECTORY
+      # ==========================================================
 
       - name: Prepare security evidence directory
         run: |
           mkdir -p reports/docker
           echo "Security evidence directory prepared."
+
+
+      # ==========================================================
+      # GHCR LOGIN
+      # ==========================================================
 
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
@@ -106,32 +152,63 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+
+      # ==========================================================
+      # DOCKER HUB LOGIN
+      # ==========================================================
+
       - name: Log in to Docker Hub
         uses: docker/login-action@v3
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
+
+      # ==========================================================
+      # DEFINE IMAGE REFERENCES
+      # ==========================================================
+
       - name: Define Docker image references
         run: |
           echo "GHCR_IMAGE=ghcr.io/${GITHUB_REPOSITORY}:latest" >> "$GITHUB_ENV"
           echo "DOCKERHUB_IMAGE=${{ secrets.DOCKERHUB_USERNAME }}/resume-matcher-devops:latest" >> "$GITHUB_ENV"
 
+          echo "GHCR image: ghcr.io/${GITHUB_REPOSITORY}:latest"
+          echo "Docker Hub image: ${{ secrets.DOCKERHUB_USERNAME }}/resume-matcher-devops:latest"
+
+
+      # ==========================================================
+      # VERIFY EXISTING IMAGES
+      # ==========================================================
+
       - name: Verify GHCR image exists
         run: |
           set -euo pipefail
           docker manifest inspect "$GHCR_IMAGE" > /dev/null
+          echo "GHCR image exists: $GHCR_IMAGE"
 
       - name: Verify Docker Hub image exists
         run: |
           set -euo pipefail
           docker manifest inspect "$DOCKERHUB_IMAGE" > /dev/null
+          echo "Docker Hub image exists: $DOCKERHUB_IMAGE"
+
+
+      # ==========================================================
+      # DETERMINE KEYLESS SIGNING IDENTITY
+      # ==========================================================
 
       - name: Determine Cosign keyless identity
         run: |
           set -euo pipefail
           COSIGN_WORKFLOW_IDENTITY="https://github.com/${GITHUB_WORKFLOW_REF}"
           echo "COSIGN_WORKFLOW_IDENTITY=$COSIGN_WORKFLOW_IDENTITY" >> "$GITHUB_ENV"
+          echo "Cosign workflow identity: $COSIGN_WORKFLOW_IDENTITY"
+
+
+      # ==========================================================
+      # COSIGN SIGN IMAGES
+      # ==========================================================
 
       - name: Cosign Sign GHCR Image
         env:
@@ -139,6 +216,7 @@ jobs:
         run: |
           set -euo pipefail
           cosign sign "$GHCR_IMAGE"
+          echo "GHCR image signed successfully."
 
       - name: Cosign Sign Docker Hub Image
         env:
@@ -146,6 +224,12 @@ jobs:
         run: |
           set -euo pipefail
           cosign sign "$DOCKERHUB_IMAGE"
+          echo "Docker Hub image signed successfully."
+
+
+      # ==========================================================
+      # COSIGN SIGNATURE VERIFICATION
+      # ==========================================================
 
       - name: Verify Cosign Signature — GHCR
         env:
@@ -179,6 +263,11 @@ jobs:
             > reports/docker/cosign-dockerhub-verify.json
           test -s reports/docker/cosign-dockerhub-verify.json
 
+
+      # ==========================================================
+      # GENERATE SPDX SBOMs
+      # ==========================================================
+
       - name: Generate GHCR SPDX SBOM
         run: |
           set -euo pipefail
@@ -191,11 +280,10 @@ jobs:
           syft "$DOCKERHUB_IMAGE" -o spdx-json > reports/docker/sbom-dockerhub.json
           test -s reports/docker/sbom-dockerhub.json
 
-      - name: Verify SBOM files
-        run: |
-          set -euo pipefail
-          test -s reports/docker/sbom-ghcr.json
-          test -s reports/docker/sbom-dockerhub.json
+
+      # ==========================================================
+      # COSIGN SBOM ATTESTATION
+      # ==========================================================
 
       - name: Cosign Attest SPDX SBOM — GHCR
         env:
@@ -216,6 +304,11 @@ jobs:
             --predicate reports/docker/sbom-dockerhub.json \
             --type spdxjson \
             "$DOCKERHUB_IMAGE"
+
+
+      # ==========================================================
+      # VERIFY SBOM ATTESTATION
+      # ==========================================================
 
       - name: Verify SPDX SBOM Attestation — GHCR
         env:
@@ -251,6 +344,11 @@ jobs:
             > reports/docker/attestation-dockerhub.json
           test -s reports/docker/attestation-dockerhub.json
 
+
+      # ==========================================================
+      # UPLOAD SECURITY EVIDENCE ARTIFACTS
+      # ==========================================================
+
       - name: Upload Security Evidence Directory
         uses: actions/upload-artifact@v4
         with:
@@ -259,9 +357,12 @@ jobs:
           retention-days: 14
           if-no-files-found: error
 
+
+      # ==========================================================
+      # GENERATE SECURITY ENHANCEMENTS HTML REPORT
+      # ==========================================================
+
       - name: Generate Security Enhancements HTML Report
-        env:
-          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
           set -euo pipefail
 
@@ -270,6 +371,7 @@ jobs:
 
           const repo = process.env.GITHUB_REPOSITORY || "N/A";
           const commit = (process.env.GITHUB_SHA || "N/A").substring(0, 7);
+          const runUrl = `${process.env.GITHUB_SERVER_URL}/${repo}/actions/runs/${process.env.GITHUB_RUN_ID}`;
           const generatedAt = new Date().toISOString();
 
           const html = `<!doctype html>
@@ -279,20 +381,27 @@ jobs:
             <meta name="viewport" content="width=device-width,initial-scale=1">
             <title>Docker Security Enhancements Report</title>
             <style>
-              body { font-family: sans-serif; background: #07111f; color: #f8fafc; padding: 20px; }
-              .container { max-width: 900px; margin: auto; }
-              .card { background: #0d1a2b; border: 1px solid #263a56; border-radius: 8px; padding: 16px; margin-bottom: 16px; }
-              h1 { color: #34d399; }
+              body { margin: 0; padding: 30px; background: #07111f; color: #f8fafc; font-family: sans-serif; }
+              .container { max-width: 800px; margin: auto; }
+              .panel { background: #0d1a2b; border: 1px solid #263a56; border-radius: 12px; padding: 24px; margin-bottom: 20px; }
+              h1 { margin-top: 0; color: #34d399; font-size: 24px; }
+              p { line-height: 1.5; color: #cbd5e1; }
+              a { color: #60a5fa; text-decoration: none; font-weight: bold; }
+              a:hover { text-decoration: underline; }
+              .badge { display: inline-block; padding: 4px 8px; background: #059669; color: white; border-radius: 4px; font-size: 12px; font-weight: bold; }
             </style>
           </head>
           <body>
             <div class="container">
-              <h1>Security Verification Report</h1>
-              <div class="card">
+              <div class="panel">
+                <h1>Docker Security Report</h1>
+                <p><span class="badge">PASSED</span> Image verification and keyless signing completed successfully.</p>
                 <p><strong>Repository:</strong> ${repo}</p>
                 <p><strong>Commit:</strong> ${commit}</p>
                 <p><strong>Generated At:</strong> ${generatedAt}</p>
-                <p>Status: All images signed, attestations verified, and SBOMs published.</p>
+                <hr style="border-color: #263a56; margin: 20px 0;">
+                <p>All container images stored in GHCR and Docker Hub have been signed with Cosign, generated SPDX SBOMs via Syft, and verified with keyless attestation.</p>
+                <p><a href="${runUrl}">View GitHub Actions Run & Download Raw Evidence Artifacts &rarr;</a></p>
               </div>
             </div>
           </body>
@@ -302,9 +411,21 @@ jobs:
           console.log("HTML report generated successfully.");
           NODE
 
-      - name: Upload Final HTML Report
-        uses: actions/upload-artifact@v4
+
+      # ==========================================================
+      # EMAIL DELIVERY STEP
+      # ==========================================================
+
+      - name: Send Email Security Report
+        uses: dawidd6/action-send-mail@v3
         with:
-          name: security-html-report
-          path: reports/docker/security-report.html
-          retention-days: 14
+          server_address: smtp.gmail.com
+          server_port: 465
+          secure: true
+          username: ${{ secrets.EMAIL_USER }}
+          password: ${{ secrets.EMAIL_PASS }}
+          subject: "Security Report: ${{ github.repository }} (Run #${{ github.run_number }})"
+          to: ${{ secrets.QA_EMAIL_TO }}
+          cc: ${{ secrets.QA_EMAIL_CC }}
+          from: "GitHub Actions <${{ secrets.EMAIL_USER }}>"
+          html_body: file://reports/docker/security-report.html
