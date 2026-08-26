@@ -24,9 +24,6 @@ jobs:
   #
   #   docker-build-push-report.html
   #
-  # That report is automatically picked up by the Security
-  # Enhancements email if the artifact exists.
-  #
   # ============================================================
 
   # build-and-push:
@@ -44,7 +41,7 @@ jobs:
   #     # ========================================================
   #
   #     - name: Checkout repository
-  #       uses: actions/checkout@v4
+  #       uses: actions/checkout@v5
   #
   #
   #     # ========================================================
@@ -68,7 +65,7 @@ jobs:
   #     # ========================================================
   #
   #     - name: Log in to GitHub Container Registry
-  #       uses: docker/login-action@v3
+  #       uses: docker/login-action@v4
   #       with:
   #         registry: ghcr.io
   #         username: ${{ github.actor }}
@@ -80,7 +77,7 @@ jobs:
   #     # ========================================================
   #
   #     - name: Log in to Docker Hub
-  #       uses: docker/login-action@v3
+  #       uses: docker/login-action@v4
   #       with:
   #         username: ${{ secrets.DOCKERHUB_USERNAME }}
   #         password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -92,7 +89,7 @@ jobs:
   #
   #     - name: Extract metadata (tags, labels) for Docker
   #       id: meta
-  #       uses: docker/metadata-action@v5
+  #       uses: docker/metadata-action@v6
   #       with:
   #         images: |
   #           ghcr.io/${{ github.repository }}
@@ -108,7 +105,7 @@ jobs:
   #
   #     - name: Build and push Docker image
   #       id: build
-  #       uses: docker/build-push-action@v5
+  #       uses: docker/build-push-action@v7
   #       with:
   #         context: .
   #         platforms: linux/amd64,linux/arm64
@@ -133,7 +130,7 @@ jobs:
   #
   #     - name: Upload Docker Build & Push Report
   #       if: success()
-  #       uses: actions/upload-artifact@v4
+  #       uses: actions/upload-artifact@v6
   #       with:
   #         name: docker-build-push-report
   #         path: reports/docker/docker-build-push-report.html
@@ -198,41 +195,40 @@ jobs:
       # ==========================================================
 
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           fetch-depth: 1
           persist-credentials: false
 
 
       # ==========================================================
-      # DOWNLOAD DOCKER BUILD & PUSH REPORT IF AVAILABLE
+      # IMPORTANT — DOCKER BUILD REPORT
       # ==========================================================
       #
-      # Stage 1 is currently disabled.
+      # Stage 1 is intentionally disabled.
       #
-      # Therefore this artifact normally does not exist.
+      # Therefore there is NO docker-build-push-report artifact
+      # to download during this job.
       #
-      # When Stage 1 is enabled again and produces:
+      # We intentionally DO NOT use actions/download-artifact here.
       #
+      # This prevents:
+      #
+      #   Warning: Unexpected input(s) 'if-no-artifact-found'
+      #
+      # and:
+      #
+      #   Error: Artifact not found for name:
       #   docker-build-push-report
       #
-      # this step automatically downloads:
+      # The email logic below already treats the Docker Build &
+      # Push report as OPTIONAL.
       #
-      #   docker-build-push-report.html
-      #
-      # If the artifact does not exist, the step is ignored.
-      #
-      # This allows Security Enhancements to remain fully isolated
-      # while still supporting the final combined email.
+      # When Stage 1 is re-enabled, the artifact download logic
+      # should be reintroduced together with an explicit job
+      # dependency on build-and-push.
       #
       # ==========================================================
-
-      - name: Download Docker Build & Push Report if available
-        uses: actions/download-artifact@v4
-        with:
-          name: docker-build-push-report
-          path: reports/docker-build
-          if-no-artifact-found: ignore
 
 
       # ==========================================================
@@ -279,7 +275,7 @@ jobs:
       # ==========================================================
 
       - name: Log in to GitHub Container Registry
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -291,7 +287,7 @@ jobs:
       # ==========================================================
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: docker/login-action@v4
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -597,15 +593,6 @@ jobs:
       # ==========================================================
       # CREATE RAW SECURITY EVIDENCE ZIP
       # ==========================================================
-      #
-      # The six JSON files remain individually available through
-      # the GitHub Actions artifact.
-      #
-      # This ZIP is created specifically for the email so that
-      # the complete raw evidence can be delivered as ONE
-      # attachment instead of six separate attachments.
-      #
-      # ==========================================================
 
       - name: Create raw security evidence ZIP
         if: success()
@@ -637,19 +624,6 @@ jobs:
       # ==========================================================
       # GENERATE SECURITY ENHANCEMENTS HTML REPORT
       # ==========================================================
-      #
-      # IMPORTANT:
-      #
-      # The HTML report contains SUMMARY information only.
-      #
-      # It does NOT embed the complete SBOM JSON.
-      #
-      # This keeps the report lightweight.
-      #
-      # The complete raw evidence remains separately available
-      # in the GitHub Actions artifact and in the ZIP attachment.
-      #
-      # ==========================================================
 
       - name: Generate Security Enhancements HTML Report
         if: success()
@@ -661,7 +635,6 @@ jobs:
           node --input-type=commonjs <<'NODE'
 
           const fs = require("fs");
-
 
           const repo =
             process.env.GITHUB_REPOSITORY || "N/A";
@@ -687,7 +660,6 @@ jobs:
           const dockerHubUsername =
             process.env.DOCKERHUB_USERNAME || "N/A";
 
-
           const evidenceFiles = {
 
             ghcrSignature:
@@ -710,15 +682,12 @@ jobs:
 
           };
 
-
           const evidence =
             Object.values(evidenceFiles);
-
 
           function escapeHtml(value) {
 
             return String(value)
-
               .replace(/&/g, "&amp;")
               .replace(/</g, "&lt;")
               .replace(/>/g, "&gt;")
@@ -727,7 +696,6 @@ jobs:
 
           }
 
-
           function readJson(file) {
 
             return JSON.parse(
@@ -735,7 +703,6 @@ jobs:
             );
 
           }
-
 
           function fileSize(file) {
 
@@ -758,7 +725,6 @@ jobs:
             ).toFixed(2)} MB`;
 
           }
-
 
           function sbomStats(file) {
 
@@ -785,7 +751,6 @@ jobs:
 
           }
 
-
           function countEntries(file) {
 
             try {
@@ -807,7 +772,6 @@ jobs:
 
           }
 
-
           for (const file of evidence) {
 
             if (
@@ -823,42 +787,35 @@ jobs:
 
           }
 
-
           const ghcrSbom =
             sbomStats(
               evidenceFiles.ghcrSbom
             );
-
 
           const dockerHubSbom =
             sbomStats(
               evidenceFiles.dockerHubSbom
             );
 
-
           const ghcrSignatureCount =
             countEntries(
               evidenceFiles.ghcrSignature
             );
-
 
           const dockerHubSignatureCount =
             countEntries(
               evidenceFiles.dockerHubSignature
             );
 
-
           const ghcrAttestationCount =
             countEntries(
               evidenceFiles.ghcrAttestation
             );
 
-
           const dockerHubAttestationCount =
             countEntries(
               evidenceFiles.dockerHubAttestation
             );
-
 
           const html = `<!doctype html>
 
@@ -877,198 +834,115 @@ jobs:
               Docker Security Enhancements Report
             </title>
 
-
             <style>
 
               body {
-
                 background:#07111f;
-
                 color:#f8fafc;
-
                 font-family:Arial,sans-serif;
-
                 padding:28px;
-
                 margin:0;
-
               }
-
 
               .container {
-
                 max-width:1100px;
-
                 margin:auto;
-
               }
-
 
               .panel {
-
                 background:#0d1a2b;
-
                 border:1px solid #263a56;
-
                 border-radius:18px;
-
                 padding:24px;
-
                 margin-bottom:20px;
-
               }
-
 
               h1 {
-
                 font-size:26px;
-
                 margin:0 0 10px;
-
               }
-
 
               h2 {
-
                 font-size:20px;
-
                 margin:0 0 12px;
-
               }
-
 
               .status {
-
                 font-weight:bold;
-
                 color:#34d399;
-
                 font-size:16px;
-
                 margin-bottom:14px;
-
               }
-
 
               .meta {
-
                 color:#a9b8cc;
-
                 line-height:1.8;
-
               }
 
-
               .grid {
-
                 display:grid;
-
                 grid-template-columns:
                   repeat(
                     auto-fit,
                     minmax(260px,1fr)
                   );
-
                 gap:14px;
-
               }
-
 
               .card {
-
                 background:#102138;
-
                 border:1px solid #263a56;
-
                 border-radius:12px;
-
                 padding:18px;
-
               }
-
 
               .label {
-
                 color:#8fa4bd;
-
                 font-size:12px;
-
                 text-transform:uppercase;
-
                 letter-spacing:.05em;
-
               }
-
 
               .value {
-
                 margin-top:7px;
-
                 font-size:18px;
-
                 font-weight:bold;
-
                 word-break:break-word;
-
               }
-
 
               .small {
-
                 color:#8fa4bd;
-
                 font-size:12px;
-
                 margin-top:7px;
-
                 line-height:1.6;
-
               }
-
 
               .success {
-
                 color:#34d399;
-
               }
-
 
               .file {
-
                 font-family:monospace;
-
                 font-size:12px;
-
                 word-break:break-all;
-
               }
 
-
               .notice {
-
                 background:#0b2035;
-
                 border-left:4px solid #60a5fa;
-
                 padding:15px;
-
                 border-radius:8px;
-
                 line-height:1.6;
-
                 color:#cbd5e1;
-
               }
 
             </style>
 
           </head>
 
-
           <body>
 
             <div class="container">
-
 
               <div class="panel">
 
@@ -1076,11 +950,9 @@ jobs:
                   Docker Security Enhancements
                 </h1>
 
-
                 <div class="status">
                   ✓ SECURITY VERIFICATION PASSED
                 </div>
-
 
                 <div class="meta">
 
@@ -1111,16 +983,13 @@ jobs:
 
               </div>
 
-
               <div class="panel">
 
                 <h2>
                   Cosign Image Signing
                 </h2>
 
-
                 <div class="grid">
-
 
                   <div class="card">
 
@@ -1151,7 +1020,6 @@ jobs:
                     </div>
 
                   </div>
-
 
                   <div class="card">
 
@@ -1185,11 +1053,9 @@ jobs:
 
                   </div>
 
-
                 </div>
 
               </div>
-
 
               <div class="panel">
 
@@ -1197,9 +1063,7 @@ jobs:
                   SPDX SBOM
                 </h2>
 
-
                 <div class="grid">
-
 
                   <div class="card">
 
@@ -1248,7 +1112,6 @@ jobs:
 
                   </div>
 
-
                   <div class="card">
 
                     <div class="label">
@@ -1296,11 +1159,9 @@ jobs:
 
                   </div>
 
-
                 </div>
 
               </div>
-
 
               <div class="panel">
 
@@ -1308,9 +1169,7 @@ jobs:
                   SBOM Attestation
                 </h2>
 
-
                 <div class="grid">
-
 
                   <div class="card">
 
@@ -1343,7 +1202,6 @@ jobs:
 
                   </div>
 
-
                   <div class="card">
 
                     <div class="label">
@@ -1375,18 +1233,15 @@ jobs:
 
                   </div>
 
-
                 </div>
 
               </div>
-
 
               <div class="panel">
 
                 <h2>
                   Downloadable Raw Evidence
                 </h2>
-
 
                 <div class="notice">
 
@@ -1420,12 +1275,9 @@ jobs:
 
                 </div>
 
-
                 <br>
 
-
                 <div class="grid">
-
 
                   ${evidence.map(file => `
 
@@ -1442,7 +1294,6 @@ jobs:
 
                       </div>
 
-
                       <div class="small">
 
                         Size:
@@ -1456,11 +1307,9 @@ jobs:
 
                   `).join("")}
 
-
                 </div>
 
               </div>
-
 
             </div>
 
@@ -1468,20 +1317,14 @@ jobs:
 
           </html>`;
 
-
           fs.writeFileSync(
-
             "reports/docker/docker-security-report.html",
-
             html
-
           );
-
 
           console.log(
             "Docker security HTML report generated successfully."
           );
-
 
           console.log(
             "HTML report size:",
@@ -1495,22 +1338,6 @@ jobs:
 
       # ==========================================================
       # VERIFY EMAIL ATTACHMENTS
-      # ==========================================================
-      #
-      # Security report:
-      #
-      #   REQUIRED
-      #
-      # Raw evidence ZIP:
-      #
-      #   REQUIRED
-      #
-      # Docker Build & Push report:
-      #
-      #   OPTIONAL
-      #
-      # This is intentional because Stage 1 is currently disabled.
-      #
       # ==========================================================
 
       - name: Verify email attachment files
@@ -1542,23 +1369,10 @@ jobs:
       # ==========================================================
       # UPLOAD COMPLETE DOCKER SECURITY EVIDENCE
       # ==========================================================
-      #
-      # This artifact contains:
-      #
-      # 1. docker-security-report.html
-      # 2. docker-security-raw-evidence.zip
-      # 3. sbom-ghcr.json
-      # 4. sbom-dockerhub.json
-      # 5. cosign-ghcr-verify.json
-      # 6. cosign-dockerhub-verify.json
-      # 7. attestation-ghcr.json
-      # 8. attestation-dockerhub.json
-      #
-      # ==========================================================
 
       - name: Upload Docker Security Evidence
         if: success()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: docker-security-evidence
           path: reports/docker/
@@ -1578,40 +1392,6 @@ jobs:
       # ==========================================================
       # EMAIL DOCKER SECURITY REPORT
       # ==========================================================
-      #
-      # FINAL EMAIL ATTACHMENT DESIGN:
-      #
-      # Attachment 1:
-      #   docker-build-push-report.html
-      #
-      #   OPTIONAL while Stage 1 is disabled.
-      #
-      #
-      # Attachment 2:
-      #   docker-security-report.html
-      #
-      #   ALWAYS ATTACHED.
-      #
-      #
-      # Attachment 3:
-      #   docker-security-raw-evidence.zip
-      #
-      #   ALWAYS ATTACHED.
-      #
-      #   Contains:
-      #
-      #     cosign-ghcr-verify.json
-      #     cosign-dockerhub-verify.json
-      #     sbom-ghcr.json
-      #     sbom-dockerhub.json
-      #     attestation-ghcr.json
-      #     attestation-dockerhub.json
-      #
-      #
-      # The individual JSON files are ALSO preserved inside the
-      # docker-security-evidence GitHub Actions artifact.
-      #
-      # ==========================================================
 
       - name: Email Docker Security Report
         if: success()
@@ -1629,7 +1409,6 @@ jobs:
           const fs =
             require("fs");
 
-
           const emailUser =
             process.env.EMAIL_USER;
 
@@ -1642,14 +1421,11 @@ jobs:
           const emailCc =
             process.env.QA_EMAIL_CC || "";
 
-
           const securityReportPath =
             "reports/docker/docker-security-report.html";
 
-
           const rawEvidenceZipPath =
             "reports/docker/docker-security-raw-evidence.zip";
-
 
           const dockerBuildReportPath =
             "reports/docker-build/docker-build-push-report.html";
@@ -1666,7 +1442,6 @@ jobs:
             );
 
           }
-
 
           if (
             !fs.existsSync(rawEvidenceZipPath) ||
@@ -1688,14 +1463,7 @@ jobs:
 
 
           // ======================================================
-          // ATTACHMENT 1 — DOCKER BUILD & PUSH REPORT
-          // ======================================================
-          //
-          // This is optional while Stage 1 is disabled.
-          //
-          // Once Stage 1 is enabled and its artifact exists,
-          // this automatically becomes the first attachment.
-          //
+          // OPTIONAL DOCKER BUILD & PUSH REPORT
           // ======================================================
 
           if (
@@ -1731,7 +1499,7 @@ jobs:
 
 
           // ======================================================
-          // ATTACHMENT 2 — SECURITY HTML REPORT
+          // SECURITY HTML REPORT
           // ======================================================
 
           attachments.push({
@@ -1746,7 +1514,7 @@ jobs:
 
 
           // ======================================================
-          // ATTACHMENT 3 — RAW SECURITY EVIDENCE
+          // RAW SECURITY EVIDENCE
           // ======================================================
 
           attachments.push({
@@ -1836,7 +1604,6 @@ jobs:
                 Docker Security Enhancements
               </h2>
 
-
               <p
                 style="
                   color:#059669;
@@ -1846,9 +1613,7 @@ jobs:
                 ✓ Security verification completed successfully
               </p>
 
-
               <hr>
-
 
               <p>
 
@@ -1860,7 +1625,6 @@ jobs:
 
               </p>
 
-
               <p>
 
                 <strong>
@@ -1870,7 +1634,6 @@ jobs:
                 ✓ Generated for GHCR and Docker Hub
 
               </p>
-
 
               <p>
 
@@ -1882,7 +1645,6 @@ jobs:
 
               </p>
 
-
               <p>
 
                 <strong>
@@ -1892,7 +1654,6 @@ jobs:
                 spdxjson
 
               </p>
-
 
               <p>
 
@@ -1904,14 +1665,11 @@ jobs:
 
               </p>
 
-
               <hr>
-
 
               <h3>
                 Attachments
               </h3>
-
 
               <p>
 
@@ -1925,7 +1683,6 @@ jobs:
 
               </p>
 
-
               <p>
 
                 <strong>
@@ -1935,7 +1692,6 @@ jobs:
                 ✓ Attached
 
               </p>
-
 
               <p>
 
@@ -1950,9 +1706,7 @@ jobs:
 
               </p>
 
-
               <hr>
-
 
               <p>
 
@@ -1966,7 +1720,6 @@ jobs:
 
               </p>
 
-
               <p>
 
                 The same raw evidence is also preserved
@@ -1977,7 +1730,6 @@ jobs:
                 </strong>
 
               </p>
-
 
               <p>
 
@@ -2020,7 +1772,6 @@ jobs:
 
             });
 
-
             console.log("");
             console.log(
               "=============================================="
@@ -2037,7 +1788,6 @@ jobs:
             console.log(
               "=============================================="
             );
-
 
           })().catch(error => {
 
