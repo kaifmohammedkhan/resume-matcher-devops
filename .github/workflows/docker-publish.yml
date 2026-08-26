@@ -129,7 +129,8 @@ jobs:
 
       - name: Install Nodemailer
         if: success()
-        run: npm install nodemailer@9.0.3
+        run: |
+          npm install nodemailer@9.0.3
 
 
       # ========================================================
@@ -155,6 +156,8 @@ jobs:
   # STAGE 2 — SECURITY ENHANCEMENTS
   # ============================================================
   #
+  # Stage 2 starts ONLY after Stage 1 completes successfully.
+  #
   # This stage works against the EXISTING images already present
   # in GHCR and Docker Hub.
   #
@@ -165,6 +168,7 @@ jobs:
 
   security-enhancements:
     name: Security Enhancements
+    needs: build-and-push
     runs-on: ubuntu-latest
 
     permissions:
@@ -191,28 +195,10 @@ jobs:
       # IMPORTANT — DOCKER BUILD REPORT
       # ==========================================================
       #
-      # Stage 1 is intentionally disabled.
+      # Stage 1 is now enabled.
       #
-      # Therefore there is NO docker-build-push-report artifact
-      # to download during this job.
-      #
-      # We intentionally DO NOT use actions/download-artifact here.
-      #
-      # This prevents:
-      #
-      #   Warning: Unexpected input(s) 'if-no-artifact-found'
-      #
-      # and:
-      #
-      #   Error: Artifact not found for name:
-      #   docker-build-push-report
-      #
-      # The email logic below already treats the Docker Build &
-      # Push report as OPTIONAL.
-      #
-      # When Stage 1 is re-enabled, the artifact download logic
-      # should be reintroduced together with an explicit job
-      # dependency on build-and-push.
+      # Therefore the docker-build-push-report artifact is
+      # produced by Stage 1 before this job starts.
       #
       # ==========================================================
 
