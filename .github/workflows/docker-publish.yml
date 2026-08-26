@@ -103,16 +103,589 @@ jobs:
 
 
       # ========================================================
-      # DOCKER BUILD REPORT
+      # DOCKER BUILD & PUSH REPORT
       # ========================================================
 
       - name: Generate Docker Build & Push HTML Report
         if: success()
+        env:
+          DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
         run: |
+          set -e
+
           mkdir -p reports/docker
 
-          # Existing Docker build report script goes here.
+          node --input-type=commonjs <<'NODE'
 
+          const fs = require("fs");
+
+          const repo =
+            process.env.GITHUB_REPOSITORY || "N/A";
+
+          const branch =
+            process.env.GITHUB_REF_NAME || "N/A";
+
+          const commit =
+            process.env.GITHUB_SHA || "N/A";
+
+          const shortCommit =
+            commit.substring(0, 7);
+
+          const runNumber =
+            process.env.GITHUB_RUN_NUMBER || "N/A";
+
+          const workflow =
+            process.env.GITHUB_WORKFLOW || "N/A";
+
+          const actor =
+            process.env.GITHUB_ACTOR || "N/A";
+
+          const dockerHubUsername =
+            process.env.DOCKERHUB_USERNAME || "N/A";
+
+          const imageDigest =
+            process.env.IMAGE_DIGEST || "N/A";
+
+          const generatedAt =
+            new Date().toISOString();
+
+          const tags =
+            (process.env.IMAGE_TAGS || "")
+              .split("\n")
+              .map(v => v.trim())
+              .filter(Boolean);
+
+          function escapeHtml(value) {
+
+            return String(value)
+              .replace(/&/g, "&amp;")
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;")
+              .replace(/"/g, "&quot;")
+              .replace(/'/g, "&#039;");
+
+          }
+
+          function fileSize(file) {
+
+            const bytes =
+              fs.statSync(file).size;
+
+            if (bytes < 1024) {
+              return `${bytes} B`;
+            }
+
+            if (bytes < 1024 * 1024) {
+              return `${(bytes / 1024).toFixed(1)} KB`;
+            }
+
+            return `${(
+              bytes /
+              (1024 * 1024)
+            ).toFixed(2)} MB`;
+
+          }
+
+          const ghcrImage =
+            `ghcr.io/${repo}`;
+
+          const dockerHubImage =
+            `${dockerHubUsername}/resume-matcher-devops`;
+
+          const tagHtml =
+            tags.length
+              ? tags.map(tag => `
+                  <div class="tag">
+                    ${escapeHtml(tag)}
+                  </div>
+                `).join("")
+              : `
+                  <div class="tag">
+                    No tags reported
+                  </div>
+                `;
+
+          const html = `<!doctype html>
+
+          <html lang="en">
+
+          <head>
+
+            <meta charset="utf-8">
+
+            <meta
+              name="viewport"
+              content="width=device-width,initial-scale=1"
+            >
+
+            <title>
+              Docker Build & Push Report
+            </title>
+
+            <style>
+
+              body {
+                background:#07111f;
+                color:#f8fafc;
+                font-family:Arial,sans-serif;
+                padding:28px;
+                margin:0;
+              }
+
+              .container {
+                max-width:1100px;
+                margin:auto;
+              }
+
+              .panel {
+                background:#0d1a2b;
+                border:1px solid #263a56;
+                border-radius:18px;
+                padding:24px;
+                margin-bottom:20px;
+              }
+
+              h1 {
+                font-size:28px;
+                margin:0 0 10px;
+              }
+
+              h2 {
+                font-size:20px;
+                margin:0 0 16px;
+              }
+
+              .status {
+                color:#34d399;
+                font-size:17px;
+                font-weight:bold;
+                margin-bottom:16px;
+              }
+
+              .meta {
+                color:#a9b8cc;
+                line-height:1.9;
+              }
+
+              .grid {
+                display:grid;
+                grid-template-columns:
+                  repeat(
+                    auto-fit,
+                    minmax(260px,1fr)
+                  );
+                gap:14px;
+              }
+
+              .card {
+                background:#102138;
+                border:1px solid #263a56;
+                border-radius:12px;
+                padding:18px;
+              }
+
+              .label {
+                color:#8fa4bd;
+                font-size:12px;
+                text-transform:uppercase;
+                letter-spacing:.05em;
+              }
+
+              .value {
+                margin-top:8px;
+                font-size:18px;
+                font-weight:bold;
+                word-break:break-word;
+              }
+
+              .success {
+                color:#34d399;
+              }
+
+              .small {
+                color:#a9b8cc;
+                font-size:13px;
+                line-height:1.7;
+                margin-top:10px;
+                word-break:break-word;
+              }
+
+              .digest {
+                font-family:monospace;
+                font-size:12px;
+                word-break:break-all;
+                background:#091525;
+                padding:10px;
+                border-radius:8px;
+                margin-top:8px;
+              }
+
+              .tag {
+                font-family:monospace;
+                font-size:13px;
+                background:#091525;
+                border:1px solid #263a56;
+                border-radius:8px;
+                padding:10px;
+                margin-bottom:8px;
+                word-break:break-all;
+              }
+
+              .notice {
+                background:#0b2035;
+                border-left:4px solid #60a5fa;
+                padding:16px;
+                border-radius:8px;
+                line-height:1.7;
+                color:#cbd5e1;
+              }
+
+            </style>
+
+          </head>
+
+          <body>
+
+            <div class="container">
+
+              <div class="panel">
+
+                <h1>
+                  Docker Build & Push Report
+                </h1>
+
+                <div class="status">
+                  ✓ BUILD AND PUSH COMPLETED SUCCESSFULLY
+                </div>
+
+                <div class="meta">
+
+                  Repository:
+                  ${escapeHtml(repo)}
+
+                  <br>
+
+                  Branch:
+                  ${escapeHtml(branch)}
+
+                  <br>
+
+                  Commit:
+                  ${escapeHtml(shortCommit)}
+
+                  <br>
+
+                  Workflow Run:
+                  #${escapeHtml(runNumber)}
+
+                  <br>
+
+                  Workflow:
+                  ${escapeHtml(workflow)}
+
+                  <br>
+
+                  Actor:
+                  ${escapeHtml(actor)}
+
+                  <br>
+
+                  Generated:
+                  ${escapeHtml(generatedAt)}
+
+                </div>
+
+              </div>
+
+
+              <div class="panel">
+
+                <h2>
+                  Image Registries
+                </h2>
+
+                <div class="grid">
+
+                  <div class="card">
+
+                    <div class="label">
+                      GitHub Container Registry
+                    </div>
+
+                    <div class="value success">
+                      ✓ PUSHED
+                    </div>
+
+                    <div class="small">
+
+                      Image:
+
+                      <br>
+
+                      ${escapeHtml(ghcrImage)}
+
+                      <br><br>
+
+                      Registry:
+
+                      ghcr.io
+
+                    </div>
+
+                  </div>
+
+
+                  <div class="card">
+
+                    <div class="label">
+                      Docker Hub
+                    </div>
+
+                    <div class="value success">
+                      ✓ PUSHED
+                    </div>
+
+                    <div class="small">
+
+                      Image:
+
+                      <br>
+
+                      ${escapeHtml(dockerHubImage)}
+
+                      <br><br>
+
+                      Registry:
+
+                      Docker Hub
+
+                    </div>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+
+              <div class="panel">
+
+                <h2>
+                  Multi-Architecture Build
+                </h2>
+
+                <div class="grid">
+
+                  <div class="card">
+
+                    <div class="label">
+                      Platform
+                    </div>
+
+                    <div class="value">
+                      linux/amd64
+                    </div>
+
+                    <div class="small">
+                      Successfully included in
+                      the multi-platform image.
+                    </div>
+
+                  </div>
+
+
+                  <div class="card">
+
+                    <div class="label">
+                      Platform
+                    </div>
+
+                    <div class="value">
+                      linux/arm64
+                    </div>
+
+                    <div class="small">
+                      Successfully included in
+                      the multi-platform image.
+                    </div>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+
+              <div class="panel">
+
+                <h2>
+                  Image Digest
+                </h2>
+
+                <div class="digest">
+                  ${escapeHtml(imageDigest)}
+                </div>
+
+                <div class="small">
+                  Digest reported directly by
+                  docker/build-push-action.
+                </div>
+
+              </div>
+
+
+              <div class="panel">
+
+                <h2>
+                  Published Tags
+                </h2>
+
+                ${tagHtml}
+
+              </div>
+
+
+              <div class="panel">
+
+                <h2>
+                  Build Result
+                </h2>
+
+                <div class="grid">
+
+                  <div class="card">
+
+                    <div class="label">
+                      Docker Build
+                    </div>
+
+                    <div class="value success">
+                      ✓ SUCCESS
+                    </div>
+
+                    <div class="small">
+                      Multi-architecture Docker
+                      image build completed.
+                    </div>
+
+                  </div>
+
+
+                  <div class="card">
+
+                    <div class="label">
+                      GHCR Push
+                    </div>
+
+                    <div class="value success">
+                      ✓ SUCCESS
+                    </div>
+
+                    <div class="small">
+                      Image published to GitHub
+                      Container Registry.
+                    </div>
+
+                  </div>
+
+
+                  <div class="card">
+
+                    <div class="label">
+                      Docker Hub Push
+                    </div>
+
+                    <div class="value success">
+                      ✓ SUCCESS
+                    </div>
+
+                    <div class="small">
+                      Image published to Docker Hub.
+                    </div>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+
+              <div class="panel">
+
+                <h2>
+                  Pipeline Flow
+                </h2>
+
+                <div class="notice">
+
+                  Stage 1 completed the Docker build
+                  and pushed the resulting multi-architecture
+                  image to both GHCR and Docker Hub.
+
+                  <br><br>
+
+                  Stage 2 runs only after this stage
+                  succeeds and performs image signing,
+                  Cosign verification, SPDX SBOM generation,
+                  and SBOM attestation verification.
+
+                </div>
+
+              </div>
+
+            </div>
+
+          </body>
+
+          </html>`;
+
+          const output =
+            "reports/docker/docker-build-push-report.html";
+
+          fs.writeFileSync(
+            output,
+            html
+          );
+
+          console.log(
+            "Docker Build & Push HTML report generated successfully."
+          );
+
+          console.log(
+            `Report: ${output}`
+          );
+
+          console.log(
+            `Report size: ${fileSize(output)}`
+          );
+
+          NODE
+
+
+      # ========================================================
+      # VERIFY DOCKER BUILD REPORT
+      # ========================================================
+
+      - name: Verify Docker Build & Push Report
+        if: success()
+        run: |
+          set -e
+
+          test -s reports/docker/docker-build-push-report.html
+
+          echo "=============================================="
+          echo "DOCKER BUILD & PUSH REPORT VERIFIED"
+          echo "=============================================="
+
+          ls -lh \
+            reports/docker/docker-build-push-report.html
+
+
+      # ========================================================
+      # UPLOAD DOCKER BUILD REPORT
+      # ========================================================
 
       - name: Upload Docker Build & Push Report
         if: success()
@@ -134,7 +707,7 @@ jobs:
 
 
       # ========================================================
-      # EMAIL
+      # EMAIL DOCKER BUILD REPORT
       # ========================================================
 
       - name: Email Docker Build & Push Report
@@ -147,23 +720,148 @@ jobs:
         run: |
           node --input-type=commonjs <<'NODE'
 
-          // Existing email script goes here.
+          const nodemailer =
+            require("nodemailer");
+
+          const fs =
+            require("fs");
+
+          const reportPath =
+            "reports/docker/docker-build-push-report.html";
+
+          if (
+            !fs.existsSync(reportPath) ||
+            fs.statSync(reportPath).size === 0
+          ) {
+
+            throw new Error(
+              "Docker Build & Push HTML report does not exist or is empty."
+            );
+
+          }
+
+          const transporter =
+            nodemailer.createTransport({
+
+              service: "gmail",
+
+              auth: {
+
+                user:
+                  process.env.EMAIL_USER,
+
+                pass:
+                  process.env.EMAIL_PASS
+
+              }
+
+            });
+
+          const html = `
+
+            <div
+              style="
+                font-family:Arial,sans-serif;
+                max-width:700px;
+                margin:auto;
+                color:#1f2937;
+              "
+            >
+
+              <h2>
+                Docker Build & Push Report
+              </h2>
+
+              <p
+                style="
+                  color:#059669;
+                  font-weight:bold;
+                "
+              >
+                ✓ Docker image build and push completed successfully
+              </p>
+
+              <hr>
+
+              <p>
+                <strong>
+                  GHCR:
+                </strong>
+                ✓ Image pushed successfully
+              </p>
+
+              <p>
+                <strong>
+                  Docker Hub:
+                </strong>
+                ✓ Image pushed successfully
+              </p>
+
+              <p>
+                <strong>
+                  Platforms:
+                </strong>
+                linux/amd64, linux/arm64
+              </p>
+
+              <p>
+                The complete HTML build and push report
+                is attached to this email.
+              </p>
+
+            </div>
+
+          `;
+
+          (async () => {
+
+            await transporter.sendMail({
+
+              from:
+                process.env.EMAIL_USER,
+
+              to:
+                process.env.QA_EMAIL_TO,
+
+              cc:
+                process.env.QA_EMAIL_CC || "",
+
+              subject:
+                "Docker Build & Push Report",
+
+              html,
+
+              attachments: [
+
+                {
+                  filename:
+                    "docker-build-push-report.html",
+
+                  path:
+                    reportPath
+                }
+
+              ]
+
+            });
+
+            console.log(
+              "Docker Build & Push report email sent successfully."
+            );
+
+          })().catch(error => {
+
+            console.error(error);
+
+            process.exit(1);
+
+          });
 
           NODE
 
 
   # ============================================================
   # STAGE 2 — SECURITY ENHANCEMENTS
-  # ============================================================
-  #
-  # Stage 2 starts ONLY after Stage 1 completes successfully.
-  #
-  # This stage works against the EXISTING images already present
-  # in GHCR and Docker Hub.
-  #
-  # No Docker build occurs here.
-  # No Docker push occurs here.
-  #
   # ============================================================
 
   security-enhancements:
@@ -174,8 +872,6 @@ jobs:
     permissions:
       contents: read
       packages: write
-
-      # REQUIRED FOR COSIGN KEYLESS SIGNING
       id-token: write
 
     steps:
@@ -192,32 +888,37 @@ jobs:
 
 
       # ==========================================================
-      # IMPORTANT — DOCKER BUILD REPORT
+      # DOWNLOAD STAGE 1 BUILD REPORT
       # ==========================================================
-      #
-      # Stage 1 is now enabled.
-      #
-      # Therefore the docker-build-push-report artifact is
-      # produced by Stage 1 before this job starts.
-      #
+
+      - name: Download Docker Build & Push Report
+        uses: actions/download-artifact@v6
+        with:
+          name: docker-build-push-report
+          path: reports/docker-build
+
+
       # ==========================================================
+      # VERIFY STAGE 1 BUILD REPORT
+      # ==========================================================
+
+      - name: Verify Docker Build & Push Report
+        run: |
+          set -e
+
+          test -s \
+            reports/docker-build/docker-build-push-report.html
+
+          echo "=============================================="
+          echo "STAGE 1 BUILD REPORT FOUND"
+          echo "=============================================="
+
+          ls -lh \
+            reports/docker-build/docker-build-push-report.html
 
 
       # ==========================================================
       # INSTALL COSIGN
-      # ==========================================================
-      #
-      # IMPORTANT:
-      #
-      # Do NOT configure certificate identity variables globally.
-      #
-      # The Cosign installer verifies the Cosign release itself.
-      # Its release certificate identity is different from the
-      # certificate identity generated by this GitHub Actions run.
-      #
-      # Therefore certificate identity parameters are supplied
-      # ONLY to our image/attestation verification commands below.
-      #
       # ==========================================================
 
       - name: Install Cosign
@@ -352,8 +1053,6 @@ jobs:
           echo "=============================================="
           echo "GHCR Cosign verification PASSED"
           echo "=============================================="
-          echo "Evidence:"
-          echo "reports/docker/cosign-ghcr-verify.json"
 
 
       # ==========================================================
@@ -375,8 +1074,6 @@ jobs:
           echo "=============================================="
           echo "Docker Hub Cosign verification PASSED"
           echo "=============================================="
-          echo "Evidence:"
-          echo "reports/docker/cosign-dockerhub-verify.json"
 
 
       # ==========================================================
@@ -436,14 +1133,6 @@ jobs:
       # ==========================================================
       # COSIGN SBOM ATTESTATION — GHCR
       # ==========================================================
-      #
-      # SPDX JSON is the actual predicate.
-      #
-      # Therefore the predicate type is:
-      #
-      #   spdxjson
-      #
-      # ==========================================================
 
       - name: Cosign Attest SPDX SBOM — GHCR
         if: success()
@@ -495,8 +1184,6 @@ jobs:
           echo "=============================================="
           echo "GHCR SPDX attestation verification PASSED"
           echo "=============================================="
-          echo "Evidence:"
-          echo "reports/docker/attestation-ghcr.json"
 
 
       # ==========================================================
@@ -519,8 +1206,6 @@ jobs:
           echo "=============================================="
           echo "Docker Hub SPDX attestation verification PASSED"
           echo "=============================================="
-          echo "Evidence:"
-          echo "reports/docker/attestation-dockerhub.json"
 
 
       # ==========================================================
@@ -590,8 +1275,6 @@ jobs:
           echo "RAW SECURITY EVIDENCE ZIP CREATED"
           echo "=============================================="
 
-          unzip -l reports/docker/docker-security-raw-evidence.zip
-
 
       # ==========================================================
       # GENERATE SECURITY ENHANCEMENTS HTML REPORT
@@ -602,8 +1285,6 @@ jobs:
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
         run: |
-          mkdir -p reports/docker
-
           node --input-type=commonjs <<'NODE'
 
           const fs = require("fs");
@@ -789,6 +1470,13 @@ jobs:
               evidenceFiles.dockerHubAttestation
             );
 
+          const buildReportPath =
+            "reports/docker-build/docker-build-push-report.html";
+
+          const buildReportAvailable =
+            fs.existsSync(buildReportPath) &&
+            fs.statSync(buildReportPath).size > 0;
+
           const html = `<!doctype html>
 
           <html lang="en">
@@ -955,6 +1643,84 @@ jobs:
 
               </div>
 
+
+              <div class="panel">
+
+                <h2>
+                  Docker Build & Push
+                </h2>
+
+                <div class="grid">
+
+                  <div class="card">
+
+                    <div class="label">
+                      Build & Push Report
+                    </div>
+
+                    <div class="value success">
+                      ${buildReportAvailable
+                        ? "✓ AVAILABLE"
+                        : "✗ NOT FOUND"}
+                    </div>
+
+                    <div class="small">
+
+                      Stage 1 report:
+
+                      <br>
+
+                      <span class="file">
+                        docker-build-push-report.html
+                      </span>
+
+                    </div>
+
+                  </div>
+
+                  <div class="card">
+
+                    <div class="label">
+                      GHCR
+                    </div>
+
+                    <div class="value success">
+                      ✓ VERIFIED
+                    </div>
+
+                    <div class="small">
+
+                      ghcr.io/${escapeHtml(repo)}:latest
+
+                    </div>
+
+                  </div>
+
+                  <div class="card">
+
+                    <div class="label">
+                      Docker Hub
+                    </div>
+
+                    <div class="value success">
+                      ✓ VERIFIED
+                    </div>
+
+                    <div class="small">
+
+                      ${escapeHtml(
+                        dockerHubUsername
+                      )}/resume-matcher-devops:latest
+
+                    </div>
+
+                  </div>
+
+                </div>
+
+              </div>
+
+
               <div class="panel">
 
                 <h2>
@@ -974,10 +1740,6 @@ jobs:
                     </div>
 
                     <div class="small">
-
-                      ghcr.io/${escapeHtml(repo)}:latest
-
-                      <br>
 
                       Verification records:
                       ${ghcrSignatureCount}
@@ -1005,12 +1767,6 @@ jobs:
 
                     <div class="small">
 
-                      ${escapeHtml(
-                        dockerHubUsername
-                      )}/resume-matcher-devops:latest
-
-                      <br>
-
                       Verification records:
                       ${dockerHubSignatureCount}
 
@@ -1028,6 +1784,7 @@ jobs:
                 </div>
 
               </div>
+
 
               <div class="panel">
 
@@ -1073,13 +1830,6 @@ jobs:
                         )
                       )}
 
-                      <br>
-
-                      Evidence:
-                      <span class="file">
-                        sbom-ghcr.json
-                      </span>
-
                     </div>
 
                   </div>
@@ -1120,13 +1870,6 @@ jobs:
                         )
                       )}
 
-                      <br>
-
-                      Evidence:
-                      <span class="file">
-                        sbom-dockerhub.json
-                      </span>
-
                     </div>
 
                   </div>
@@ -1134,6 +1877,7 @@ jobs:
                 </div>
 
               </div>
+
 
               <div class="panel">
 
@@ -1163,13 +1907,6 @@ jobs:
                       Verification records:
                       ${ghcrAttestationCount}
 
-                      <br>
-
-                      Evidence:
-                      <span class="file">
-                        attestation-ghcr.json
-                      </span>
-
                     </div>
 
                   </div>
@@ -1194,13 +1931,6 @@ jobs:
                       Verification records:
                       ${dockerHubAttestationCount}
 
-                      <br>
-
-                      Evidence:
-                      <span class="file">
-                        attestation-dockerhub.json
-                      </span>
-
                     </div>
 
                   </div>
@@ -1208,6 +1938,7 @@ jobs:
                 </div>
 
               </div>
+
 
               <div class="panel">
 
@@ -1217,13 +1948,8 @@ jobs:
 
                 <div class="notice">
 
-                  The HTML report intentionally contains
-                  summary information only.
-
-                  <br><br>
-
-                  The complete machine-readable evidence
-                  remains available in the GitHub Actions
+                  The complete machine-readable security
+                  evidence is preserved in the GitHub Actions
                   artifact:
 
                   <strong>
@@ -1232,52 +1958,19 @@ jobs:
 
                   <br><br>
 
-                  The email also includes the complete raw
-                  security evidence as:
+                  The Docker Build & Push report from Stage 1
+                  is also preserved as:
 
                   <strong>
-                    docker-security-raw-evidence.zip
+                    docker-build-push-report
                   </strong>
 
                   <br><br>
 
-                  The ZIP contains the complete raw Cosign
-                  verification records, SPDX SBOMs, and
-                  SBOM attestation verification records.
-
-                </div>
-
-                <br>
-
-                <div class="grid">
-
-                  ${evidence.map(file => `
-
-                    <div class="card">
-
-                      <div class="file">
-
-                        ${escapeHtml(
-                          file.replace(
-                            "reports/docker/",
-                            ""
-                          )
-                        )}
-
-                      </div>
-
-                      <div class="small">
-
-                        Size:
-                        ${escapeHtml(
-                          fileSize(file)
-                        )}
-
-                      </div>
-
-                    </div>
-
-                  `).join("")}
+                  The raw security evidence ZIP contains
+                  the complete Cosign verification records,
+                  SPDX SBOMs, and SBOM attestation verification
+                  records.
 
                 </div>
 
@@ -1298,18 +1991,11 @@ jobs:
             "Docker security HTML report generated successfully."
           );
 
-          console.log(
-            "HTML report size:",
-            fileSize(
-              "reports/docker/docker-security-report.html"
-            )
-          );
-
           NODE
 
 
       # ==========================================================
-      # VERIFY EMAIL ATTACHMENTS
+      # VERIFY EMAIL ATTACHMENT FILES
       # ==========================================================
 
       - name: Verify email attachment files
@@ -1319,23 +2005,26 @@ jobs:
 
           test -s reports/docker/docker-security-report.html
           test -s reports/docker/docker-security-raw-evidence.zip
+          test -s reports/docker-build/docker-build-push-report.html
 
-          echo "Required email attachment:"
-          ls -lh reports/docker/docker-security-report.html
-
-          echo ""
-          echo "Required raw evidence attachment:"
-          ls -lh reports/docker/docker-security-raw-evidence.zip
+          echo "=============================================="
+          echo "EMAIL ATTACHMENTS VERIFIED"
+          echo "=============================================="
 
           echo ""
+          echo "Docker Build & Push report:"
+          ls -lh \
+            reports/docker-build/docker-build-push-report.html
 
-          if [ -s reports/docker-build/docker-build-push-report.html ]; then
-            echo "Optional Docker Build & Push report FOUND:"
-            ls -lh reports/docker-build/docker-build-push-report.html
-          else
-            echo "Docker Build & Push report NOT FOUND."
-            echo "This is expected while Stage 1 is disabled."
-          fi
+          echo ""
+          echo "Docker Security report:"
+          ls -lh \
+            reports/docker/docker-security-report.html
+
+          echo ""
+          echo "Raw security evidence:"
+          ls -lh \
+            reports/docker/docker-security-raw-evidence.zip
 
 
       # ==========================================================
@@ -1347,7 +2036,9 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: docker-security-evidence
-          path: reports/docker/
+          path: |
+            reports/docker/
+            reports/docker-build/
           retention-days: 14
 
 
@@ -1407,132 +2098,32 @@ jobs:
           // REQUIRED FILES
           // ======================================================
 
-          if (!fs.existsSync(securityReportPath)) {
+          const requiredFiles = [
 
-            throw new Error(
-              "Docker security HTML report does not exist."
-            );
+            securityReportPath,
 
-          }
+            rawEvidenceZipPath,
 
-          if (
-            !fs.existsSync(rawEvidenceZipPath) ||
-            fs.statSync(rawEvidenceZipPath).size === 0
-          ) {
+            dockerBuildReportPath
 
-            throw new Error(
-              "Docker security raw evidence ZIP does not exist or is empty."
-            );
-
-          }
-
-
-          // ======================================================
-          // BUILD ATTACHMENT LIST
-          // ======================================================
-
-          const attachments = [];
-
-
-          // ======================================================
-          // OPTIONAL DOCKER BUILD & PUSH REPORT
-          // ======================================================
-
-          if (
-            fs.existsSync(dockerBuildReportPath) &&
-            fs.statSync(dockerBuildReportPath).size > 0
-          ) {
-
-            attachments.push({
-
-              filename:
-                "docker-build-push-report.html",
-
-              path:
-                dockerBuildReportPath
-
-            });
-
-            console.log(
-              "Attachment added: docker-build-push-report.html"
-            );
-
-          } else {
-
-            console.log(
-              "Docker Build & Push report not available."
-            );
-
-            console.log(
-              "This is expected while Stage 1 is disabled."
-            );
-
-          }
-
-
-          // ======================================================
-          // SECURITY HTML REPORT
-          // ======================================================
-
-          attachments.push({
-
-            filename:
-              "docker-security-report.html",
-
-            path:
-              securityReportPath
-
-          });
-
-
-          // ======================================================
-          // RAW SECURITY EVIDENCE
-          // ======================================================
-
-          attachments.push({
-
-            filename:
-              "docker-security-raw-evidence.zip",
-
-            path:
-              rawEvidenceZipPath
-
-          });
-
-
-          // ======================================================
-          // LOG ATTACHMENTS
-          // ======================================================
-
-          console.log("");
-          console.log(
-            "=============================================="
-          );
-          console.log(
-            "EMAIL ATTACHMENTS"
-          );
-          console.log(
-            "=============================================="
-          );
+          ];
 
           for (
-            const attachment of attachments
+            const file of requiredFiles
           ) {
 
-            const size =
-              fs.statSync(
-                attachment.path
-              ).size;
+            if (
+              !fs.existsSync(file) ||
+              fs.statSync(file).size === 0
+            ) {
 
-            console.log(
-              `${attachment.filename} - ${size} bytes`
-            );
+              throw new Error(
+                `Required email attachment missing or empty: ${file}`
+              );
+
+            }
 
           }
-
-          console.log(
-            "=============================================="
-          );
 
 
           // ======================================================
@@ -1573,7 +2164,7 @@ jobs:
             >
 
               <h2>
-                Docker Security Enhancements
+                Docker Build, Push & Security Report
               </h2>
 
               <p
@@ -1582,10 +2173,40 @@ jobs:
                   font-weight:bold;
                 "
               >
-                ✓ Security verification completed successfully
+                ✓ Complete Docker pipeline completed successfully
               </p>
 
               <hr>
+
+              <p>
+
+                <strong>
+                  Docker Build:
+                </strong>
+
+                ✓ Multi-architecture build completed
+
+              </p>
+
+              <p>
+
+                <strong>
+                  GHCR:
+                </strong>
+
+                ✓ Image pushed and subsequently verified
+
+              </p>
+
+              <p>
+
+                <strong>
+                  Docker Hub:
+                </strong>
+
+                ✓ Image pushed and subsequently verified
+
+              </p>
 
               <p>
 
@@ -1649,9 +2270,7 @@ jobs:
                   Docker Build & Push Report:
                 </strong>
 
-                ${fs.existsSync(dockerBuildReportPath)
-                  ? "✓ Attached"
-                  : "Not attached — Stage 1 is currently disabled"}
+                ✓ Attached
 
               </p>
 
@@ -1672,6 +2291,7 @@ jobs:
                 </strong>
 
                 ✓ Attached as
+
                 <code>
                   docker-security-raw-evidence.zip
                 </code>
@@ -1682,8 +2302,21 @@ jobs:
 
               <p>
 
+                The Docker Build & Push HTML report contains
+                the actual Stage 1 build and registry publication
+                information.
+
+              </p>
+
+              <p>
+
                 The Docker Security HTML report contains
-                the lightweight security summary.
+                the Stage 2 signing, SBOM, and attestation
+                verification summary.
+
+              </p>
+
+              <p>
 
                 The raw evidence ZIP contains the complete
                 machine-readable Cosign verification records,
@@ -1694,20 +2327,12 @@ jobs:
 
               <p>
 
-                The same raw evidence is also preserved
-                individually in the GitHub Actions artifact:
+                The same evidence is preserved in the GitHub
+                Actions artifact:
 
                 <strong>
                   docker-security-evidence
                 </strong>
-
-              </p>
-
-              <p>
-
-                This allows the evidence to be independently
-                downloaded and inspected without relying only
-                on the HTML summary.
 
               </p>
 
@@ -1734,13 +2359,41 @@ jobs:
                 emailCc,
 
               subject:
-                "Docker Security Enhancements Report",
+                "Docker Build, Push & Security Report",
 
               html:
                 summaryHtml,
 
-              attachments:
-                attachments
+              attachments: [
+
+                {
+                  filename:
+                    "docker-build-push-report.html",
+
+                  path:
+                    dockerBuildReportPath
+
+                },
+
+                {
+                  filename:
+                    "docker-security-report.html",
+
+                  path:
+                    securityReportPath
+
+                },
+
+                {
+                  filename:
+                    "docker-security-raw-evidence.zip",
+
+                  path:
+                    rawEvidenceZipPath
+
+                }
+
+              ]
 
             });
 
@@ -1750,21 +2403,22 @@ jobs:
             );
 
             console.log(
-              "Docker security email sent successfully."
+              "Docker build and security email sent successfully."
             );
 
             console.log(
-              `Total attachments: ${attachments.length}`
+              "Total attachments: 3"
             );
 
             console.log(
               "=============================================="
+
             );
 
           })().catch(error => {
 
             console.error(
-              "Failed to email Docker security report:"
+              "Failed to email Docker build/security report:"
             );
 
             console.error(error);
