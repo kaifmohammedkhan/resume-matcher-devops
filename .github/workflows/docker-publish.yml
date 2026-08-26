@@ -20,6 +20,13 @@ jobs:
   # This prevents unnecessary Docker image builds and pushes
   # while Cosign / Syft / SBOM attestation are being tested.
   #
+  # When re-enabled, this stage produces:
+  #
+  #   docker-build-push-report.html
+  #
+  # That report is automatically picked up by the Security
+  # Enhancements email if the artifact exists.
+  #
   # ============================================================
 
   # build-and-push:
@@ -35,24 +42,31 @@ jobs:
   #     # ========================================================
   #     # CHECKOUT
   #     # ========================================================
+  #
   #     - name: Checkout repository
   #       uses: actions/checkout@v4
+  #
   #
   #     # ========================================================
   #     # QEMU
   #     # ========================================================
+  #
   #     - name: Set up QEMU
   #       uses: docker/setup-qemu-action@v3
+  #
   #
   #     # ========================================================
   #     # DOCKER BUILDX
   #     # ========================================================
+  #
   #     - name: Set up Docker Buildx
   #       uses: docker/setup-buildx-action@v3
+  #
   #
   #     # ========================================================
   #     # GHCR LOGIN
   #     # ========================================================
+  #
   #     - name: Log in to GitHub Container Registry
   #       uses: docker/login-action@v3
   #       with:
@@ -60,18 +74,22 @@ jobs:
   #         username: ${{ github.actor }}
   #         password: ${{ secrets.GITHUB_TOKEN }}
   #
+  #
   #     # ========================================================
   #     # DOCKER HUB LOGIN
   #     # ========================================================
+  #
   #     - name: Log in to Docker Hub
   #       uses: docker/login-action@v3
   #       with:
   #         username: ${{ secrets.DOCKERHUB_USERNAME }}
   #         password: ${{ secrets.DOCKERHUB_TOKEN }}
   #
+  #
   #     # ========================================================
   #     # DOCKER IMAGE METADATA
   #     # ========================================================
+  #
   #     - name: Extract metadata (tags, labels) for Docker
   #       id: meta
   #       uses: docker/metadata-action@v5
@@ -83,9 +101,11 @@ jobs:
   #           type=raw,value=latest
   #           type=sha,format=short
   #
+  #
   #     # ========================================================
   #     # BUILD AND PUSH
   #     # ========================================================
+  #
   #     - name: Build and push Docker image
   #       id: build
   #       uses: docker/build-push-action@v5
@@ -98,14 +118,18 @@ jobs:
   #         cache-from: type=gha
   #         cache-to: type=gha,mode=max
   #
+  #
   #     # ========================================================
   #     # DOCKER BUILD REPORT
   #     # ========================================================
+  #
   #     - name: Generate Docker Build & Push HTML Report
   #       if: success()
   #       run: |
   #         mkdir -p reports/docker
+  #
   #         # Existing Docker build report script goes here.
+  #
   #
   #     - name: Upload Docker Build & Push Report
   #       if: success()
@@ -115,9 +139,19 @@ jobs:
   #         path: reports/docker/docker-build-push-report.html
   #         retention-days: 14
   #
+  #
+  #     # ========================================================
+  #     # INSTALL NODEMAILER
+  #     # ========================================================
+  #
   #     - name: Install Nodemailer
   #       if: success()
   #       run: npm install nodemailer@9.0.3
+  #
+  #
+  #     # ========================================================
+  #     # EMAIL
+  #     # ========================================================
   #
   #     - name: Email Docker Build & Push Report
   #       if: success()
@@ -128,7 +162,9 @@ jobs:
   #         QA_EMAIL_CC: ${{ secrets.QA_EMAIL_CC }}
   #       run: |
   #         node --input-type=commonjs <<'NODE'
+  #
   #         // Existing email script goes here.
+  #
   #         NODE
 
 
@@ -166,6 +202,37 @@ jobs:
         with:
           fetch-depth: 1
           persist-credentials: false
+
+
+      # ==========================================================
+      # DOWNLOAD DOCKER BUILD & PUSH REPORT IF AVAILABLE
+      # ==========================================================
+      #
+      # Stage 1 is currently disabled.
+      #
+      # Therefore this artifact normally does not exist.
+      #
+      # When Stage 1 is enabled again and produces:
+      #
+      #   docker-build-push-report
+      #
+      # this step automatically downloads:
+      #
+      #   docker-build-push-report.html
+      #
+      # If the artifact does not exist, the step is ignored.
+      #
+      # This allows Security Enhancements to remain fully isolated
+      # while still supporting the final combined email.
+      #
+      # ==========================================================
+
+      - name: Download Docker Build & Push Report if available
+        uses: actions/download-artifact@v4
+        with:
+          name: docker-build-push-report
+          path: reports/docker-build
+          if-no-artifact-found: ignore
 
 
       # ==========================================================
@@ -528,6 +595,46 @@ jobs:
 
 
       # ==========================================================
+      # CREATE RAW SECURITY EVIDENCE ZIP
+      # ==========================================================
+      #
+      # The six JSON files remain individually available through
+      # the GitHub Actions artifact.
+      #
+      # This ZIP is created specifically for the email so that
+      # the complete raw evidence can be delivered as ONE
+      # attachment instead of six separate attachments.
+      #
+      # ==========================================================
+
+      - name: Create raw security evidence ZIP
+        if: success()
+        run: |
+          set -e
+
+          cd reports/docker
+
+          zip -j docker-security-raw-evidence.zip \
+            cosign-ghcr-verify.json \
+            cosign-dockerhub-verify.json \
+            sbom-ghcr.json \
+            sbom-dockerhub.json \
+            attestation-ghcr.json \
+            attestation-dockerhub.json
+
+          cd ../..
+
+          test -s reports/docker/docker-security-raw-evidence.zip
+
+          echo ""
+          echo "=============================================="
+          echo "RAW SECURITY EVIDENCE ZIP CREATED"
+          echo "=============================================="
+
+          unzip -l reports/docker/docker-security-raw-evidence.zip
+
+
+      # ==========================================================
       # GENERATE SECURITY ENHANCEMENTS HTML REPORT
       # ==========================================================
       #
@@ -540,7 +647,7 @@ jobs:
       # This keeps the report lightweight.
       #
       # The complete raw evidence remains separately available
-      # in the GitHub Actions artifact.
+      # in the GitHub Actions artifact and in the ZIP attachment.
       #
       # ==========================================================
 
@@ -1298,9 +1405,18 @@ jobs:
 
                   <br><br>
 
-                  The artifact contains the complete raw
-                  Cosign verification records, SPDX SBOMs,
-                  and SBOM attestation verification records.
+                  The email also includes the complete raw
+                  security evidence as:
+
+                  <strong>
+                    docker-security-raw-evidence.zip
+                  </strong>
+
+                  <br><br>
+
+                  The ZIP contains the complete raw Cosign
+                  verification records, SPDX SBOMs, and
+                  SBOM attestation verification records.
 
                 </div>
 
@@ -1378,18 +1494,65 @@ jobs:
 
 
       # ==========================================================
+      # VERIFY EMAIL ATTACHMENTS
+      # ==========================================================
+      #
+      # Security report:
+      #
+      #   REQUIRED
+      #
+      # Raw evidence ZIP:
+      #
+      #   REQUIRED
+      #
+      # Docker Build & Push report:
+      #
+      #   OPTIONAL
+      #
+      # This is intentional because Stage 1 is currently disabled.
+      #
+      # ==========================================================
+
+      - name: Verify email attachment files
+        if: success()
+        run: |
+          set -e
+
+          test -s reports/docker/docker-security-report.html
+          test -s reports/docker/docker-security-raw-evidence.zip
+
+          echo "Required email attachment:"
+          ls -lh reports/docker/docker-security-report.html
+
+          echo ""
+          echo "Required raw evidence attachment:"
+          ls -lh reports/docker/docker-security-raw-evidence.zip
+
+          echo ""
+
+          if [ -s reports/docker-build/docker-build-push-report.html ]; then
+            echo "Optional Docker Build & Push report FOUND:"
+            ls -lh reports/docker-build/docker-build-push-report.html
+          else
+            echo "Docker Build & Push report NOT FOUND."
+            echo "This is expected while Stage 1 is disabled."
+          fi
+
+
+      # ==========================================================
       # UPLOAD COMPLETE DOCKER SECURITY EVIDENCE
       # ==========================================================
       #
       # This artifact contains:
       #
       # 1. docker-security-report.html
-      # 2. sbom-ghcr.json
-      # 3. sbom-dockerhub.json
-      # 4. cosign-ghcr-verify.json
-      # 5. cosign-dockerhub-verify.json
-      # 6. attestation-ghcr.json
-      # 7. attestation-dockerhub.json
+      # 2. docker-security-raw-evidence.zip
+      # 3. sbom-ghcr.json
+      # 4. sbom-dockerhub.json
+      # 5. cosign-ghcr-verify.json
+      # 6. cosign-dockerhub-verify.json
+      # 7. attestation-ghcr.json
+      # 8. attestation-dockerhub.json
       #
       # ==========================================================
 
@@ -1416,20 +1579,37 @@ jobs:
       # EMAIL DOCKER SECURITY REPORT
       # ==========================================================
       #
-      # IMPORTANT:
+      # FINAL EMAIL ATTACHMENT DESIGN:
       #
-      # ONLY THE LIGHTWEIGHT HTML SUMMARY IS ATTACHED.
+      # Attachment 1:
+      #   docker-build-push-report.html
       #
-      # The six raw JSON files are deliberately NOT attached.
+      #   OPTIONAL while Stage 1 is disabled.
       #
-      # This prevents Gmail:
       #
-      #   552-5.3.4 Your message exceeded Google's message
-      #   size limits
+      # Attachment 2:
+      #   docker-security-report.html
       #
-      # The complete raw evidence is still preserved in:
+      #   ALWAYS ATTACHED.
       #
-      #   docker-security-evidence
+      #
+      # Attachment 3:
+      #   docker-security-raw-evidence.zip
+      #
+      #   ALWAYS ATTACHED.
+      #
+      #   Contains:
+      #
+      #     cosign-ghcr-verify.json
+      #     cosign-dockerhub-verify.json
+      #     sbom-ghcr.json
+      #     sbom-dockerhub.json
+      #     attestation-ghcr.json
+      #     attestation-dockerhub.json
+      #
+      #
+      # The individual JSON files are ALSO preserved inside the
+      # docker-security-evidence GitHub Actions artifact.
       #
       # ==========================================================
 
@@ -1463,11 +1643,23 @@ jobs:
             process.env.QA_EMAIL_CC || "";
 
 
-          const reportPath =
+          const securityReportPath =
             "reports/docker/docker-security-report.html";
 
 
-          if (!fs.existsSync(reportPath)) {
+          const rawEvidenceZipPath =
+            "reports/docker/docker-security-raw-evidence.zip";
+
+
+          const dockerBuildReportPath =
+            "reports/docker-build/docker-build-push-report.html";
+
+
+          // ======================================================
+          // REQUIRED FILES
+          // ======================================================
+
+          if (!fs.existsSync(securityReportPath)) {
 
             throw new Error(
               "Docker security HTML report does not exist."
@@ -1476,14 +1668,136 @@ jobs:
           }
 
 
-          const reportSize =
-            fs.statSync(reportPath).size;
+          if (
+            !fs.existsSync(rawEvidenceZipPath) ||
+            fs.statSync(rawEvidenceZipPath).size === 0
+          ) {
+
+            throw new Error(
+              "Docker security raw evidence ZIP does not exist or is empty."
+            );
+
+          }
 
 
+          // ======================================================
+          // BUILD ATTACHMENT LIST
+          // ======================================================
+
+          const attachments = [];
+
+
+          // ======================================================
+          // ATTACHMENT 1 — DOCKER BUILD & PUSH REPORT
+          // ======================================================
+          //
+          // This is optional while Stage 1 is disabled.
+          //
+          // Once Stage 1 is enabled and its artifact exists,
+          // this automatically becomes the first attachment.
+          //
+          // ======================================================
+
+          if (
+            fs.existsSync(dockerBuildReportPath) &&
+            fs.statSync(dockerBuildReportPath).size > 0
+          ) {
+
+            attachments.push({
+
+              filename:
+                "docker-build-push-report.html",
+
+              path:
+                dockerBuildReportPath
+
+            });
+
+            console.log(
+              "Attachment added: docker-build-push-report.html"
+            );
+
+          } else {
+
+            console.log(
+              "Docker Build & Push report not available."
+            );
+
+            console.log(
+              "This is expected while Stage 1 is disabled."
+            );
+
+          }
+
+
+          // ======================================================
+          // ATTACHMENT 2 — SECURITY HTML REPORT
+          // ======================================================
+
+          attachments.push({
+
+            filename:
+              "docker-security-report.html",
+
+            path:
+              securityReportPath
+
+          });
+
+
+          // ======================================================
+          // ATTACHMENT 3 — RAW SECURITY EVIDENCE
+          // ======================================================
+
+          attachments.push({
+
+            filename:
+              "docker-security-raw-evidence.zip",
+
+            path:
+              rawEvidenceZipPath
+
+          });
+
+
+          // ======================================================
+          // LOG ATTACHMENTS
+          // ======================================================
+
+          console.log("");
           console.log(
-            `Email report size: ${reportSize} bytes`
+            "=============================================="
+          );
+          console.log(
+            "EMAIL ATTACHMENTS"
+          );
+          console.log(
+            "=============================================="
           );
 
+          for (
+            const attachment of attachments
+          ) {
+
+            const size =
+              fs.statSync(
+                attachment.path
+              ).size;
+
+            console.log(
+              `${attachment.filename} - ${size} bytes`
+            );
+
+          }
+
+          console.log(
+            "=============================================="
+          );
+
+
+          // ======================================================
+          // CREATE TRANSPORTER
+          // ======================================================
 
           const transporter =
             nodemailer.createTransport({
@@ -1502,6 +1816,10 @@ jobs:
 
             });
 
+
+          // ======================================================
+          // EMAIL BODY
+          // ======================================================
 
           const summaryHtml = `
 
@@ -1587,17 +1905,48 @@ jobs:
               </p>
 
 
+              <hr>
+
+
+              <h3>
+                Attachments
+              </h3>
+
+
               <p>
 
                 <strong>
-                  Complete Raw Evidence:
+                  Docker Build & Push Report:
                 </strong>
 
-                Available in the GitHub Actions artifact
+                ${fs.existsSync(dockerBuildReportPath)
+                  ? "✓ Attached"
+                  : "Not attached — Stage 1 is currently disabled"}
+
+              </p>
+
+
+              <p>
 
                 <strong>
-                  docker-security-evidence
+                  Docker Security Report:
                 </strong>
+
+                ✓ Attached
+
+              </p>
+
+
+              <p>
+
+                <strong>
+                  Raw Security Evidence:
+                </strong>
+
+                ✓ Attached as
+                <code>
+                  docker-security-raw-evidence.zip
+                </code>
 
               </p>
 
@@ -1607,24 +1956,34 @@ jobs:
 
               <p>
 
-                The attached HTML report contains the
-                lightweight security summary.
+                The Docker Security HTML report contains
+                the lightweight security summary.
 
-                The complete raw Cosign verification,
-                SPDX SBOM, and attestation JSON files
-                are preserved in the GitHub Actions artifact
-                for independent inspection.
+                The raw evidence ZIP contains the complete
+                machine-readable Cosign verification records,
+                SPDX SBOMs, and SBOM attestation verification
+                records.
 
               </p>
 
 
               <p>
 
+                The same raw evidence is also preserved
+                individually in the GitHub Actions artifact:
+
                 <strong>
-                  Artifact:
+                  docker-security-evidence
                 </strong>
 
-                docker-security-evidence
+              </p>
+
+
+              <p>
+
+                This allows the evidence to be independently
+                downloaded and inspected without relying only
+                on the HTML summary.
 
               </p>
 
@@ -1632,6 +1991,10 @@ jobs:
 
           `;
 
+
+          // ======================================================
+          // SEND EMAIL
+          // ======================================================
 
           (async () => {
 
@@ -1652,40 +2015,27 @@ jobs:
               html:
                 summaryHtml,
 
-              attachments: [
-
-                {
-
-                  filename:
-                    "docker-security-report.html",
-
-                  path:
-                    reportPath
-
-                }
-
-              ]
+              attachments:
+                attachments
 
             });
 
 
+            console.log("");
             console.log(
-              "Docker security summary emailed successfully."
+              "=============================================="
             );
 
-
             console.log(
-              "Only the lightweight HTML report was attached."
+              "Docker security email sent successfully."
             );
 
-
             console.log(
-              "Complete raw evidence remains available in:"
+              `Total attachments: ${attachments.length}`
             );
 
-
             console.log(
-              "docker-security-evidence"
+              "=============================================="
             );
 
 
