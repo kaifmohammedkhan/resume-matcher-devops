@@ -103,6 +103,36 @@ jobs:
 
 
       # ========================================================
+      # RECORD IMMUTABLE IMAGE DIGEST
+      # ========================================================
+
+      - name: Record immutable image digest
+        if: success()
+        env:
+          IMAGE_DIGEST: ${{ steps.build.outputs.digest }}
+          IMAGE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          set -e
+
+          test -n "$IMAGE_DIGEST"
+          test "$IMAGE_DIGEST" != "unknown"
+
+          mkdir -p reports/docker
+
+          {
+            echo "IMAGE_DIGEST=$IMAGE_DIGEST"
+            echo "IMAGE_TAGS<<EOF_TAGS"
+            printf '%s\n' "$IMAGE_TAGS"
+            echo "EOF_TAGS"
+          } > reports/docker/image-metadata.txt
+
+          echo "=============================================="
+          echo "IMMUTABLE IMAGE DIGEST RECORDED"
+          echo "=============================================="
+          echo "Digest: $IMAGE_DIGEST"
+
+
+      # ========================================================
       # DOCKER BUILD & PUSH REPORT
       # ========================================================
 
@@ -539,10 +569,29 @@ jobs:
               <div class="panel">
 
                 <h2>
-                  Published Tags
+                  Published Tags & Image Identity
                 </h2>
 
                 ${tagHtml}
+
+                <div class="notice">
+
+                  <strong>Canonical production identity:</strong>
+
+                  <br>
+
+                  <span class="digest">
+                    ${escapeHtml(imageDigest)}
+                  </span>
+
+                  <br><br>
+
+                  The <code>:latest</code> tag is retained as a
+                  convenience alias. Security signing, verification,
+                  SBOM generation, and attestation are performed
+                  against the immutable digest, not <code>:latest</code>.
+
+                </div>
 
               </div>
 
@@ -631,6 +680,12 @@ jobs:
                   Cosign verification, SPDX SBOM generation,
                   and SBOM attestation verification.
 
+                  <br><br>
+
+                  Security operations are anchored to the
+                  immutable image digest rather than the
+                  mutable <code>:latest</code> tag.
+
                 </div>
 
               </div>
@@ -692,7 +747,9 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: docker-build-push-report
-          path: reports/docker/docker-build-push-report.html
+          path: |
+            reports/docker/docker-build-push-report.html
+            reports/docker/image-metadata.txt
           retention-days: 14
 
 
@@ -860,7 +917,7 @@ jobs:
           NODE
 
 
-  # ============================================================
+  # ==============================
   # STAGE 2 — SECURITY ENHANCEMENTS
   # ============================================================
 
@@ -915,6 +972,41 @@ jobs:
 
           ls -lh \
             reports/docker-build/docker-build-push-report.html
+
+
+      # ==========================================================
+      # LOAD IMMUTABLE IMAGE DIGEST
+      # ==========================================================
+
+      - name: Load immutable image digest
+        id: image
+        run: |
+          set -e
+
+          test -s reports/docker-build/image-metadata.txt
+
+          IMAGE_DIGEST="$(sed -n 's/^IMAGE_DIGEST=//p' reports/docker-build/image-metadata.txt | head -n 1)"
+
+          if [ -z "$IMAGE_DIGEST" ] || [ "$IMAGE_DIGEST" = "unknown" ]; then
+            echo "ERROR: Immutable image digest was not recorded by Stage 1."
+            exit 1
+          fi
+
+          case "$IMAGE_DIGEST" in
+            sha256:*) ;;
+            *)
+              echo "ERROR: Invalid image digest: $IMAGE_DIGEST"
+              exit 1
+              ;;
+          esac
+
+          echo "IMAGE_DIGEST=$IMAGE_DIGEST" >> "$GITHUB_ENV"
+          echo "digest=$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
+
+          echo "=============================================="
+          echo "IMMUTABLE IMAGE IDENTITY LOADED"
+          echo "=============================================="
+          echo "Digest: $IMAGE_DIGEST"
 
 
       # ==========================================================
@@ -981,6 +1073,7 @@ jobs:
           echo "Branch     : $GITHUB_REF_NAME"
           echo "Commit     : $GITHUB_SHA"
           echo "Run        : #$GITHUB_RUN_NUMBER"
+          echo "Image Digest: $IMAGE_DIGEST"
           echo "=============================================="
 
 
@@ -991,9 +1084,9 @@ jobs:
       - name: Verify GHCR image exists
         run: |
           docker manifest inspect \
-            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}@$IMAGE_DIGEST
 
-          echo "GHCR image exists."
+          echo "GHCR immutable image exists."
 
 
       # ==========================================================
@@ -1003,9 +1096,9 @@ jobs:
       - name: Verify Docker Hub image exists
         run: |
           docker manifest inspect \
-            ${{ secrets.DOCKERHUB_USERNAME }}/resume-matcher-devops:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/resume-matcher-devops@$IMAGE_DIGEST
 
-          echo "Docker Hub image exists."
+          echo "Docker Hub immutable image exists."
 
 
       # ==========================================================
@@ -1018,7 +1111,7 @@ jobs:
           COSIGN_YES: "true"
         run: |
           cosign sign \
-            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}@$IMAGE_DIGEST
 
 
       # ==========================================================
@@ -1031,7 +1124,7 @@ jobs:
           COSIGN_YES: "true"
         run: |
           cosign sign \
-            ${{ secrets.DOCKERHUB_USERNAME }}/resume-matcher-devops:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/resume-matcher-devops@$IMAGE_DIGEST
 
 
       # ==========================================================
@@ -1045,7 +1138,7 @@ jobs:
             --certificate-identity-regexp="https://github.com/kaifmohammedkhan/resume-matcher-devops/.github/workflows/.*@refs/heads/main" \
             --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
             --output json \
-            ghcr.io/${{ github.repository }}:latest \
+            ghcr.io/${{ github.repository }}@$IMAGE_DIGEST \
             > reports/docker/cosign-ghcr-verify.json
 
           test -s reports/docker/cosign-ghcr-verify.json
@@ -1066,7 +1159,7 @@ jobs:
             --certificate-identity-regexp="https://github.com/kaifmohammedkhan/resume-matcher-devops/.github/workflows/.*@refs/heads/main" \
             --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
             --output json \
-            ${{ secrets.DOCKERHUB_USERNAME }}/resume-matcher-devops:latest \
+            ${{ secrets.DOCKERHUB_USERNAME }}/resume-matcher-devops@$IMAGE_DIGEST \
             > reports/docker/cosign-dockerhub-verify.json
 
           test -s reports/docker/cosign-dockerhub-verify.json
@@ -1084,7 +1177,7 @@ jobs:
         if: success()
         run: |
           syft \
-            ghcr.io/${{ github.repository }}:latest \
+            ghcr.io/${{ github.repository }}@$IMAGE_DIGEST \
             -o spdx-json \
             > reports/docker/sbom-ghcr.json
 
@@ -1101,7 +1194,7 @@ jobs:
         if: success()
         run: |
           syft \
-            ${{ secrets.DOCKERHUB_USERNAME }}/resume-matcher-devops:latest \
+            ${{ secrets.DOCKERHUB_USERNAME }}/resume-matcher-devops@$IMAGE_DIGEST \
             -o spdx-json \
             > reports/docker/sbom-dockerhub.json
 
@@ -1142,7 +1235,7 @@ jobs:
           cosign attest \
             --predicate reports/docker/sbom-ghcr.json \
             --type spdxjson \
-            ghcr.io/${{ github.repository }}:latest
+            ghcr.io/${{ github.repository }}@$IMAGE_DIGEST
 
           echo "GHCR SPDX SBOM attestation created."
 
@@ -1159,7 +1252,7 @@ jobs:
           cosign attest \
             --predicate reports/docker/sbom-dockerhub.json \
             --type spdxjson \
-            ${{ secrets.DOCKERHUB_USERNAME }}/resume-matcher-devops:latest
+            ${{ secrets.DOCKERHUB_USERNAME }}/resume-matcher-devops@$IMAGE_DIGEST
 
           echo "Docker Hub SPDX SBOM attestation created."
 
@@ -1176,7 +1269,7 @@ jobs:
             --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
             --type spdxjson \
             --output json \
-            ghcr.io/${{ github.repository }}:latest \
+            ghcr.io/${{ github.repository }}@$IMAGE_DIGEST \
             > reports/docker/attestation-ghcr.json
 
           test -s reports/docker/attestation-ghcr.json
@@ -1190,7 +1283,7 @@ jobs:
       # VERIFY SBOM ATTESTATION — DOCKER HUB
       # ==========================================================
 
-      - name: Verify SPDX SBOM Attestation — Docker Hub
+      - name: Verify SPDX SBOM Attestation — DOCKER HUB
         if: success()
         run: |
           cosign verify-attestation \
@@ -1198,7 +1291,7 @@ jobs:
             --certificate-oidc-issuer="https://token.actions.githubusercontent.com" \
             --type spdxjson \
             --output json \
-            ${{ secrets.DOCKERHUB_USERNAME }}/resume-matcher-devops:latest \
+            ${{ secrets.DOCKERHUB_USERNAME }}/resume-matcher-devops@$IMAGE_DIGEST \
             > reports/docker/attestation-dockerhub.json
 
           test -s reports/docker/attestation-dockerhub.json
@@ -1284,6 +1377,7 @@ jobs:
         if: success()
         env:
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
         run: |
           node --input-type=commonjs <<'NODE'
 
@@ -1312,6 +1406,9 @@ jobs:
 
           const dockerHubUsername =
             process.env.DOCKERHUB_USERNAME || "N/A";
+
+          const imageDigest =
+            process.env.IMAGE_DIGEST || "N/A";
 
           const evidenceFiles = {
 
@@ -1587,6 +1684,16 @@ jobs:
                 word-break:break-all;
               }
 
+              .digest {
+                font-family:monospace;
+                font-size:12px;
+                word-break:break-all;
+                background:#091525;
+                padding:10px;
+                border-radius:8px;
+                margin-top:8px;
+              }
+
               .notice {
                 background:#0b2035;
                 border-left:4px solid #60a5fa;
@@ -1690,7 +1797,12 @@ jobs:
 
                     <div class="small">
 
-                      ghcr.io/${escapeHtml(repo)}:latest
+                      Image identity:
+                      <br>
+
+                      <span class="file">
+                        ghcr.io/${escapeHtml(repo)}@${escapeHtml(imageDigest)}
+                      </span>
 
                     </div>
 
@@ -1708,13 +1820,47 @@ jobs:
 
                     <div class="small">
 
-                      ${escapeHtml(
-                        dockerHubUsername
-                      )}/resume-matcher-devops:latest
+                      Image identity:
+                      <br>
+
+                      <span class="file">
+                        ${escapeHtml(dockerHubUsername)}/resume-matcher-devops@${escapeHtml(imageDigest)}
+                      </span>
 
                     </div>
 
                   </div>
+
+                </div>
+
+              </div>
+
+
+              <div class="panel">
+
+                <h2>
+                  Immutable Image Identity
+                </h2>
+
+                <div class="notice">
+
+                  The security controls below are anchored to
+                  the exact image digest produced by Stage 1.
+
+                  <br><br>
+
+                  <strong>Digest:</strong>
+                  <span class="file">
+                    ${escapeHtml(imageDigest)}
+                  </span>
+
+                  <br><br>
+
+                  This digest is the canonical production identity.
+                  The mutable <code>:latest</code> tag is retained
+                  only as a convenience alias and is not used for
+                  signing, verification, SBOM generation, or
+                  attestation.
 
                 </div>
 
@@ -1972,6 +2118,11 @@ jobs:
                   SPDX SBOMs, and SBOM attestation verification
                   records.
 
+                  <br><br>
+
+                  All security evidence is associated with
+                  the immutable image digest shown above.
+
                 </div>
 
               </div>
@@ -2211,6 +2362,17 @@ jobs:
               <p>
 
                 <strong>
+                  Image Identity:
+                </strong>
+
+                ✓ Security controls anchored to immutable
+                image digest
+
+              </p>
+
+              <p>
+
+                <strong>
                   Cosign:
                 </strong>
 
@@ -2303,8 +2465,8 @@ jobs:
               <p>
 
                 The Docker Build & Push HTML report contains
-                the actual Stage 1 build and registry publication
-                information.
+                the actual Stage 1 build, registry publication,
+                image tags, and immutable image digest.
 
               </p>
 
@@ -2333,6 +2495,19 @@ jobs:
                 <strong>
                   docker-security-evidence
                 </strong>
+
+              </p>
+
+              <p>
+
+                <strong>
+                  Production identity:
+                </strong>
+
+                The immutable image digest is the canonical
+                identity used by the security verification chain.
+                The mutable <code>:latest</code> tag is retained
+                only as a convenience alias.
 
               </p>
 
