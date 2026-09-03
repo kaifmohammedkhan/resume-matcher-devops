@@ -137,9 +137,7 @@ pipeline {
 
     post {
         always {
-            node {
-                archiveArtifacts artifacts: 'reports/**/*, **/*.html', allowEmptyArchive: true
-            }
+            archiveArtifacts artifacts: 'reports/**/*, **/*.html', allowEmptyArchive: true
         }
     }
 }
