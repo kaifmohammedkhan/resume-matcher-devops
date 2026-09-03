@@ -15,7 +15,7 @@ pipeline {
         RUN_ID            = "${env.BUILD_TAG}"
         ACTOR             = 'jenkins'
         
-        // Load secure credentials configured in Jenkins
+        // Ensure these credential IDs match your Jenkins Credentials store exactly
         EMAIL_USER        = credentials('gmail-user')
         EMAIL_PASS        = credentials('gmail-app-password')
         SONAR_TOKEN       = credentials('sonarcloud-token')
@@ -137,7 +137,9 @@ pipeline {
 
     post {
         always {
-            archiveArtifacts artifacts: 'reports/**/*, **/*.html', allowEmptyArchive: true
+            node {
+                archiveArtifacts artifacts: 'reports/**/*, **/*.html', allowEmptyArchive: true
+            }
         }
     }
 }
