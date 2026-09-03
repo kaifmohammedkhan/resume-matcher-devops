@@ -15,14 +15,14 @@ pipeline {
         RUN_ID            = "${env.BUILD_TAG}"
         ACTOR             = 'jenkins'
         
-        // Load secure credentials configured in Jenkins
-        EMAIL_USER        = credentials('gmail-user')
-        EMAIL_PASS        = credentials('gmail-app-password')
-        SONAR_TOKEN       = credentials('sonarcloud-token')
+        // Credentials matched directly to your Jenkins Credential IDs
+        EMAIL_USER        = credentials('EMAIL_USER')
+        EMAIL_PASS        = credentials('EMAIL_PASS')
+        SONAR_TOKEN       = credentials('SONAR_TOKEN')
         SONAR_HOST        = 'https://sonarcloud.io'
         SONAR_ORG         = 'my-organization'
         SONAR_PROJECT_KEY = 'my-project-key'
-        GITHUB_CRED      = credentials('github-api-token')
+        GITHUB_CRED       = credentials('GITHUB_CRED')
     }
 
     stages {
@@ -97,7 +97,9 @@ pipeline {
 
     post {
         always {
-            archiveArtifacts artifacts: 'reports/**/*, **/*.html', allowEmptyArchive: true
+            node('built-in') {
+                archiveArtifacts artifacts: 'reports/**/*, **/*.html', allowEmptyArchive: true
+            }
         }
     }
 }
