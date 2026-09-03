@@ -15,14 +15,14 @@ pipeline {
         RUN_ID            = "${env.BUILD_TAG}"
         ACTOR             = 'jenkins'
         
-        // Credentials matched directly to your Jenkins Credential IDs
-        EMAIL_USER        = credentials('EMAIL_USER')
-        EMAIL_PASS        = credentials('EMAIL_PASS')
-        SONAR_TOKEN       = credentials('SONAR_TOKEN')
+        // Load secure credentials configured in Jenkins
+        EMAIL_USER        = credentials('gmail-user')
+        EMAIL_PASS        = credentials('gmail-app-password')
+        SONAR_TOKEN       = credentials('sonarcloud-token')
         SONAR_HOST        = 'https://sonarcloud.io'
         SONAR_ORG         = 'my-organization'
         SONAR_PROJECT_KEY = 'my-project-key'
-        GITHUB_CRED       = credentials('GITHUB_CRED')
+        GITHUB_CRED       = credentials('github-api-token')
     }
 
     stages {
@@ -30,17 +30,29 @@ pipeline {
             parallel {
                 stage('OWASP Scan') {
                     steps {
-                        sh 'chmod +x ci-owasp.sh && ./ci-owasp.sh'
+                        sh '''
+                            sed -i 's/\r$//' ci-owasp.sh
+                            chmod +x ci-owasp.sh
+                            ./ci-owasp.sh
+                        '''
                     }
                 }
                 stage('Unit Tests') {
                     steps {
-                        sh 'chmod +x ci-test.sh && ./ci-test.sh'
+                        sh '''
+                            sed -i 's/\r$//' ci-test.sh
+                            chmod +x ci-test.sh
+                            ./ci-test.sh
+                        '''
                     }
                 }
                 stage('Security Checks') {
                     steps {
-                        sh 'chmod +x ci-security-checks.sh && ./ci-security-checks.sh'
+                        sh '''
+                            sed -i 's/\r$//' ci-security-checks.sh
+                            chmod +x ci-security-checks.sh
+                            ./ci-security-checks.sh
+                        '''
                     }
                 }
             }
@@ -50,12 +62,20 @@ pipeline {
             parallel {
                 stage('SonarCloud') {
                     steps {
-                        sh 'chmod +x ci-sonarcloud.sh && ./ci-sonarcloud.sh'
+                        sh '''
+                            sed -i 's/\r$//' ci-sonarcloud.sh
+                            chmod +x ci-sonarcloud.sh
+                            ./ci-sonarcloud.sh
+                        '''
                     }
                 }
                 stage('Trivy Scan') {
                     steps {
-                        sh 'chmod +x ci-trivy.sh && ./ci-trivy.sh'
+                        sh '''
+                            sed -i 's/\r$//' ci-trivy.sh
+                            chmod +x ci-trivy.sh
+                            ./ci-trivy.sh
+                        '''
                     }
                 }
             }
@@ -63,13 +83,21 @@ pipeline {
 
         stage('CI Email Summary') {
             steps {
-                sh 'chmod +x ci-email.sh && ./ci-email.sh'
+                sh '''
+                    sed -i 's/\r$//' ci-email.sh
+                    chmod +x ci-email.sh
+                    ./ci-email.sh
+                '''
             }
         }
 
         stage('QA Cypress E2E') {
             steps {
-                sh 'chmod +x qa-cypress.sh && ./qa-cypress.sh'
+                sh '''
+                    sed -i 's/\r$//' qa-cypress.sh
+                    chmod +x qa-cypress.sh
+                    ./qa-cypress.sh
+                '''
             }
         }
 
@@ -77,12 +105,20 @@ pipeline {
             parallel {
                 stage('k6 Smoke Test') {
                     steps {
-                        sh 'chmod +x qa-k6-smoke.sh && ./qa-k6-smoke.sh'
+                        sh '''
+                            sed -i 's/\r$//' qa-k6-smoke.sh
+                            chmod +x qa-k6-smoke.sh
+                            ./qa-k6-smoke.sh
+                        '''
                     }
                 }
                 stage('k6 Load Test') {
                     steps {
-                        sh 'chmod +x qa-k6-load.sh && ./qa-k6-load.sh'
+                        sh '''
+                            sed -i 's/\r$//' qa-k6-load.sh
+                            chmod +x qa-k6-load.sh
+                            ./qa-k6-load.sh
+                        '''
                     }
                 }
             }
@@ -90,16 +126,18 @@ pipeline {
 
         stage('QA Summary Report') {
             steps {
-                sh 'chmod +x qa-report.sh && ./qa-report.sh'
+                sh '''
+                    sed -i 's/\r$//' qa-report.sh
+                    chmod +x qa-report.sh
+                    ./qa-report.sh
+                '''
             }
         }
     }
 
     post {
         always {
-            node('built-in') {
-                archiveArtifacts artifacts: 'reports/**/*, **/*.html', allowEmptyArchive: true
-            }
+            archiveArtifacts artifacts: 'reports/**/*, **/*.html', allowEmptyArchive: true
         }
     }
 }
