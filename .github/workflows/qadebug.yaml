@@ -11,6 +11,9 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      - name: Ensure scripts are executable
+        run: chmod +x scripts/*.sh
+
       - name: Cypress Tests
         run: ./scripts/qa-cypress.sh
 
