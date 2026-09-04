@@ -11,6 +11,9 @@ jobs:
     steps:
       - uses: actions/checkout@v3
 
+      - name: Normalize line endings
+        run: sed -i 's/\r$//' scripts/*.sh
+
       - name: Ensure scripts are executable
         run: chmod +x scripts/*.sh
 
