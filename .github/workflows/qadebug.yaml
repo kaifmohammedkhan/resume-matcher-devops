@@ -27,4 +27,9 @@ jobs:
         run: ./scripts/qa-k6-smoke.sh
 
       - name: QA Report
+        env:
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          QA_EMAIL_TO: ${{ secrets.QA_EMAIL_TO }}
+          QA_EMAIL_CC: ${{ secrets.QA_EMAIL_CC }}
         run: ./scripts/qa-report.sh
