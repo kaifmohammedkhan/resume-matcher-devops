@@ -1,0 +1,24 @@
+name: Pre-Main QA Debug
+
+on:
+  push:
+    branches:
+      - pre-main
+
+jobs:
+  qa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Cypress Tests
+        run: ./scripts/qa-cypress.sh
+
+      - name: K6 Load Test
+        run: ./scripts/qa-k6-load.sh
+
+      - name: K6 Smoke Test
+        run: ./scripts/qa-k6-smoke.sh
+
+      - name: QA Report
+        run: ./scripts/qa-report.sh

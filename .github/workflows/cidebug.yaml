@@ -1,0 +1,30 @@
+name: Pre-Main CI Debug
+
+on:
+  push:
+    branches:
+      - pre-main
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Run Tests
+        run: ./scripts/ci-test.sh
+
+      - name: SonarCloud Analysis
+        run: ./scripts/ci-sonarcloud.sh
+
+      - name: Trivy Scan
+        run: ./scripts/ci-trivy.sh
+
+      - name: OWASP Dependency Check
+        run: ./scripts/ci-owasp.sh
+
+      - name: Security Checks
+        run: ./scripts/ci-security-checks.sh
+
+      - name: Send CI Email
+        run: ./scripts/ci-email.sh
