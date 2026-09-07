@@ -58,7 +58,7 @@ jobs:
           cache: npm
 
       - name: Install Dependencies
-        run: npm ci
+        run: npm ci --ignore-scripts=false
 
       - name: Build Application
         run: |
@@ -86,10 +86,10 @@ jobs:
             \) \
             -print -quit 2>/dev/null | grep -q .; then
 
-            echo "" >&2
-            echo "ERROR: No Cypress E2E specs found." >&2
-            echo "Expected location: cypress/e2e/" >&2
-            echo "" >&2
+            echo ""
+            echo "ERROR: No Cypress E2E specs found."
+            echo "Expected location: cypress/e2e/"
+            echo ""
 
             exit 1
           fi
@@ -155,9 +155,9 @@ jobs:
 
             if ! kill -0 "$APP_PID" 2>/dev/null; then
 
-              echo "" >&2
-              echo "ERROR: Application exited unexpectedly." >&2
-              echo "" >&2
+              echo ""
+              echo "ERROR: Application exited unexpectedly."
+              echo ""
 
               cat cypress/reports/app.log || true
 
@@ -170,9 +170,9 @@ jobs:
 
           done
 
-          echo "" >&2
-          echo "ERROR: Application failed to become ready." >&2
-          echo "" >&2
+          echo ""
+          echo "ERROR: Application failed to become ready."
+          echo ""
 
           cat cypress/reports/app.log || true
 
@@ -262,3 +262,5 @@ jobs:
           echo "Review the cypress-e2e-report artifact."
 
           exit 1
+
+  # ============================================================
