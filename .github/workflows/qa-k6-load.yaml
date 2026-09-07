@@ -64,6 +64,7 @@ jobs:
           cache: npm
 
       - name: Install Dependencies
+        # Omitting "--ignore-scripts" allows lifecycle scripts to run during package installation.
         run: npm ci --ignore-scripts=false
 
       - name: Build Application
@@ -106,7 +107,7 @@ jobs:
             fi
 
             if ! kill -0 "$APP_PID" 2>/dev/null; then
-              echo "Application exited unexpectedly."
+              echo "Application exited unexpectedly." >&2
               cat results/app.log || true
               exit 1
             fi
@@ -115,7 +116,7 @@ jobs:
             sleep 2
           done
 
-          echo "Application failed to start."
+          echo "Application failed to start." >&2
           cat results/app.log || true
           exit 1
 
@@ -132,7 +133,7 @@ jobs:
           echo "HTTP status: $HTTP_STATUS"
 
           if [ "$HTTP_STATUS" = "000" ]; then
-            echo "ERROR: Application is unreachable."
+            echo "ERROR: Application is unreachable." >&2
             cat results/app.log || true
             exit 1
           fi
@@ -233,14 +234,14 @@ jobs:
       - name: Fail k6 Load Stage
         if: always() && steps.k6_load.outcome == 'failure'
         run: |
-          echo "=========================================="
-          echo "k6 LOAD TEST FAILED"
-          echo "=========================================="
-          echo ""
-          echo "Review:"
-          echo "  results/summary.json"
-          echo "  results/output.json"
-          echo "  results/k6-console.log"
-          echo "  results/diagnostics.log"
+          echo "==========================================" >&2
+          echo "k6 LOAD TEST FAILED" >&2
+          echo "==========================================" >&2
+          echo "" >&2
+          echo "Review:" >&2
+          echo "  results/summary.json" >&2
+          echo "  results/output.json" >&2
+          echo "  results/k6-console.log" >&2
+          echo "  results/diagnostics.log" >&2
 
           exit 1

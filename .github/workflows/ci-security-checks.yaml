@@ -24,7 +24,7 @@ jobs:
           node-version: '22'
 
       - name: Install Nodemailer
-        run: npm install nodemailer@9.0.3
+        run: npm install --ignore-scripts nodemailer@9.0.3
 
       # ==========================================================
       # VERIFY COMMIT SIGNATURE VIA GITHUB API

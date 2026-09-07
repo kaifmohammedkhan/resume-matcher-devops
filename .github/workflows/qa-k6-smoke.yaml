@@ -49,7 +49,6 @@ jobs:
           - 8080:8080
         volumes:
           - ${{ github.workspace }}/wiremock-mappings:/home/wiremock/mappings:ro
-        # Removed invalid /__admin/health probe
 
     steps:
 
@@ -68,7 +67,8 @@ jobs:
           cache: npm
 
       - name: Install Dependencies
-        run: npm ci
+        # Omitting "--ignore-scripts" allows lifecycle scripts to run during package installation.
+        run: npm ci --ignore-scripts=false
 
       - name: Build Application
         run: |
@@ -84,9 +84,9 @@ jobs:
       - name: Verify k6 Script
         run: |
           if [ ! -f tests/load.js ]; then
-            echo ""
-            echo "ERROR: tests/load.js not found."
-            echo ""
+            echo "" >&2
+            echo "ERROR: tests/load.js not found." >&2
+            echo "" >&2
             exit 1
           fi
 
@@ -123,7 +123,7 @@ jobs:
               exit 0
             fi
             if ! kill -0 "$APP_PID" 2>/dev/null; then
-              echo "Application exited unexpectedly."
+              echo "Application exited unexpectedly." >&2
               cat results/app.log || true
               exit 1
             fi
@@ -131,7 +131,7 @@ jobs:
             sleep 2
           done
 
-          echo "Application failed to start."
+          echo "Application failed to start." >&2
           cat results/app.log || true
           exit 1
 
@@ -205,11 +205,11 @@ jobs:
       - name: Fail k6 Smoke Stage
         if: always() && steps.k6_smoke.outcome == 'failure'
         run: |
-          echo "=========================================="
-          echo "k6 SMOKE TEST FAILED"
-          echo "=========================================="
-          echo ""
-          echo "Load testing will NOT run."
-          echo ""
-          echo "Review the k6-smoke-test-report artifact."
+          echo "==========================================" >&2
+          echo "k6 SMOKE TEST FAILED" >&2
+          echo "==========================================" >&2
+          echo "" >&2
+          echo "Load testing will NOT run." >&2
+          echo "" >&2
+          echo "Review the k6-smoke-test-report artifact." >&2
           exit 1
