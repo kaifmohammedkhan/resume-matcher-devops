@@ -16,7 +16,7 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: sonar-report
+          name: sonar-summary-report
           path: .
 
       - uses: actions/download-artifact@v4
