@@ -37,10 +37,11 @@ jobs:
 
       - name: Install Trivy
         run: |
-          TRIVY_VERSION=0.50.2
-          curl -sSL -o trivy.deb "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64BIT.deb"
+          TRIVY_VERSION="0.50.2"
+          # Added -f to fail on HTTP errors (e.g., 404) and fixed 'Linux-64bit.deb' capitalization
+          curl -sfSL -o trivy.deb "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.deb"
           sudo dpkg -i trivy.deb
-          rm trivy.deb
+          rm -f trivy.deb
           trivy --version
 
       - name: Trivy Scan
