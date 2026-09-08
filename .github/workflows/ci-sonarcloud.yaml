@@ -1053,6 +1053,6 @@ jobs:
             "</html>"
           ].join("\n");
 
-          fs.writeFileSync("sonar-report.html", html, "utf8");
-          console.log("Report generated: sonar-report.html");
+          fs.writeFileSync("sonar-summary-report.html", html, "utf8");
+          console.log("Report generated: sonar-summary-report.html");
           EOF
