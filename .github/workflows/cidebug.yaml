@@ -35,15 +35,14 @@ jobs:
         run: ./scripts/ci-sonarcloud.sh
         continue-on-error: true   # keep SonarCloud soft-fail
 
-      # 👇 New step to install Trivy
+      # 👇 New step to install Trivy via binary
       - name: Install Trivy
         run: |
-          sudo apt-get update
-          sudo apt-get install -y wget apt-transport-https gnupg lsb-release
-          wget -qO- https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
-          echo deb https://aquasecurity.github.io/trivy-repo/deb stable main | sudo tee /etc/apt/sources.list.d/trivy.list
-          sudo apt-get update
-          sudo apt-get install -y trivy
+          TRIVY_VERSION=0.50.2
+          curl -sfL https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz \
+            | tar -xz
+          sudo mv trivy /usr/local/bin/
+          trivy --version
 
       - name: Trivy Scan
         run: ./scripts/ci-trivy.sh
