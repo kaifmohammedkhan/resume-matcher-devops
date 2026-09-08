@@ -37,11 +37,13 @@ jobs:
 
       - name: Install Trivy
         run: |
-          TRIVY_VERSION="0.50.2"
-          mkdir -p ~/.local/bin
-          curl -sfL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" | tar -xz -C ~/.local/bin trivy
-          echo "$HOME/.local/bin" >> $GITHUB_PATH
-          ~/.local/bin/trivy --version
+          sudo apt-get update -y
+          sudo apt-get install -y wget apt-transport-https gnupg lsb-release
+          wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | gpg --dearmor | sudo tee /usr/share/keyrings/trivy.gpg > /dev/null
+          echo "deb [signed-by=/usr/share/keyrings/trivy.gpg] https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee /etc/apt/sources.list.d/trivy.list
+          sudo apt-get update -y
+          sudo apt-get install -y trivy=0.50.2
+          trivy --version
 
       - name: Trivy Scan
         run: ./scripts/ci-trivy.sh
