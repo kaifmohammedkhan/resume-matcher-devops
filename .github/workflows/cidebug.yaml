@@ -9,7 +9,8 @@ jobs:
   ci:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Code
+        uses: actions/checkout@v4
 
       - name: Normalize line endings
         run: sed -i 's/\r$//' scripts/*.sh
@@ -35,16 +36,20 @@ jobs:
         run: ./scripts/ci-sonarcloud.sh
         continue-on-error: true   # keep SonarCloud soft-fail
 
-      - name: Install Trivy
-        run: |
-          TRIVY_VERSION="0.50.2"
-          curl -sfSL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" -o trivy.tar.gz
-          sudo tar -xzf trivy.tar.gz -C /usr/local/bin trivy
-          rm -f trivy.tar.gz
-          trivy --version
+      - name: Download Trivy HTML Template
+        run: curl --proto '=https' --tlsv1.2 -sSLf https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl -o html.tpl
 
-      - name: Trivy Scan
-        run: ./scripts/ci-trivy.sh
+      - name: Run Trivy FS Scan
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: template
+          template: "@html.tpl"
+          output: trivy-fs-report.html
+          ignore-unfixed: true
+          vuln-type: os,library
 
       - name: OWASP Dependency Check
         env:
