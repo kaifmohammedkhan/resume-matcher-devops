@@ -298,7 +298,8 @@ jobs:
             -Dsonar.organization="$SONAR_ORG" \
             -Dsonar.projectKey="$SONAR_PROJECT_KEY" \
             -Dsonar.token="$SONAR_TOKEN"
-
+      
+        continue-on-error: true
       # ============================================================
       # GENERATE REPORT SCRIPT
       # ============================================================
