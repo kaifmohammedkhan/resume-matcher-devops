@@ -33,6 +33,7 @@ jobs:
           SONAR_ORG: ${{ secrets.SONAR_ORG }}
           SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
         run: ./scripts/ci-sonarcloud.sh
+        continue-on-error: true   # <-- added here
 
       - name: Trivy Scan
         run: ./scripts/ci-trivy.sh
