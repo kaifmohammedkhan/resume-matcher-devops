@@ -72,6 +72,8 @@ jobs:
         if: always()
         id: gitleaks
         uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       # ==========================================================
       # GENERATE COMBINED HTML REPORT
