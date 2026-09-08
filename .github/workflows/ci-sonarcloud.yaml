@@ -271,33 +271,15 @@ jobs:
           echo "Running SonarCloud analysis"
           echo "============================================================"
 
-          if [ -z "$SONAR_TOKEN" ]; then
-            echo "ERROR: SONAR_TOKEN is not configured."
-            exit 1
-          fi
-
-          if [ -z "$SONAR_HOST" ]; then
-            echo "ERROR: SONAR_HOST is not configured."
-            exit 1
-          fi
-
-          if [ -z "$SONAR_ORG" ]; then
-            echo "ERROR: SONAR_ORG is not configured."
-            exit 1
-          fi
-
-          if [ -z "$SONAR_PROJECT_KEY" ]; then
-            echo "ERROR: SONAR_PROJECT_KEY is not configured."
-            exit 1
-          fi
-
           SONAR_HOST="${SONAR_HOST%/}"
 
           sonar-scanner \
             -Dsonar.host.url="$SONAR_HOST" \
             -Dsonar.organization="$SONAR_ORG" \
             -Dsonar.projectKey="$SONAR_PROJECT_KEY" \
-            -Dsonar.token="$SONAR_TOKEN"
+            -Dsonar.token="$SONAR_TOKEN" \
+            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info \
+            -Dsonar.tests=src,test,tests
 
       # ============================================================
       # GENERATE REPORT SCRIPT
@@ -1009,484 +991,279 @@ jobs:
             ".stat strong{font-size:24px;display:block;margin-top:5px}",
 
             "table{width:100%;border-collapse:collapse;font-size:13px}",
-
-            "th{background:#eef2f7;text-align:left;padding:12px;position:sticky;top:0;z-index:1}",
-
-            "td{padding:11px;border-bottom:1px solid #e5e7eb;vertical-align:top}",
-
-            "tr:hover{background:#f8fafc}",
-
-            ".badge{display:inline-block;padding:4px 9px;border-radius:999px;font-weight:700;font-size:11px}",
-
-            ".badge.high{background:#fee2e2;color:#b91c1c}",
-
-            ".badge.medium{background:#ffedd5;color:#c2410c}",
-
-            ".badge.blocker{background:#ede9fe;color:#6d28d9}",
-
-            ".badge.low{background:#fef3c7;color:#92400e}",
-
-            ".empty{text-align:center;padding:25px;color:#15803d;font-weight:700}",
-
-            ".danger-text{color:#dc2626;font-weight:800}",
-
-            ".success-text{color:#15803d;font-weight:700}",
-
-            ".table-wrap{overflow:auto;max-height:750px;border:1px solid #e5e7eb;border-radius:10px}",
-
-            ".footer{text-align:center;color:#6b7280;font-size:12px;padding:20px}",
-
-            ".legend{display:flex;gap:20px;flex-wrap:wrap;margin:15px 0}",
-
-            ".legend span{font-size:13px}",
-
-            ".notice{background:#eff6ff;border-left:4px solid #2563eb;padding:14px;border-radius:8px;margin:15px 0}",
-
-            "@media(max-width:1100px){.grid,.stats{grid-template-columns:repeat(2,1fr)}}",
-
-            "@media(max-width:600px){.grid,.stats{grid-template-columns:1fr}.container{padding:15px}}",
-
-            "</style>",
-            "</head>",
-
-            "<body>",
-
+            "th,td{padding:12px;text-align:left;border-bottom:1px solid #edf2f7}",
+            "th{background:#f8fafc;font-weight:700;color:#334155}",
+            ".badge{display:inline-block;padding:4px 8px;border-radius:6px;font-size:11px;font-weight:700}",
+            ".blocker{background:#f3e8ff;color:#6b21a8}",
+            ".high{background:#fee2e2;color:#991b1b}",
+            ".medium{background:#ffedd5;color:#9a3412}",
+            ".low{background:#fef9c3;color:#854d0e}",
+            ".empty{text-align:center;color:#64748b;padding:24px}",
+            ".danger-text{color:#dc2626;font-weight:700}",
+            ".success-text{color:#16a34a;font-weight:700}",
+            "a{color:#2563eb;text-decoration:none}",
+            "a:hover{text-decoration:underline}",
+          "</style>",
+          "</head>",
+          "<body>",
             '<div class="container">',
+              '<div class="header">',
+                "<h1>SonarCloud Security & Coverage Report</h1>",
+                `<p>Repository: <strong>${escapeHtml(repository)}</strong> | Branch: <strong>${escapeHtml(branch)}</strong> | Commit: <strong>${escapeHtml(commit)}</strong></p>`,
+                `<p>Project Key: <strong>${escapeHtml(projectKey)}</strong> | Organization: <strong>${escapeHtml(organization || "N/A")}</strong></p>`,
+                `<p><a target="_blank" href="${escapeHtml(sonarHost)}/dashboard?id=${encodeURIComponent(projectKey)}">Open Project Dashboard on SonarCloud &rarr;</a></p>`,
+              "</div>",
 
-            '<div class="header">',
-            "<h1>SonarCloud Security & Coverage Report</h1>",
-            "<p>Real-time security issues, severity distribution and uncovered code.</p>",
+              '<div class="grid">',
+                '<div class="card">',
+                  '<div class="card-title">Blocker Issues</div>',
+                  `<div class="value blocker-value">${blockerIssues.length}</div>`,
+                "</div>",
+                '<div class="card">',
+                  '<div class="card-title">High Vulnerabilities</div>',
+                  `<div class="value high-value">${highIssues.length}</div>`,
+                "</div>",
+                '<div class="card">',
+                  '<div class="card-title">Medium Issues</div>',
+                  `<div class="value medium-value">${mediumIssues.length}</div>`,
+                "</div>",
+                '<div class="card">',
+                  '<div class="card-title">Overall Coverage</div>',
+                  `<div class="value coverage-value">${percent(overallCoverage)}</div>`,
+                "</div>",
+              "</div>",
 
-            "<p>Repository: <strong>" +
-              escapeHtml(repository) +
-              "</strong></p>",
+              '<div class="section">',
+                "<h2>SonarCloud Coverage Breakdown</h2>",
+                '<div class="stats">',
+                  '<div class="stat">',
+                    "<div>New Code Coverage</div>",
+                    `<strong>${percent(newCoverage)}</strong>`,
+                  "</div>",
+                  '<div class="stat">',
+                    "<div>New Uncovered Lines</div>",
+                    `<strong class="${newUncoveredLines > 0 ? "danger-text" : "success-text"}">${newUncoveredLines}</strong>`,
+                  "</div>",
+                  '<div class="stat">',
+                    "<div>New Uncovered Conditions</div>",
+                    `<strong>${newUncoveredConditions}</strong>`,
+                  "</div>",
+                  '<div class="stat">',
+                    "<div>Overall Uncovered Lines</div>",
+                    `<strong class="${uncoveredLines > 0 ? "danger-text" : "success-text"}">${uncoveredLines}</strong>`,
+                  "</div>",
+                  '<div class="stat">',
+                    "<div>Overall Uncovered Conditions</div>",
+                    `<strong>${uncoveredConditions}</strong>`,
+                  "</div>",
+                "</div>",
+              "</div>",
 
-            "<p>Branch: <strong>" +
-              escapeHtml(branch) +
-              "</strong></p>",
+              '<div class="section">',
+                "<h2>File-Level Coverage Analysis</h2>",
+                "<table>",
+                  "<thead>",
+                    "<tr>",
+                      "<th>File Path</th>",
+                      "<th>New Coverage</th>",
+                      "<th>New Uncovered Lines</th>",
+                      "<th>New Uncovered Conditions</th>",
+                      "<th>Overall Coverage</th>",
+                      "<th>Overall Uncovered Lines</th>",
+                      "<th>Overall Uncovered Conditions</th>",
+                    "</tr>",
+                  "</thead>",
+                  "<tbody>",
+                    fileCoverageRows(),
+                  "</tbody>",
+                "</table>",
+              "</div>",
 
-            "<p>Commit: <strong>" +
-              escapeHtml(commit) +
-              "</strong></p>",
+              '<div class="section">',
+                `<h2>Blocker Severity Issues (${blockerIssues.length})</h2>`,
+                "<table>",
+                  "<thead>",
+                    "<tr>",
+                      "<th>Severity</th>",
+                      "<th>Rule</th>",
+                      "<th>Message</th>",
+                      "<th>Component</th>",
+                      "<th>Line</th>",
+                      "<th>Action</th>",
+                    "</tr>",
+                  "</thead>",
+                  "<tbody>",
+                    issueRows(blockerIssues),
+                  "</tbody>",
+                "</table>",
+              "</div>",
 
-            '<p><a target="_blank" href="' +
-              escapeHtml(
-                `${sonarHost}/dashboard?id=${encodeURIComponent(projectKey)}`
-              ) +
-              '">Open SonarCloud Dashboard</a></p>',
+              '<div class="section">',
+                `<h2>High Severity Vulnerabilities (${highIssues.length})</h2>`,
+                "<table>",
+                  "<thead>",
+                    "<tr>",
+                      "<th>Severity</th>",
+                      "<th>Rule</th>",
+                      "<th>Message</th>",
+                      "<th>Component</th>",
+                      "<th>Line</th>",
+                      "<th>Action</th>",
+                    "</tr>",
+                  "</thead>",
+                  "<tbody>",
+                    issueRows(highIssues),
+                  "</tbody>",
+                "</table>",
+              "</div>",
 
-            "</div>",
+              '<div class="section">',
+                `<h2>Medium Severity Issues (${mediumIssues.length})</h2>`,
+                "<table>",
+                  "<thead>",
+                    "<tr>",
+                      "<th>Severity</th>",
+                      "<th>Rule</th>",
+                      "<th>Message</th>",
+                      "<th>Component</th>",
+                      "<th>Line</th>",
+                      "<th>Action</th>",
+                    "</tr>",
+                  "</thead>",
+                  "<tbody>",
+                    issueRows(mediumIssues),
+                  "</tbody>",
+                "</table>",
+              "</div>",
 
-            '<div class="grid">',
-
-            '<div class="card">',
-            '<div class="card-title">High Severity</div>',
-            '<div class="value high-value">' +
-              highIssues.length +
+              '<div class="section">',
+                `<h2>Low Severity & Informational (${lowIssues.length + infoIssues.length})</h2>`,
+                "<table>",
+                  "<thead>",
+                    "<tr>",
+                      "<th>Severity</th>",
+                      "<th>Rule</th>",
+                      "<th>Message</th>",
+                      "<th>Component</th>",
+                      "<th>Line</th>",
+                      "<th>Action</th>",
+                    "</tr>",
+                  "</thead>",
+                  "<tbody>",
+                    issueRows([...lowIssues, ...infoIssues]),
+                  "</tbody>",
+                "</table>",
               "</div>",
             "</div>",
-
-            '<div class="card">',
-            '<div class="card-title">Medium Severity</div>',
-            '<div class="value medium-value">' +
-              mediumIssues.length +
-              "</div>",
-            "</div>",
-
-            '<div class="card">',
-            '<div class="card-title">Blocker</div>',
-            '<div class="value blocker-value">' +
-              blockerIssues.length +
-              "</div>",
-            "</div>",
-
-            '<div class="card">',
-            '<div class="card-title">Total Active Issues</div>',
-            '<div class="value">' +
-              issues.length +
-              "</div>",
-            "</div>",
-
-            "</div>",
-
-            '<div class="grid">',
-
-            '<div class="card">',
-            '<div class="card-title">Overall Coverage</div>',
-            '<div class="value coverage-value">' +
-              (overallCoverage === null
-                ? "N/A"
-                : percent(overallCoverage)) +
-              "</div>",
-            "</div>",
-
-            '<div class="card">',
-            '<div class="card-title">New Code Coverage</div>',
-            '<div class="value coverage-value">' +
-              (newCoverage === null
-                ? "N/A"
-                : percent(newCoverage)) +
-              "</div>",
-            "</div>",
-
-            '<div class="card">',
-            '<div class="card-title">Uncovered Lines</div>',
-            '<div class="value">' +
-              uncoveredLines +
-              "</div>",
-            "</div>",
-
-            '<div class="card">',
-            '<div class="card-title">Uncovered Conditions</div>',
-            '<div class="value">' +
-              uncoveredConditions +
-              "</div>",
-            "</div>",
-
-            "</div>",
-
-            '<div class="section">',
-
-            "<h2>Security Severity Distribution</h2>",
-
-            '<div class="notice">',
-            "Severity mapping uses SonarCloud's actual severity model: ",
-            "<strong>CRITICAL → High</strong>, ",
-            "<strong>MAJOR → Medium</strong>, ",
-            "<strong>BLOCKER → Blocker</strong>.",
-            "</div>",
-
-            '<div class="stats">',
-
-            '<div class="stat">',
-            "<span>🔴 High</span>",
-            "<strong>" +
-              highIssues.length +
-              "</strong>",
-            "</div>",
-
-            '<div class="stat">',
-            "<span>🟠 Medium</span>",
-            "<strong>" +
-              mediumIssues.length +
-              "</strong>",
-            "</div>",
-
-            '<div class="stat">',
-            "<span>🟣 Blocker</span>",
-            "<strong>" +
-              blockerIssues.length +
-              "</strong>",
-            "</div>",
-
-            '<div class="stat">',
-            "<span>🟡 Low</span>",
-            "<strong>" +
-              lowIssues.length +
-              "</strong>",
-            "</div>",
-
-            '<div class="stat">',
-            "<span>📋 Total</span>",
-            "<strong>" +
-              issues.length +
-              "</strong>",
-            "</div>",
-
-            "</div>",
-            "</div>",
-
-            '<div class="section">',
-
-            "<h2>Coverage Overview</h2>",
-
-            '<div class="stats">',
-
-            '<div class="stat">',
-            "<span>Overall Coverage</span>",
-            "<strong>" +
-              (overallCoverage === null
-                ? "N/A"
-                : percent(overallCoverage)) +
-              "</strong>",
-            "</div>",
-
-            '<div class="stat">',
-            "<span>Coverage on New Code</span>",
-            "<strong>" +
-              (newCoverage === null
-                ? "N/A"
-                : percent(newCoverage)) +
-              "</strong>",
-            "</div>",
-
-            '<div class="stat">',
-            "<span>Uncovered Lines</span>",
-            "<strong>" +
-              uncoveredLines +
-              "</strong>",
-            "</div>",
-
-            '<div class="stat">',
-            "<span>Uncovered Conditions</span>",
-            "<strong>" +
-              uncoveredConditions +
-              "</strong>",
-            "</div>",
-
-            '<div class="stat">',
-            "<span>Uncovered New Lines</span>",
-            "<strong>" +
-              newUncoveredLines +
-              "</strong>",
-            "</div>",
-
-            "</div>",
-
-            "<br>",
-
-            "<p>",
-            "<strong>Uncovered New Conditions:</strong> " +
-              newUncoveredConditions,
-            "</p>",
-
-            "</div>",
-
-            '<div class="section">',
-
-            "<h2>🔴 High Severity Issues</h2>",
-
-            "<p>" +
-              highIssues.length +
-              " active high-severity issue(s).</p>",
-
-            '<div class="table-wrap">',
-            "<table>",
-            "<thead>",
-            "<tr>",
-            "<th>Severity</th>",
-            "<th>Rule</th>",
-            "<th>Message</th>",
-            "<th>File</th>",
-            "<th>Line</th>",
-            "<th>Action</th>",
-            "</tr>",
-            "</thead>",
-            "<tbody>",
-            issueRows(highIssues),
-            "</tbody>",
-            "</table>",
-            "</div>",
-
-            "</div>",
-
-            '<div class="section">',
-
-            "<h2>🟠 Medium Severity Issues</h2>",
-
-            "<p>" +
-              mediumIssues.length +
-              " active medium-severity issue(s).</p>",
-
-            '<div class="table-wrap">',
-            "<table>",
-            "<thead>",
-            "<tr>",
-            "<th>Severity</th>",
-            "<th>Rule</th>",
-            "<th>Message</th>",
-            "<th>File</th>",
-            "<th>Line</th>",
-            "<th>Action</th>",
-            "</tr>",
-            "</thead>",
-            "<tbody>",
-            issueRows(mediumIssues),
-            "</tbody>",
-            "</table>",
-            "</div>",
-
-            "</div>",
-
-            '<div class="section">',
-
-            "<h2>🟣 Blocker Issues</h2>",
-
-            "<p>" +
-              blockerIssues.length +
-              " active blocker issue(s).</p>",
-
-            '<div class="table-wrap">',
-            "<table>",
-            "<thead>",
-            "<tr>",
-            "<th>Severity</th>",
-            "<th>Rule</th>",
-            "<th>Message</th>",
-            "<th>File</th>",
-            "<th>Line</th>",
-            "<th>Action</th>",
-            "</tr>",
-            "</thead>",
-            "<tbody>",
-            issueRows(blockerIssues),
-            "</tbody>",
-            "</table>",
-            "</div>",
-
-            "</div>",
-
-            '<div class="section">',
-
-            "<h2>📊 Coverage by File</h2>",
-
-            "<p>",
-            "Files are sorted by uncovered new lines first, followed by overall uncovered lines.",
-            "</p>",
-
-            '<div class="legend">',
-            "<span>🔴 Red = uncovered code exists</span>",
-            "<span>🟢 Green = fully covered</span>",
-            "</div>",
-
-            '<div class="table-wrap">',
-            "<table>",
-            "<thead>",
-            "<tr>",
-            "<th>File</th>",
-            "<th>New Code Coverage</th>",
-            "<th>Uncovered New Lines</th>",
-            "<th>Uncovered New Conditions</th>",
-            "<th>Overall Coverage</th>",
-            "<th>Overall Uncovered Lines</th>",
-            "<th>Overall Uncovered Conditions</th>",
-            "</tr>",
-            "</thead>",
-
-            "<tbody>",
-            fileCoverageRows(),
-            "</tbody>",
-
-            "</table>",
-            "</div>",
-
-            "</div>",
-
-            '<div class="footer">',
-
-            "Generated automatically by GitHub Actions → SonarCloud Security Analysis",
-
-            "<br>",
-
-            "Repository: " +
-              escapeHtml(repository) +
-              " | Branch: " +
-              escapeHtml(branch) +
-              " | Commit: " +
-              escapeHtml(commit),
-
-            "</div>",
-
-            "</div>",
-            "</body>",
-            "</html>",
+          "</body>",
+          "</html>",
           ].join("\n");
 
-          fs.writeFileSync(
-            "sonar-summary.html",
-            html,
-            "utf8"
-          );
-
-          console.log("============================================================");
-          console.log("SonarCloud report generated successfully");
-          console.log("============================================================");
-          console.log(`Active issues: ${issues.length}`);
-          console.log(`High: ${highIssues.length}`);
-          console.log(`Medium: ${mediumIssues.length}`);
-          console.log(`Blocker: ${blockerIssues.length}`);
-          console.log(`Low: ${lowIssues.length}`);
-          console.log(`Info: ${infoIssues.length}`);
-          console.log(
-            `Overall coverage: ${
-              overallCoverage === null
-                ? "N/A"
-                : percent(overallCoverage)
-            }`
-          );
-          console.log(
-            `New-code coverage: ${
-              newCoverage === null
-                ? "N/A"
-                : percent(newCoverage)
-            }`
-          );
-          console.log(
-            `Uncovered lines: ${uncoveredLines}`
-          );
-          console.log(
-            `Uncovered conditions: ${uncoveredConditions}`
-          );
-          console.log(
-            `Uncovered new lines: ${newUncoveredLines}`
-          );
-          console.log(
-            `Uncovered new conditions: ${newUncoveredConditions}`
-          );
-          console.log(
-            `Files returned: ${fileRows.length}`
-          );
-          console.log("============================================================");
+          fs.writeFileSync("sonar-report.html", html, "utf8");
+          console.log("Successfully generated sonar-report.html");
           EOF
 
       # ============================================================
-      # GENERATE REAL SONARCLOUD REPORT
+      # RUN REPORT GENERATOR
       # ============================================================
-      - name: Generate SonarCloud HTML Report
+      - name: Generate SonarCloud HTML report
         if: always()
         env:
-          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
-          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
-          SONAR_ORG: ${{ secrets.SONAR_ORG }}
           SONAR_HOST: ${{ secrets.SONAR_HOST }}
-          GITHUB_REPOSITORY: ${{ github.repository }}
-          GITHUB_REF_NAME: ${{ github.ref_name }}
-          GITHUB_SHA: ${{ github.sha }}
+          SONAR_ORG: ${{ secrets.SONAR_ORG }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         run: |
           set -e
 
           echo "============================================================"
-          echo "Generating SonarCloud HTML report"
+          echo "Generating HTML report"
           echo "============================================================"
+
+          if [ ! -f "generate-sonar-report.mjs" ]; then
+            echo "ERROR: Report generator script missing."
+            exit 1
+          fi
 
           node generate-sonar-report.mjs
 
-          test -f sonar-summary.html
+          if [ ! -f "sonar-report.html" ]; then
+            echo "ERROR: sonar-report.html was not generated."
+            exit 1
+          fi
 
-          echo ""
-          echo "Report created:"
-          ls -lh sonar-summary.html
+          echo "sonar-report.html generated successfully."
+          ls -lh sonar-report.html
 
       # ============================================================
-      # UPLOAD HTML REPORT
+      # PUBLISH REPORT ARTIFACT
       # ============================================================
-      - name: Upload SonarCloud HTML Report
+      - name: Upload SonarCloud HTML report artifact
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: sonar-summary-report
-          path: sonar-summary.html
-          if-no-files-found: warn
+          name: sonarcloud-security-report
+          path: sonar-report.html
+          retention-days: 30
 
       # ============================================================
-      # UPLOAD RAW SONAR CONFIG / LCOV FOR DEBUGGING
+      # SUMMARY & SECURITY GATE EVALUATION
       # ============================================================
-      - name: Upload Sonar debugging artifacts
+      - name: Evaluate Security Gate & Write Job Summary
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: sonar-analysis-debug
-          path: |
-            sonar-project.properties
-            coverage/lcov.info
-          if-no-files-found: warn
+        env:
+          SONAR_HOST: ${{ secrets.SONAR_HOST }}
+          SONAR_ORG: ${{ secrets.SONAR_ORG }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        shell: bash
+        run: |
+          set -e
+
+          echo "============================================================"
+          echo "Evaluating Security Gate and Summary"
+          echo "============================================================"
+
+          SONAR_HOST="${SONAR_HOST%/}"
+
+          curl \
+            --fail \
+            --silent \
+            --show-error \
+            --location \
+            --proto '=https' \
+            --tlsv1.2 \
+            -u "${SONAR_TOKEN}:" \
+            "${SONAR_HOST}/api/qualitygates/project_status?projectKey=${SONAR_PROJECT_KEY}&branch=${GITHUB_REF_NAME}" \
+            -o /tmp/sonar-status.json || true
+
+          STATUS="UNKNOWN"
+          if [ -f /tmp/sonar-status.json ]; then
+            STATUS=$(node -e '
+              try {
+                const fs = require("fs");
+                const data = JSON.parse(fs.readFileSync("/tmp/sonar-status.json", "utf8"));
+                process.stdout.write(data.projectStatus?.status || "UNKNOWN");
+              } catch {
+                process.stdout.write("UNKNOWN");
+              }
+            ' || echo "UNKNOWN")
+          fi
+
+          echo "Quality Gate Status: ${STATUS}"
+
+          {
+            echo "## 🛡️ SonarCloud Analysis Results"
+            echo ""
+            echo "- **Project Key:** \`${SONAR_PROJECT_KEY}\`"
+            echo "- **Organization:** \`${SONAR_ORG}\`"
+            echo "- **Branch:** \`${GITHUB_REF_NAME}\`"
+            echo "- **Quality Gate Status:** \`${STATUS}\`"
+            echo ""
+            echo "📄 **Full HTML Report:** Uploaded as workflow artifact \`sonarcloud-security-report\`."
+          } >> $GITHUB_STEP_SUMMARY
+
+          if [ "$STATUS" = "ERROR" ]; then
+            echo "::error::SonarCloud Quality Gate failed!"
+            exit 1
+          fi
