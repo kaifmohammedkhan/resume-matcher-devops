@@ -16,7 +16,7 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          name: sonar-summary-report
+          name: sonar-report
           path: .
 
       - uses: actions/download-artifact@v4
@@ -53,6 +53,6 @@ jobs:
             <p>See attached <em>trivy-img-report.html</em> for container image vulnerabilities.</p>
           attachments: |
             test-summary.html
-            sonar-summary.html
+            sonar-summary-report.html
             trivy-fs-report.html
             trivy-img-report.html
