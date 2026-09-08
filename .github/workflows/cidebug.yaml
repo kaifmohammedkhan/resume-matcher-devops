@@ -37,8 +37,17 @@ jobs:
 
       - name: Install Trivy
         run: |
-          curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /tmp v0.50.2
-          sudo mv /tmp/trivy /usr/local/bin/trivy
+          TRIVY_VERSION="0.50.2"
+          mkdir -p /tmp/trivy_bin
+          curl -sfSL "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz" | tar -xz -C /tmp/trivy_bin
+          
+          if [ -f /tmp/trivy_bin/trivy ]; then
+            sudo mv /tmp/trivy_bin/trivy /usr/local/bin/trivy
+          else
+            sudo mv /tmp/trivy_bin/*/trivy /usr/local/bin/trivy
+          fi
+          
+          rm -rf /tmp/trivy_bin
           trivy --version
 
       - name: Trivy Scan
