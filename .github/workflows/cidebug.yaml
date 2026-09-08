@@ -35,12 +35,12 @@ jobs:
         run: ./scripts/ci-sonarcloud.sh
         continue-on-error: true   # keep SonarCloud soft-fail
 
-      # 👇 New step to install Trivy via binary
+      # 👇 Correct Trivy install step
       - name: Install Trivy
         run: |
           TRIVY_VERSION=0.50.2
           curl -sSL https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz -o trivy.tar.gz
-          tar -xzf trivy.tar.gz
+          tar -xzf trivy.tar.gz trivy
           sudo mv trivy /usr/local/bin/
           trivy --version
 
