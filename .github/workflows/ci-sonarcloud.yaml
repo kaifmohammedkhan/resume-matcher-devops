@@ -259,7 +259,6 @@ jobs:
       # SONARCLOUD ANALYSIS
       # ============================================================
       - name: Run SonarCloud analysis
-        continue-on-error: true   # <-- prevents pipeline failure before report generation
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
           SONAR_HOST: ${{ secrets.SONAR_HOST }}
@@ -298,9 +297,7 @@ jobs:
             -Dsonar.host.url="$SONAR_HOST" \
             -Dsonar.organization="$SONAR_ORG" \
             -Dsonar.projectKey="$SONAR_PROJECT_KEY" \
-            -Dsonar.token="$SONAR_TOKEN" \
-            -Dsonar.javascript.lcov.reportPaths=coverage/lcov.info \
-            -Dsonar.tests=src,test,tests
+            -Dsonar.token="$SONAR_TOKEN"
 
       # ============================================================
       # GENERATE REPORT SCRIPT
@@ -968,91 +965,528 @@ jobs:
             '<meta charset="UTF-8">',
             '<meta name="viewport" content="width=device-width, initial-scale=1.0">',
             "<title>SonarCloud Security & Coverage Report</title>",
+
             "<style>",
+
             "*{box-sizing:border-box}",
+
             "body{margin:0;font-family:Inter,Arial,sans-serif;background:#f5f7fb;color:#172033}",
+
             ".container{max-width:1600px;margin:auto;padding:30px}",
+
             ".header{background:linear-gradient(135deg,#111827,#26344d);color:white;border-radius:18px;padding:30px;margin-bottom:24px}",
+
             ".header h1{margin:0 0 10px;font-size:30px}",
+
             ".header p{margin:6px 0;color:#d5dbea}",
+
             ".header a{color:#93c5fd;font-weight:700}",
+
             ".grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:24px}",
+
             ".card{background:white;border-radius:16px;padding:22px;box-shadow:0 4px 16px rgba(0,0,0,.06)}",
+
             ".card-title{font-size:13px;color:#6b7280;text-transform:uppercase;font-weight:700}",
+
             ".value{font-size:32px;font-weight:800;margin-top:8px}",
+
             ".high-value{color:#dc2626}",
+
             ".medium-value{color:#ea580c}",
+
             ".blocker-value{color:#7c3aed}",
+
             ".coverage-value{color:#2563eb}",
+
             ".section{background:white;border-radius:16px;padding:24px;margin-bottom:24px;box-shadow:0 4px 16px rgba(0,0,0,.06)}",
+
             ".section h2{margin-top:0}",
+
             ".stats{display:grid;grid-template-columns:repeat(5,1fr);gap:14px}",
+
             ".stat{background:#f8fafc;border-radius:12px;padding:18px}",
+
             ".stat strong{font-size:24px;display:block;margin-top:5px}",
+
             "table{width:100%;border-collapse:collapse;font-size:13px}",
+
             "th{background:#eef2f7;text-align:left;padding:12px;position:sticky;top:0;z-index:1}",
+
             "td{padding:11px;border-bottom:1px solid #e5e7eb;vertical-align:top}",
+
             "tr:hover{background:#f8fafc}",
+
             ".badge{display:inline-block;padding:4px 9px;border-radius:999px;font-weight:700;font-size:11px}",
+
             ".badge.high{background:#fee2e2;color:#b91c1c}",
+
             ".badge.medium{background:#ffedd5;color:#c2410c}",
+
             ".badge.blocker{background:#ede9fe;color:#6d28d9}",
+
             ".badge.low{background:#fef3c7;color:#92400e}",
+
             ".empty{text-align:center;padding:25px;color:#15803d;font-weight:700}",
+
             ".danger-text{color:#dc2626;font-weight:800}",
+
             ".success-text{color:#15803d;font-weight:700}",
+
             ".table-wrap{overflow:auto;max-height:750px;border:1px solid #e5e7eb;border-radius:10px}",
+
             ".footer{text-align:center;color:#6b7280;font-size:12px;padding:20px}",
+
             ".legend{display:flex;gap:20px;flex-wrap:wrap;margin:15px 0}",
+
             ".legend span{font-size:13px}",
-            ".notice{background:#eff6ff;border:1px solid #bfdbfe;color:#1e40af;padding:12px 16px;border-radius:8px;margin-bottom:16px}",
+
+            ".notice{background:#eff6ff;border-left:4px solid #2563eb;padding:14px;border-radius:8px;margin:15px 0}",
+
+            "@media(max-width:1100px){.grid,.stats{grid-template-columns:repeat(2,1fr)}}",
+
+            "@media(max-width:600px){.grid,.stats{grid-template-columns:1fr}.container{padding:15px}}",
+
             "</style>",
             "</head>",
+
             "<body>",
+
             '<div class="container">',
+
             '<div class="header">',
             "<h1>SonarCloud Security & Coverage Report</h1>",
-            `<p>Repository: ${escapeHtml(repository)} | Branch: ${escapeHtml(branch)} | Commit: ${escapeHtml(commit)}</p>`,
-            `<p>Project: <a href="${escapeHtml(sonarHost)}/dashboard?id=${encodeURIComponent(projectKey)}" target="_blank">${escapeHtml(projectKey)}</a></p>`,
+            "<p>Real-time security issues, severity distribution and uncovered code.</p>",
+
+            "<p>Repository: <strong>" +
+              escapeHtml(repository) +
+              "</strong></p>",
+
+            "<p>Branch: <strong>" +
+              escapeHtml(branch) +
+              "</strong></p>",
+
+            "<p>Commit: <strong>" +
+              escapeHtml(commit) +
+              "</strong></p>",
+
+            '<p><a target="_blank" href="' +
+              escapeHtml(
+                `${sonarHost}/dashboard?id=${encodeURIComponent(projectKey)}`
+              ) +
+              '">Open SonarCloud Dashboard</a></p>',
+
             "</div>",
+
             '<div class="grid">',
-            '<div class="card"><div class="card-title">Blocker Issues</div><div class="value blocker-value">' + blockerIssues.length + "</div></div>",
-            '<div class="card"><div class="card-title">High Issues</div><div class="value high-value">' + highIssues.length + "</div></div>",
-            '<div class="card"><div class="card-title">Medium Issues</div><div class="value medium-value">' + mediumIssues.length + "</div></div>",
-            '<div class="card"><div class="card-title">Overall Coverage</div><div class="value coverage-value">' + percent(overallCoverage) + "</div></div>",
+
+            '<div class="card">',
+            '<div class="card-title">High Severity</div>',
+            '<div class="value high-value">' +
+              highIssues.length +
+              "</div>",
             "</div>",
+
+            '<div class="card">',
+            '<div class="card-title">Medium Severity</div>',
+            '<div class="value medium-value">' +
+              mediumIssues.length +
+              "</div>",
+            "</div>",
+
+            '<div class="card">',
+            '<div class="card-title">Blocker</div>',
+            '<div class="value blocker-value">' +
+              blockerIssues.length +
+              "</div>",
+            "</div>",
+
+            '<div class="card">',
+            '<div class="card-title">Total Active Issues</div>',
+            '<div class="value">' +
+              issues.length +
+              "</div>",
+            "</div>",
+
+            "</div>",
+
+            '<div class="grid">',
+
+            '<div class="card">',
+            '<div class="card-title">Overall Coverage</div>',
+            '<div class="value coverage-value">' +
+              (overallCoverage === null
+                ? "N/A"
+                : percent(overallCoverage)) +
+              "</div>",
+            "</div>",
+
+            '<div class="card">',
+            '<div class="card-title">New Code Coverage</div>',
+            '<div class="value coverage-value">' +
+              (newCoverage === null
+                ? "N/A"
+                : percent(newCoverage)) +
+              "</div>",
+            "</div>",
+
+            '<div class="card">',
+            '<div class="card-title">Uncovered Lines</div>',
+            '<div class="value">' +
+              uncoveredLines +
+              "</div>",
+            "</div>",
+
+            '<div class="card">',
+            '<div class="card-title">Uncovered Conditions</div>',
+            '<div class="value">' +
+              uncoveredConditions +
+              "</div>",
+            "</div>",
+
+            "</div>",
+
             '<div class="section">',
-            "<h2>Coverage Summary</h2>",
+
+            "<h2>Security Severity Distribution</h2>",
+
+            '<div class="notice">',
+            "Severity mapping uses SonarCloud's actual severity model: ",
+            "<strong>CRITICAL → High</strong>, ",
+            "<strong>MAJOR → Medium</strong>, ",
+            "<strong>BLOCKER → Blocker</strong>.",
+            "</div>",
+
             '<div class="stats">',
-            '<div class="stat">New Coverage<strong>' + percent(newCoverage) + "</strong></div>",
-            '<div class="stat">New Uncovered Lines<strong>' + newUncoveredLines + "</strong></div>",
-            '<div class="stat">New Uncovered Conditions<strong>' + newUncoveredConditions + "</strong></div>",
-            '<div class="stat">Total Uncovered Lines<strong>' + uncoveredLines + "</strong></div>",
-            '<div class="stat">Total Uncovered Conditions<strong>' + uncoveredConditions + "</strong></div>",
+
+            '<div class="stat">',
+            "<span>🔴 High</span>",
+            "<strong>" +
+              highIssues.length +
+              "</strong>",
+            "</div>",
+
+            '<div class="stat">',
+            "<span>🟠 Medium</span>",
+            "<strong>" +
+              mediumIssues.length +
+              "</strong>",
+            "</div>",
+
+            '<div class="stat">',
+            "<span>🟣 Blocker</span>",
+            "<strong>" +
+              blockerIssues.length +
+              "</strong>",
+            "</div>",
+
+            '<div class="stat">',
+            "<span>🟡 Low</span>",
+            "<strong>" +
+              lowIssues.length +
+              "</strong>",
+            "</div>",
+
+            '<div class="stat">',
+            "<span>📋 Total</span>",
+            "<strong>" +
+              issues.length +
+              "</strong>",
+            "</div>",
+
             "</div>",
             "</div>",
+
             '<div class="section">',
-            "<h2>High & Critical Issues</h2>",
-            '<div class="table-wrap">',
-            "<table><thead><tr><th>Severity</th><th>Rule</th><th>Message</th><th>Component</th><th>Line</th><th>Action</th></tr></thead><tbody>",
-            issueRows([...blockerIssues, ...highIssues]),
-            "</tbody></table>",
+
+            "<h2>Coverage Overview</h2>",
+
+            '<div class="stats">',
+
+            '<div class="stat">',
+            "<span>Overall Coverage</span>",
+            "<strong>" +
+              (overallCoverage === null
+                ? "N/A"
+                : percent(overallCoverage)) +
+              "</strong>",
             "</div>",
+
+            '<div class="stat">',
+            "<span>Coverage on New Code</span>",
+            "<strong>" +
+              (newCoverage === null
+                ? "N/A"
+                : percent(newCoverage)) +
+              "</strong>",
             "</div>",
+
+            '<div class="stat">',
+            "<span>Uncovered Lines</span>",
+            "<strong>" +
+              uncoveredLines +
+              "</strong>",
+            "</div>",
+
+            '<div class="stat">',
+            "<span>Uncovered Conditions</span>",
+            "<strong>" +
+              uncoveredConditions +
+              "</strong>",
+            "</div>",
+
+            '<div class="stat">',
+            "<span>Uncovered New Lines</span>",
+            "<strong>" +
+              newUncoveredLines +
+              "</strong>",
+            "</div>",
+
+            "</div>",
+
+            "<br>",
+
+            "<p>",
+            "<strong>Uncovered New Conditions:</strong> " +
+              newUncoveredConditions,
+            "</p>",
+
+            "</div>",
+
             '<div class="section">',
-            "<h2>File Coverage Breakdown</h2>",
+
+            "<h2>🔴 High Severity Issues</h2>",
+
+            "<p>" +
+              highIssues.length +
+              " active high-severity issue(s).</p>",
+
             '<div class="table-wrap">',
-            "<table><thead><tr><th>File</th><th>New Coverage</th><th>New Uncovered Lines</th><th>New Uncovered Conditions</th><th>Overall Coverage</th><th>Uncovered Lines</th><th>Uncovered Conditions</th></tr></thead><tbody>",
+            "<table>",
+            "<thead>",
+            "<tr>",
+            "<th>Severity</th>",
+            "<th>Rule</th>",
+            "<th>Message</th>",
+            "<th>File</th>",
+            "<th>Line</th>",
+            "<th>Action</th>",
+            "</tr>",
+            "</thead>",
+            "<tbody>",
+            issueRows(highIssues),
+            "</tbody>",
+            "</table>",
+            "</div>",
+
+            "</div>",
+
+            '<div class="section">',
+
+            "<h2>🟠 Medium Severity Issues</h2>",
+
+            "<p>" +
+              mediumIssues.length +
+              " active medium-severity issue(s).</p>",
+
+            '<div class="table-wrap">',
+            "<table>",
+            "<thead>",
+            "<tr>",
+            "<th>Severity</th>",
+            "<th>Rule</th>",
+            "<th>Message</th>",
+            "<th>File</th>",
+            "<th>Line</th>",
+            "<th>Action</th>",
+            "</tr>",
+            "</thead>",
+            "<tbody>",
+            issueRows(mediumIssues),
+            "</tbody>",
+            "</table>",
+            "</div>",
+
+            "</div>",
+
+            '<div class="section">',
+
+            "<h2>🟣 Blocker Issues</h2>",
+
+            "<p>" +
+              blockerIssues.length +
+              " active blocker issue(s).</p>",
+
+            '<div class="table-wrap">',
+            "<table>",
+            "<thead>",
+            "<tr>",
+            "<th>Severity</th>",
+            "<th>Rule</th>",
+            "<th>Message</th>",
+            "<th>File</th>",
+            "<th>Line</th>",
+            "<th>Action</th>",
+            "</tr>",
+            "</thead>",
+            "<tbody>",
+            issueRows(blockerIssues),
+            "</tbody>",
+            "</table>",
+            "</div>",
+
+            "</div>",
+
+            '<div class="section">',
+
+            "<h2>📊 Coverage by File</h2>",
+
+            "<p>",
+            "Files are sorted by uncovered new lines first, followed by overall uncovered lines.",
+            "</p>",
+
+            '<div class="legend">',
+            "<span>🔴 Red = uncovered code exists</span>",
+            "<span>🟢 Green = fully covered</span>",
+            "</div>",
+
+            '<div class="table-wrap">',
+            "<table>",
+            "<thead>",
+            "<tr>",
+            "<th>File</th>",
+            "<th>New Code Coverage</th>",
+            "<th>Uncovered New Lines</th>",
+            "<th>Uncovered New Conditions</th>",
+            "<th>Overall Coverage</th>",
+            "<th>Overall Uncovered Lines</th>",
+            "<th>Overall Uncovered Conditions</th>",
+            "</tr>",
+            "</thead>",
+
+            "<tbody>",
             fileCoverageRows(),
-            "</tbody></table>",
+            "</tbody>",
+
+            "</table>",
             "</div>",
+
             "</div>",
-            '<div class="footer">Generated by GitHub Actions Workflow</div>',
+
+            '<div class="footer">',
+
+            "Generated automatically by GitHub Actions → SonarCloud Security Analysis",
+
+            "<br>",
+
+            "Repository: " +
+              escapeHtml(repository) +
+              " | Branch: " +
+              escapeHtml(branch) +
+              " | Commit: " +
+              escapeHtml(commit),
+
+            "</div>",
+
             "</div>",
             "</body>",
-            "</html>"
+            "</html>",
           ].join("\n");
 
-          fs.writeFileSync("sonar-summary-report.html", html, "utf8");
-          console.log("Report generated: sonar-summary-report.html");
+          fs.writeFileSync(
+            "sonar-summary.html",
+            html,
+            "utf8"
+          );
+
+          console.log("============================================================");
+          console.log("SonarCloud report generated successfully");
+          console.log("============================================================");
+          console.log(`Active issues: ${issues.length}`);
+          console.log(`High: ${highIssues.length}`);
+          console.log(`Medium: ${mediumIssues.length}`);
+          console.log(`Blocker: ${blockerIssues.length}`);
+          console.log(`Low: ${lowIssues.length}`);
+          console.log(`Info: ${infoIssues.length}`);
+          console.log(
+            `Overall coverage: ${
+              overallCoverage === null
+                ? "N/A"
+                : percent(overallCoverage)
+            }`
+          );
+          console.log(
+            `New-code coverage: ${
+              newCoverage === null
+                ? "N/A"
+                : percent(newCoverage)
+            }`
+          );
+          console.log(
+            `Uncovered lines: ${uncoveredLines}`
+          );
+          console.log(
+            `Uncovered conditions: ${uncoveredConditions}`
+          );
+          console.log(
+            `Uncovered new lines: ${newUncoveredLines}`
+          );
+          console.log(
+            `Uncovered new conditions: ${newUncoveredConditions}`
+          );
+          console.log(
+            `Files returned: ${fileRows.length}`
+          );
+          console.log("============================================================");
           EOF
+
+      # ============================================================
+      # GENERATE REAL SONARCLOUD REPORT
+      # ============================================================
+      - name: Generate SonarCloud HTML Report
+        if: always()
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+          SONAR_ORG: ${{ secrets.SONAR_ORG }}
+          SONAR_HOST: ${{ secrets.SONAR_HOST }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_SHA: ${{ github.sha }}
+        run: |
+          set -e
+
+          echo "============================================================"
+          echo "Generating SonarCloud HTML report"
+          echo "============================================================"
+
+          node generate-sonar-report.mjs
+
+          test -f sonar-summary.html
+
+          echo ""
+          echo "Report created:"
+          ls -lh sonar-summary.html
+
+      # ============================================================
+      # UPLOAD HTML REPORT
+      # ============================================================
+      - name: Upload SonarCloud HTML Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonar-summary-report
+          path: sonar-summary.html
+          if-no-files-found: warn
+
+      # ============================================================
+      # UPLOAD RAW SONAR CONFIG / LCOV FOR DEBUGGING
+      # ============================================================
+      - name: Upload Sonar debugging artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sonar-analysis-debug
+          path: |
+            sonar-project.properties
+            coverage/lcov.info
+          if-no-files-found: warn
