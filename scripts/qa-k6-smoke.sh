@@ -21,6 +21,9 @@ command -v k6 >/dev/null 2>&1 || { echo 'ERROR: k6 is not installed.'; exit 1; }
 [[ -f tests/load.js ]] || exit 1
 mkdir -p results
 
+# Free port 3000 using native Linux tools or node fallback
+lsof -ti:3000 | xargs -r kill -9 2>/dev/null || fuser -k 3000/tcp 2>/dev/null || npx --yes kill-port 3000 2>/dev/null || true
+
 PORT=3000 WIREMOCK_URL=http://127.0.0.1:8080 RATE_LIMIT_MAX=10000 npm start > results/app.log 2>&1 & APP_PID=$!; echo "$APP_PID" > results/app.pid
 for i in {1..30}; do curl --silent --fail http://127.0.0.1:3000/ >/dev/null 2>&1 && break; kill -0 "$APP_PID" 2>/dev/null || { cat results/app.log; exit 1; }; sleep 2; done
 
