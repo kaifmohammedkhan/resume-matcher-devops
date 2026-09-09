@@ -77,6 +77,13 @@ jobs:
         continue-on-error: true
         run: ./scripts/ci-security-checks.sh
 
+      # Ensure report directory structure is flattened and available at root
+      - name: Consolidate Security Reports
+        if: always()
+        run: |
+          cp reports/security/security-report.html ./security-report.html 2>/dev/null || true
+          cp reports/sonar-summary.html ./sonar-summary.html 2>/dev/null || true
+
       - name: Upload CI Artifacts
         if: always()
         uses: actions/upload-artifact@v4
@@ -87,6 +94,7 @@ jobs:
             sonar-summary.html
             trivy-fs-report.html
             trivy-img-report.html
+            security-report.html
 
   send-email:
     needs: [ci]
@@ -106,7 +114,9 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: ci-reports
-          continue-on-error: true
+
+      - name: Verify Downloaded Reports
+        run: ls -la
 
       - name: Send CI Email
         env:
