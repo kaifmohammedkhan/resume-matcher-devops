@@ -6,6 +6,10 @@ send_mail() {
   local attachments=("$@")
   [[ -z "${EMAIL_USER:-}" || -z "${EMAIL_PASS:-}" ]] && { echo "Email skipped: EMAIL_USER/EMAIL_PASS not configured."; return 0; }
   [[ -z "$to" ]] && to="$EMAIL_USER"
+
+  # Ensure nodemailer is available locally before running node
+  node -e "require('nodemailer')" &>/dev/null || npm install nodemailer --no-save &>/dev/null
+
   node - "$subject" "$to" "$cc" "$html" "${attachments[@]}" <<'NODE'
 const nodemailer = require('nodemailer');
 const fs = require('fs');
