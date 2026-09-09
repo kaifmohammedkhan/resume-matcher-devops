@@ -6,7 +6,7 @@ send_mail() {
   local attachments=("$@")
   [[ -z "${EMAIL_USER:-}" || -z "${EMAIL_PASS:-}" ]] && { echo "Email skipped: EMAIL_USER/EMAIL_PASS not configured."; return 0; }
   [[ -z "$to" ]] && to="$EMAIL_USER"
-  node - "$subject" "$to" "$cc" "$html" "${attachments[@]}" <<'NODE'
+  NODE_PATH=node_modules node - "$subject" "$to" "$cc" "$html" "${attachments[@]}" <<'NODE'
 const nodemailer=require('nodemailer');
 const fs=require('fs');
 const [subject,to,cc,html,...files]=process.argv.slice(2);
@@ -27,7 +27,7 @@ export CYPRESS_RESULT="${CYPRESS_RESULT:-unknown}"
 export K6_SMOKE_RESULT="${K6_SMOKE_RESULT:-unknown}"
 export K6_LOAD_RESULT="${K6_LOAD_RESULT:-unknown}"
 
-cat > generate-qa-report.mjs <<'NODE'
+cat > generate-qa-report.js <<'NODE'
 const fs = require("fs");
 const path = require("path");
 
@@ -215,9 +215,9 @@ fs.writeFileSync("reports/html/k6-smoke-report.html", k6Page("k6 Smoke Test Exec
 fs.writeFileSync("reports/html/k6-load-report.html", k6Page("k6 Load Test Execution", "reports/k6-load", "summary.json", env.K6_LOAD_RESULT || "unknown", "10 VUs / 30 seconds"));
 NODE
 
-node generate-qa-report.mjs || true
+node generate-qa-report.js || true
 if [[ -n "${EMAIL_USER:-}" ]]; then
   subject="QA Pipeline Report [${GITHUB_REF_NAME:-main}] - Run #${GITHUB_RUN_NUMBER:-1}"
   body='<p>Hi,</p><p>The QA Pipeline for repository <b>'"${GITHUB_REPOSITORY:-}"'</b> has finished execution.</p><p>Cypress E2E: '"$CYPRESS_RESULT"'</p><p>k6 Smoke Test: '"$K6_SMOKE_RESULT"'</p><p>k6 Load Test: '"$K6_LOAD_RESULT"'</p>'
-  send_mail "$subject" "${QA_EMAIL_TO:-}" "${QA_EMAIL_CC:-}" "$body" reports/html/cypress-e2e-report.html reports/html/k6-smoke-report.html reports/html/k6-load-report.html || true
+  send_mail "$subject" "${QA_EMAIL_TO:-}" "${QA_EMAIL_CC:-}" "$body" reports/html/cypress-e2e-report.html reports/html/k6-smoke-report.html reports/html/k6-load-report.html
 fi
