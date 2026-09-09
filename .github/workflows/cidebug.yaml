@@ -77,18 +77,27 @@ jobs:
         continue-on-error: true
         run: ./scripts/ci-security-checks.sh
 
-      # Ensure report directory structure is flattened and available at root
+      # Consolidate and create empty fallback placeholders if scripts failed completely
       - name: Consolidate Security Reports
         if: always()
         run: |
+          mkdir -p reports/security
           cp reports/security/security-report.html ./security-report.html 2>/dev/null || true
           cp reports/sonar-summary.html ./sonar-summary.html 2>/dev/null || true
+          
+          # Fallback creation so upload-artifact never crashes
+          [[ -f test-summary.html ]] || echo "<html><body><h1>Test Summary Missing</h1></body></html>" > test-summary.html
+          [[ -f sonar-summary.html ]] || echo "<html><body><h1>Sonar Summary Missing</h1></body></html>" > sonar-summary.html
+          [[ -f trivy-fs-report.html ]] || echo "<html><body><h1>Trivy FS Scan Missing</h1></body></html>" > trivy-fs-report.html
+          [[ -f trivy-img-report.html ]] || echo "<html><body><h1>Trivy Image Scan Missing</h1></body></html>" > trivy-img-report.html
+          [[ -f security-report.html ]] || echo "<html><body><h1>Security Report Missing</h1></body></html>" > security-report.html
 
       - name: Upload CI Artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: ci-reports
+          if-no-files-found: ignore
           path: |
             test-summary.html
             sonar-summary.html
