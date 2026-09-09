@@ -78,12 +78,14 @@ https.get(o,r=>{
 }).on('error',()=>process.exit(1));
 NODE
 else
-  git verify-commit "$sha" > commit-signature.txt 2>&1; rc=$?; { echo "Commit SHA: $sha"; echo "Verified: $([[ $rc -eq 0 ]] && echo true || echo false)"; cat commit-signature.txt; } > /tmp/csig && mv /tmp/csig commit-signature.txt
+  git verify-commit "$sha" > commit-signature.txt 2>&1 || true
+  rc=$?
+  { echo "Commit SHA: $sha"; echo "Verified: $([[ $rc -eq 0 ]] && echo true || echo false)"; cat commit-signature.txt 2>/dev/null || true; } > /tmp/csig && mv /tmp/csig commit-signature.txt
 fi
 
+gl_rc=0
 if command -v gitleaks >/dev/null 2>&1; then 
   gitleaks detect --source . --report-format sarif --report-path results.sarif || gl_rc=$?
-  gl_rc=${gl_rc:-0}
 else 
   echo 'ERROR: gitleaks is not installed.'
   gl_rc=1

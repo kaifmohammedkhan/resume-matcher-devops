@@ -22,12 +22,19 @@ const transporter = nodemailer.createTransport({
 });
 
 (async () => {
-  // Resolve paths: look in current directory first, then inside reports/
+  // Resolve paths: checks direct path, reports/, reports/security/, and root
   const validAttachments = files
     .map(file => {
-      if (fs.existsSync(file)) return file;
-      const inReports = path.join('reports', file);
-      if (fs.existsSync(inReports)) return inReports;
+      const baseName = path.basename(file);
+      const possiblePaths = [
+        file,
+        path.join('reports', baseName),
+        path.join('reports', 'security', baseName),
+        path.join(process.cwd(), baseName)
+      ];
+      for (const p of possiblePaths) {
+        if (fs.existsSync(p) && fs.statSync(p).isFile()) return p;
+      }
       return null;
     })
     .filter(Boolean)
@@ -50,7 +57,6 @@ NODE
 
 echo '===== CI: COMBINED REPORT EMAIL ====='
 
-# Pass filenames directly without hardcoding the folder path
 send_mail 'CI Reports - Resume Matcher' "${EMAIL_USER:-}" '' '
 <h2>CI Pipeline Reports</h2>
 <p><strong>Status:</strong> All jobs executed.</p>
@@ -62,6 +68,8 @@ send_mail 'CI Reports - Resume Matcher' "${EMAIL_USER:-}" '' '
 <p>See attached <em>trivy-fs-report.html</em> for filesystem vulnerabilities.</p>
 <h3>Trivy Image Scan</h3>
 <p>See attached <em>trivy-img-report.html</em> for container image vulnerabilities.</p>
+<h3>Security & Commit Scan</h3>
+<p>See attached <em>security-report.html</em> for commit signatures and Gitleaks secrets.</p>
 <h3>OWASP Dependency Check</h3>
 <p>See attached <em>dependency-check-report.html</em> for third-party vulnerability findings.</p>
-' test-summary.html sonar-summary.html trivy-fs-report.html trivy-img-report.html dependency-check-report.html
+' test-summary.html sonar-summary.html trivy-fs-report.html trivy-img-report.html security-report.html dependency-check-report.html

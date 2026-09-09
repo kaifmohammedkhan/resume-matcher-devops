@@ -77,7 +77,6 @@ jobs:
         continue-on-error: true
         run: ./scripts/ci-security-checks.sh
 
-      # Consolidate and create empty fallback placeholders if scripts failed completely
       - name: Consolidate Security Reports
         if: always()
         run: |
@@ -85,7 +84,7 @@ jobs:
           cp reports/security/security-report.html ./security-report.html 2>/dev/null || true
           cp reports/sonar-summary.html ./sonar-summary.html 2>/dev/null || true
           
-          # Fallback creation so upload-artifact never crashes
+          # Fallback placeholders to prevent upload/attachment pipeline failures
           [[ -f test-summary.html ]] || echo "<html><body><h1>Test Summary Missing</h1></body></html>" > test-summary.html
           [[ -f sonar-summary.html ]] || echo "<html><body><h1>Sonar Summary Missing</h1></body></html>" > sonar-summary.html
           [[ -f trivy-fs-report.html ]] || echo "<html><body><h1>Trivy FS Scan Missing</h1></body></html>" > trivy-fs-report.html
@@ -104,36 +103,6 @@ jobs:
             trivy-fs-report.html
             trivy-img-report.html
             security-report.html
-
-  send-email:
-    needs: [ci]
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Normalize line endings
-        run: sed -i 's/\r$//' scripts/*.sh
-
-      - name: Ensure scripts are executable
-        run: chmod +x scripts/*.sh
-
-      - name: Download CI Reports
-        uses: actions/download-artifact@v4
-        with:
-          name: ci-reports
-
-      - name: Verify Downloaded Reports
-        run: ls -la
-
-      - name: Send CI Email
-        env:
-          EMAIL_USER: ${{ secrets.EMAIL_USER }}
-          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
-          QA_EMAIL_TO: ${{ secrets.QA_EMAIL_TO }}
-          QA_EMAIL_CC: ${{ secrets.QA_EMAIL_CC }}
-        run: ./scripts/ci-email.sh
 
   owasp:
     runs-on: ubuntu-latest
@@ -159,8 +128,48 @@ jobs:
         run: ./scripts/ci-owasp.sh
         continue-on-error: true
 
-      - name: Send OWASP Email
+      - name: Consolidate OWASP Report
         if: always()
+        run: |
+          cp reports/dependency-check-report.html ./dependency-check-report.html 2>/dev/null || true
+          [[ -f dependency-check-report.html ]] || echo "<html><body><h1>OWASP Dependency Check Missing</h1></body></html>" > dependency-check-report.html
+
+      - name: Upload OWASP Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: owasp-report
+          if-no-files-found: ignore
+          path: dependency-check-report.html
+
+  send-email:
+    needs: [ci, owasp]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Normalize line endings
+        run: sed -i 's/\r$//' scripts/*.sh
+
+      - name: Ensure scripts are executable
+        run: chmod +x scripts/*.sh
+
+      - name: Download CI Reports
+        uses: actions/download-artifact@v4
+        with:
+          name: ci-reports
+
+      - name: Download OWASP Report
+        uses: actions/download-artifact@v4
+        with:
+          name: owasp-report
+
+      - name: Verify Downloaded Reports
+        run: ls -la
+
+      - name: Send CI Email
         env:
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
