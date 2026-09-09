@@ -30,6 +30,7 @@ jobs:
         run: ./scripts/qa-k6-smoke.sh
 
       - name: QA Report
+        if: always()
         env:
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
