@@ -19,8 +19,7 @@ if ! command -v sonar-scanner >/dev/null 2>&1; then
 fi
 
 SONAR_HOST="${SONAR_HOST%/}"
-curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 -u "${SONAR_TOKEN}:" "${SONAR_HOST}/api/projects/search?projects=${SONAR_PROJECT_KEY}&organization=${SONAR_ORG}" -o /tmp/sonar-project.json || exit 1
-node -e 'const d=require("/tmp/sonar-project.json");if(!Array.isArray(d.components)||!d.components.length)process.exit(1)'
+
 sonar-scanner -Dsonar.host.url="$SONAR_HOST" -Dsonar.organization="$SONAR_ORG" -Dsonar.projectKey="$SONAR_PROJECT_KEY" -Dsonar.token="$SONAR_TOKEN" || exit 1
 
 cat > generate-sonar-report.mjs <<'EOF'
