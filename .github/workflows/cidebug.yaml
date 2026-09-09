@@ -88,6 +88,34 @@ jobs:
             trivy-fs-report.html
             trivy-img-report.html
 
+  send-email:
+    needs: [ci]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Normalize line endings
+        run: sed -i 's/\r$//' scripts/*.sh
+
+      - name: Ensure scripts are executable
+        run: chmod +x scripts/*.sh
+
+      - name: Download CI Reports
+        uses: actions/download-artifact@v4
+        with:
+          name: ci-reports
+          continue-on-error: true
+
+      - name: Send CI Email
+        env:
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          QA_EMAIL_TO: ${{ secrets.QA_EMAIL_TO }}
+          QA_EMAIL_CC: ${{ secrets.QA_EMAIL_CC }}
+        run: ./scripts/ci-email.sh
+
   owasp:
     runs-on: ubuntu-latest
     steps:
@@ -112,42 +140,8 @@ jobs:
         run: ./scripts/ci-owasp.sh
         continue-on-error: true
 
-      - name: Upload OWASP Artifact
+      - name: Send OWASP Email
         if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: owasp-reports
-          path: |
-            dependency-check-report.html
-            reports/dependency-check-report.html
-
-  send-email:
-    needs: [ci, owasp]
-    if: always()
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Normalize line endings
-        run: sed -i 's/\r$//' scripts/*.sh
-
-      - name: Ensure scripts are executable
-        run: chmod +x scripts/*.sh
-
-      - name: Download CI Reports
-        uses: actions/download-artifact@v4
-        with:
-          name: ci-reports
-          continue-on-error: true
-
-      - name: Download OWASP Reports
-        uses: actions/download-artifact@v4
-        with:
-          name: owasp-reports
-          continue-on-error: true
-
-      - name: Send CI Email
         env:
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
