@@ -29,11 +29,19 @@ jobs:
       - name: K6 Smoke Test
         run: ./scripts/qa-k6-smoke.sh
 
+      - name: Install Nodemailer
+        if: always()
+        run: npm install nodemailer
+
       - name: QA Report
         if: always()
         env:
+          NODE_PATH: ${{ github.workspace }}/node_modules
           EMAIL_USER: ${{ secrets.EMAIL_USER }}
           EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
           QA_EMAIL_TO: ${{ secrets.QA_EMAIL_TO }}
           QA_EMAIL_CC: ${{ secrets.QA_EMAIL_CC }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
         run: ./scripts/qa-report.sh
