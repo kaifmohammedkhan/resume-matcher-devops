@@ -1,0 +1,218 @@
+name: Pre-Main Pipeline Debug
+
+on:
+  push:
+    branches:
+      - pre-main
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Normalize line endings
+        run: sed -i 's/\r$//' scripts/*.sh
+
+      - name: Ensure scripts are executable
+        run: chmod +x scripts/*.sh
+
+      - name: Run Tests
+        run: ./scripts/ci-test.sh
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: SonarCloud Analysis
+        env:
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST: ${{ secrets.SONAR_HOST }}
+          SONAR_ORG: ${{ secrets.SONAR_ORG }}
+          SONAR_PROJECT_KEY: ${{ secrets.SONAR_PROJECT_KEY }}
+        run: ./scripts/ci-sonarcloud.sh
+        continue-on-error: true
+
+      - name: Download Trivy HTML Template
+        run: curl --proto '=https' --tlsv1.2 -sSLf https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl -o html.tpl
+
+      - name: Run Trivy FS Scan
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: fs
+          scan-ref: .
+          format: template
+          template: "@html.tpl"
+          output: trivy-fs-report.html
+          ignore-unfixed: true
+          vuln-type: os,library
+
+      - name: Build Local Image for Trivy Scan
+        run: docker build -t app-local:latest .
+        continue-on-error: true
+
+      - name: Run Trivy Image Scan
+        continue-on-error: true
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25
+        with:
+          scan-type: image
+          image-ref: 'app-local:latest'
+          format: template
+          template: "@html.tpl"
+          output: trivy-img-report.html
+          ignore-unfixed: true
+          vuln-type: os,library
+
+      - name: Install Gitleaks Binary
+        uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        continue-on-error: true
+
+      - name: Security Checks
+        continue-on-error: true
+        run: ./scripts/ci-security-checks.sh
+
+      - name: Consolidate Security Reports
+        if: always()
+        run: |
+          mkdir -p reports/security
+          cp reports/security/security-report.html ./security-report.html 2>/dev/null || true
+          cp reports/sonar-summary.html ./sonar-summary.html 2>/dev/null || true
+          
+          # Fallback placeholders to prevent upload/attachment pipeline failures
+          [[ -f test-summary.html ]] || echo "<html><body><h1>Test Summary Missing</h1></body></html>" > test-summary.html
+          [[ -f sonar-summary.html ]] || echo "<html><body><h1>Sonar Summary Missing</h1></body></html>" > sonar-summary.html
+          [[ -f trivy-fs-report.html ]] || echo "<html><body><h1>Trivy FS Scan Missing</h1></body></html>" > trivy-fs-report.html
+          [[ -f trivy-img-report.html ]] || echo "<html><body><h1>Trivy Image Scan Missing</h1></body></html>" > trivy-img-report.html
+          [[ -f security-report.html ]] || echo "<html><body><h1>Security Report Missing</h1></body></html>" > security-report.html
+
+      - name: Upload CI Artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-reports
+          if-no-files-found: ignore
+          path: |
+            test-summary.html
+            sonar-summary.html
+            trivy-fs-report.html
+            trivy-img-report.html
+            security-report.html
+
+  owasp:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Normalize line endings
+        run: sed -i 's/\r$//' scripts/*.sh
+
+      - name: Ensure scripts are executable
+        run: chmod +x scripts/*.sh
+
+      - name: Setup Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - name: OWASP Dependency Check
+        env:
+          NVD_API_KEY: ${{ secrets.NVD_API_KEY }}
+        run: ./scripts/ci-owasp.sh
+        continue-on-error: true
+
+      - name: Consolidate OWASP Report
+        if: always()
+        run: |
+          cp reports/dependency-check-report.html ./dependency-check-report.html 2>/dev/null || true
+          [[ -f dependency-check-report.html ]] || echo "<html><body><h1>OWASP Dependency Check Missing</h1></body></html>" > dependency-check-report.html
+
+      - name: Upload OWASP Artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: owasp-report
+          if-no-files-found: ignore
+          path: dependency-check-report.html
+
+  send-email:
+    needs: [ci, owasp]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Normalize line endings
+        run: sed -i 's/\r$//' scripts/*.sh
+
+      - name: Ensure scripts are executable
+        run: chmod +x scripts/*.sh
+
+      - name: Download CI Reports
+        uses: actions/download-artifact@v4
+        with:
+          name: ci-reports
+
+      - name: Download OWASP Report
+        uses: actions/download-artifact@v4
+        with:
+          name: owasp-report
+
+      - name: Verify Downloaded Reports
+        run: ls -la
+
+      - name: Send CI Email
+        env:
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          QA_EMAIL_TO: ${{ secrets.QA_EMAIL_TO }}
+          QA_EMAIL_CC: ${{ secrets.QA_EMAIL_CC }}
+        run: ./scripts/ci-email.sh
+
+  qa:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Normalize line endings
+        run: sed -i 's/\r$//' scripts/*.sh
+
+      - name: Ensure scripts are executable
+        run: chmod +x scripts/*.sh
+
+      - name: Cypress Tests
+        run: ./scripts/qa-cypress.sh
+
+      - name: Setup k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: K6 Load Test
+        run: ./scripts/qa-k6-load.sh
+
+      - name: K6 Smoke Test
+        run: ./scripts/qa-k6-smoke.sh
+
+      - name: Install Nodemailer
+        if: always()
+        run: npm install nodemailer
+
+      - name: QA Report
+        if: always()
+        env:
+          NODE_PATH: ${{ github.workspace }}/node_modules
+          EMAIL_USER: ${{ secrets.EMAIL_USER }}
+          EMAIL_PASS: ${{ secrets.EMAIL_PASS }}
+          QA_EMAIL_TO: ${{ secrets.QA_EMAIL_TO }}
+          QA_EMAIL_CC: ${{ secrets.QA_EMAIL_CC }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_RUN_NUMBER: ${{ github.run_number }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: ./scripts/qa-report.sh
