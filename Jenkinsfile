@@ -367,7 +367,12 @@ pipeline {
                                                 export JAVA_HOME="$OWASP_JAVA_HOME"
                                                 export PATH="$JAVA_HOME/bin:$PATH"
 
-                                                ./scripts/ci-owasp.sh
+                                                # Provide explicit heap space to prevent OOM during NVD cache processing
+                                                export JAVA_OPTS="-Xms1024m -Xmx4096m"
+                                                export JVM_ARGS="-Xmx4g -XX:MaxRAMPercentage=75.0"
+
+                                                # Execute OWASP check with purge flag to clean corrupted H2 cache
+                                                ./scripts/ci-owasp.sh --purge
                                             '''
                                         }
                                     }
