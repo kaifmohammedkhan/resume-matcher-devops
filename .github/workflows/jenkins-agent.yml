@@ -3,13 +3,13 @@ name: Jenkins Agent Runner
 on:
   workflow_dispatch:
     inputs:
-      JENKINS_URL:
+      jenkins_url:
         description: 'Jenkins Controller URL'
         required: true
-      AGENT_NAME:
+      agent_name:
         description: 'Jenkins Agent Name'
         required: true
-      AGENT_SECRET:
+      agent_secret:
         description: 'Jenkins Agent Secret'
         required: true
 
@@ -28,13 +28,13 @@ jobs:
 
       - name: Download Jenkins Agent JAR
         run: |
-          curl -H "ngrok-skip-browser-warning: true" -sO ${{ inputs.JENKINS_URL }}/jnlpJars/agent.jar
+          curl -H "ngrok-skip-browser-warning: true" -sO "${{ inputs.jenkins_url }}/jnlpJars/agent.jar"
 
       - name: Run Jenkins Agent
         run: |
           java -jar agent.jar \
-            -url ${{ inputs.JENKINS_URL }} \
-            -secret ${{ inputs.AGENT_SECRET }} \
-            -name ${{ inputs.AGENT_NAME }} \
+            -url "${{ inputs.jenkins_url }}" \
+            -secret "${{ inputs.agent_secret }}" \
+            -name "${{ inputs.agent_name }}" \
             -webSocket \
             -workDir "/home/runner/agent"
