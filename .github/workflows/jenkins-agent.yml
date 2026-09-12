@@ -26,6 +26,9 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
+      - name: Verify Java Version
+        run: java -version
+
       - name: Download Jenkins Agent JAR
         run: |
           curl -H "ngrok-skip-browser-warning: true" -L -sO "${{ inputs.jenkins_url }}/jnlpJars/agent.jar"
