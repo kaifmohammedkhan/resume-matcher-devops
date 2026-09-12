@@ -24,11 +24,11 @@ jobs:
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
-          java-version: '17'
+          java-version: '21'
 
       - name: Download Jenkins Agent JAR
         run: |
-          curl -H "ngrok-skip-browser-warning: true" -sO "${{ inputs.jenkins_url }}/jnlpJars/agent.jar"
+          curl -H "ngrok-skip-browser-warning: true" -L -sO "${{ inputs.jenkins_url }}/jnlpJars/agent.jar"
 
       - name: Run Jenkins Agent
         run: |
