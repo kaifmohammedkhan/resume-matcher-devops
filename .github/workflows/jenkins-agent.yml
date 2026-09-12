@@ -1,0 +1,39 @@
+name: Jenkins Agent Runner
+
+on:
+  workflow_dispatch:
+    inputs:
+      JENKINS_URL:
+        description: 'Jenkins Controller URL'
+        required: true
+      AGENT_NAME:
+        description: 'Jenkins Agent Name'
+        required: true
+      AGENT_SECRET:
+        description: 'Jenkins Agent Secret'
+        required: true
+
+jobs:
+  run-jenkins-agent:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Set up Java Runtime
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Download Jenkins Agent JAR
+        run: |
+          curl -sO ${{ inputs.JENKINS_URL }}/jnlpJars/agent.jar
+
+      - name: Run Jenkins Agent
+        run: |
+          java -jar agent.jar \
+            -url ${{ inputs.JENKINS_URL }} \
+            -secret ${{ inputs.AGENT_SECRET }} \
+            -name ${{ inputs.AGENT_NAME }} \
+            -workDir "/home/runner/agent"
