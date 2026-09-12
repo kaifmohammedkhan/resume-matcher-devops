@@ -28,7 +28,7 @@ jobs:
 
       - name: Download Jenkins Agent JAR
         run: |
-          curl -sO ${{ inputs.JENKINS_URL }}/jnlpJars/agent.jar
+          curl -H "ngrok-skip-browser-warning: true" -sO ${{ inputs.JENKINS_URL }}/jnlpJars/agent.jar
 
       - name: Run Jenkins Agent
         run: |
@@ -36,4 +36,5 @@ jobs:
             -url ${{ inputs.JENKINS_URL }} \
             -secret ${{ inputs.AGENT_SECRET }} \
             -name ${{ inputs.AGENT_NAME }} \
+            -webSocket \
             -workDir "/home/runner/agent"
