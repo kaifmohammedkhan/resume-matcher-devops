@@ -26,9 +26,12 @@ jobs:
           distribution: 'temurin'
           java-version: '21'
 
+      - name: Prepare Agent Working Directory
+        run: |
+          mkdir -p /home/runner/agent/workspace
+
       - name: Download Jenkins Agent JAR
         run: |
-          # Sanitize URL to prevent double slashes
           CLEAN_URL=$(echo "${{ inputs.jenkins_url }}" | sed 's/\/*$//')
           curl -H "ngrok-skip-browser-warning: true" -L -sO "${CLEAN_URL}/jnlpJars/agent.jar"
 
