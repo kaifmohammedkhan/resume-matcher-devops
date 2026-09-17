@@ -86,6 +86,10 @@ pipeline {
                                         export JAVA_HOME="$CI_JAVA_HOME"
                                         export PATH="$JAVA_HOME/bin:$PATH"
 
+                                        export GITHUB_REF_NAME="pre-main"
+                                        export BRANCH_NAME="pre-main"
+                                        export GIT_BRANCH="origin/pre-main"
+
                                         ./scripts/ci-sonarcloud.sh \
                                           -Dsonar.branch.name=pre-main
                                     '''
