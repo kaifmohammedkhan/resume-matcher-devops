@@ -46,7 +46,7 @@ const repository =
 
 const branch =
   process.env.GITHUB_REF_NAME ||
-  "main";
+  "pre-main";
 
 const commit =
   (process.env.GITHUB_SHA || "unknown").substring(0, 7);
