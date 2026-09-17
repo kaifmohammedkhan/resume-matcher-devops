@@ -21,20 +21,8 @@ pipeline {
     }
 
     stages {
-        // ============================================================
-        // PARALLEL JOBS
-        // Each branch gets its own Jenkins-managed workspace.
-        // IMPORTANT:
-        // Do NOT use customWorkspace here.
-        // GitHub Actions Cloud agents provide their own writable
-        // workspace under /home/runner/agent/...
-        // ============================================================
-
         stage('Parallel Jobs') {
             parallel {
-                // ====================================================
-                // CI JOB
-                // ====================================================
                 stage('CI Job') {
                     agent {
                         label 'gha-runner'
@@ -98,7 +86,8 @@ pipeline {
                                         export JAVA_HOME="$CI_JAVA_HOME"
                                         export PATH="$JAVA_HOME/bin:$PATH"
 
-                                        ./scripts/ci-sonarcloud.sh
+                                        ./scripts/ci-sonarcloud.sh \
+                                          -Dsonar.branch.name=pre-main
                                     '''
                                 }
                             }
@@ -236,9 +225,6 @@ pipeline {
                     }
                 }
 
-                // ====================================================
-                // OWASP JOB
-                // ====================================================
                 stage('OWASP Job') {
                     agent {
                         label 'gha-runner'
@@ -327,9 +313,6 @@ pipeline {
                     }
                 }
 
-                // ====================================================
-                // QA JOB
-                // ====================================================
                 stage('QA Job') {
                     agent {
                         label 'gha-runner'
