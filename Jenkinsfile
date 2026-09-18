@@ -59,6 +59,25 @@ pipeline {
                             }
                         }
 
+                        // ====================================================
+                        // TRANSFER EMAIL SCRIPT TO FINAL EMAIL JOB
+                        //
+                        // The Email Job intentionally does not perform
+                        // another repository checkout. Transfer only the
+                        // required email script from the existing CI
+                        // checkout.
+                        // ====================================================
+
+                        stage('Stash Email Script') {
+                            steps {
+                                stash(
+                                    name: 'ci-email-script',
+                                    includes: 'scripts/ci-email.sh',
+                                    useDefaultExcludes: false
+                                )
+                            }
+                        }
+
                         stage('Run Tests') {
                             steps {
                                 sh './scripts/ci-test.sh'
@@ -411,6 +430,7 @@ pipeline {
         //
         // Existing CI / OWASP / QA logic is not changed.
         // Reports are retrieved from their existing stashes.
+        // The email script is retrieved from the CI checkout stash.
         // ============================================================
 
         stage('Send Email Job') {
@@ -433,6 +453,14 @@ pipeline {
                 // ====================================================
 
                 unstash 'owasp-report-premain'
+
+                // ====================================================
+                // RESTORE EMAIL SCRIPT FROM CI CHECKOUT
+                //
+                // No repository checkout is performed here.
+                // ====================================================
+
+                unstash 'ci-email-script'
 
                 // ====================================================
                 // VERIFY ALL SIX REPORTS
