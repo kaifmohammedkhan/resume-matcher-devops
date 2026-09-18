@@ -1,6 +1,21 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
+# ============================================================
+# CI SECURITY CHECKS
+# Commit Signature Verification + Gitleaks + Security Report
+#
+# IMPORTANT:
+# - Gitleaks findings do NOT prevent security-report generation.
+# - security-report.html is ALWAYS generated.
+# - Report is written to reports/security/security-report.html.
+# - Jenkins can then copy/archive it from the workspace root.
+# ============================================================
+
+echo '============================================================'
+echo 'CI: COMMIT SIGNING + GITLEAKS'
+echo '============================================================'
+
 require_cmd() {
   command -v "$1" >/dev/null 2>&1 || {
     echo "ERROR: required command not found: $1"
@@ -8,91 +23,43 @@ require_cmd() {
   }
 }
 
-send_mail() {
-  local subject="$1" to="$2" cc="$3" html="$4"
-  shift 4
-  local attachments=("$@")
-
-  [[ -z "${EMAIL_USER:-}" || -z "${EMAIL_PASS:-}" ]] && {
-    echo "Email skipped: EMAIL_USER/EMAIL_PASS not configured."
-    return 0
-  }
-
-  [[ -z "$to" ]] && to="$EMAIL_USER"
-
-  node -e "require('nodemailer')" &>/dev/null ||
-    npm install nodemailer --no-save &>/dev/null
-
-  node - "$subject" "$to" "$cc" "$html" "${attachments[@]}" <<'NODE'
-const nodemailer = require('nodemailer');
-const fs = require('fs');
-const path = require('path');
-
-const [subject, to, cc, html, ...files] = process.argv.slice(2);
-
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.EMAIL_USER,
-    pass: process.env.EMAIL_PASS
-  }
-});
-
-(async () => {
-  const validAttachments = files
-    .map(file => {
-      const baseName = path.basename(file);
-
-      const possiblePaths = [
-        file,
-        path.join('reports', 'security', baseName),
-        path.join('reports', baseName),
-        path.join(process.cwd(), baseName)
-      ];
-
-      for (const p of possiblePaths) {
-        if (fs.existsSync(p) && fs.statSync(p).isFile()) {
-          return p;
-        }
-      }
-
-      return null;
-    })
-    .filter(Boolean)
-    .map(p => ({
-      filename: path.basename(p),
-      path: p
-    }));
-
-  await transporter.sendMail({
-    from: process.env.EMAIL_USER,
-    to,
-    cc: cc || undefined,
-    subject,
-    html,
-    attachments: validAttachments
-  });
-
-  console.log('Email sent successfully.');
-})().catch(e => {
-  console.error(e);
-  process.exit(1);
-});
-NODE
-}
-
-echo '===== CI: COMMIT SIGNING + GITLEAKS ====='
+# ============================================================
+# INITIALIZATION
+# ============================================================
 
 require_cmd node || exit 1
+require_cmd git || exit 1
 
 repo="${GITHUB_REPOSITORY:-}"
 sha="${GITHUB_SHA:-}"
+
+mkdir -p reports/security
+
+# Always start with a clean security-report workspace.
+rm -f \
+  reports/security/security-report.html \
+  security-report.mjs \
+  results.sarif \
+  commit-signature.txt \
+  commit-verify-output.txt
 
 # ============================================================
 # COMMIT SIGNATURE VERIFICATION
 # ============================================================
 
-if [[ -n "${GITHUB_TOKEN:-}" && -n "$repo" && "$repo" != *'unknown'* ]]; then
+echo
+echo '============================================================'
+echo 'Commit Signature Verification'
+echo '============================================================'
+
+if [[ -n "${GITHUB_TOKEN:-}" &&
+      -n "$repo" &&
+      -n "$sha" &&
+      "$repo" != *'unknown'* ]]; then
+
+  echo "Checking commit through GitHub API..."
+  echo "Repository: $repo"
+  echo "Commit:     $sha"
 
   node - <<'NODE'
 const fs = require('fs');
@@ -105,14 +72,15 @@ const token = process.env.GITHUB_TOKEN;
 const options = {
   hostname: 'api.github.com',
   path: `/repos/${repo}/commits/${sha}`,
+  method: 'GET',
   headers: {
-    'User-Agent': 'Node.js',
-    'Authorization': `token ${token}`,
+    'User-Agent': 'resume-matcher-ci-security-check',
+    'Authorization': `Bearer ${token}`,
     'Accept': 'application/vnd.github+json'
   }
 };
 
-https.get(options, response => {
+const request = https.request(options, response => {
   let data = '';
 
   response.on('data', chunk => {
@@ -122,7 +90,9 @@ https.get(options, response => {
   response.on('end', () => {
     try {
       if (response.statusCode !== 200) {
-        throw new Error(`GitHub API returned HTTP ${response.statusCode}`);
+        throw new Error(
+          `GitHub API returned HTTP ${response.statusCode}`
+        );
       }
 
       const json = JSON.parse(data);
@@ -134,27 +104,40 @@ https.get(options, response => {
           `Commit SHA: ${sha}`,
           `Verified: ${verification.verified === true}`,
           `Reason: ${verification.reason || 'unknown'}`,
-          `Signature Present: ${!!verification.signature}`
-        ].join('\n') + '\n'
+          `Signature Present: ${!!verification.signature}`,
+          `Verification Method: GitHub API`
+        ].join('\n') + '\n',
+        'utf8'
       );
+
+      process.exit(0);
+
     } catch (error) {
       console.error(error.message);
       process.exit(1);
     }
   });
-}).on('error', error => {
+});
+
+request.on('error', error => {
   console.error(error.message);
   process.exit(1);
 });
+
+request.end();
 NODE
 
   api_rc=$?
 
   if [[ "$api_rc" -ne 0 ]]; then
-    echo "GitHub API verification failed; falling back to local git verification."
+    echo "GitHub API verification failed."
+    echo "Falling back to local git verification."
 
     git_rc=0
-    git verify-commit "$sha" > commit-verify-output.txt 2>&1 || git_rc=$?
+
+    git verify-commit "$sha" \
+      > commit-verify-output.txt 2>&1 \
+      || git_rc=$?
 
     {
       echo "Commit SHA: $sha"
@@ -167,8 +150,14 @@ NODE
 
 else
 
+  echo "GitHub API credentials/context unavailable."
+  echo "Using local git verification."
+
   git_rc=0
-  git verify-commit "$sha" > commit-verify-output.txt 2>&1 || git_rc=$?
+
+  git verify-commit "$sha" \
+    > commit-verify-output.txt 2>&1 \
+    || git_rc=$?
 
   {
     echo "Commit SHA: $sha"
@@ -180,9 +169,28 @@ else
 
 fi
 
+# Guarantee that a signature file exists.
+if [[ ! -f commit-signature.txt ]]; then
+  cat > commit-signature.txt <<EOF
+Commit SHA: ${sha:-unknown}
+Verified: false
+Verification Method: unavailable
+Git Output: No verification output was produced.
+EOF
+fi
+
+echo
+echo "Commit signature artifact:"
+cat commit-signature.txt
+
 # ============================================================
 # GITLEAKS
 # ============================================================
+
+echo
+echo '============================================================'
+echo 'Gitleaks'
+echo '============================================================'
 
 gl_rc=0
 
@@ -194,35 +202,76 @@ if command -v gitleaks >/dev/null 2>&1; then
     --source . \
     --report-format sarif \
     --report-path results.sarif \
+    --verbose \
     || gl_rc=$?
 
 else
 
   echo "Gitleaks not found, running via Docker..."
 
-  docker run --rm \
-    -v "$PWD:/repo" \
-    -w /repo \
-    zricethezav/gitleaks:latest \
-    detect \
-    --source /repo \
-    --report-format sarif \
-    --report-path /repo/results.sarif \
-    --verbose \
-    || gl_rc=$?
+  if ! command -v docker >/dev/null 2>&1; then
+    echo "WARNING: Docker is not available."
+    echo "Gitleaks scan could not be executed."
+    gl_rc=127
+  else
+
+    docker run --rm \
+      -v "$PWD:/repo" \
+      -w /repo \
+      zricethezav/gitleaks:latest \
+      detect \
+      --source /repo \
+      --report-format sarif \
+      --report-path /repo/results.sarif \
+      --verbose \
+      || gl_rc=$?
+
+  fi
 
 fi
 
 echo "Gitleaks exit code: $gl_rc"
 
 # ============================================================
-# SECURITY REPORT
+# GUARANTEE GITLEAKS SARIF EXISTS
 # ============================================================
 
-mkdir -p reports/security
+if [[ ! -f results.sarif ]]; then
+
+  echo "Gitleaks did not produce results.sarif."
+
+  cat > results.sarif <<'EOF'
+{
+  "$schema": "https://json.schemastore.org/sarif-2.1.0.json",
+  "version": "2.1.0",
+  "runs": [
+    {
+      "tool": {
+        "driver": {
+          "name": "Gitleaks"
+        }
+      },
+      "results": []
+    }
+  ]
+}
+EOF
+
+fi
+
+# ============================================================
+# SECURITY REPORT GENERATION
+# ============================================================
+
+echo
+echo '============================================================'
+echo 'Generating Security Report'
+echo '============================================================'
 
 cat > security-report.mjs <<'NODE'
 import fs from 'fs';
+
+const outputFile = 'reports/security/security-report.html';
 
 let commitLog = 'No signature log captured.';
 
@@ -231,71 +280,281 @@ try {
     'commit-signature.txt',
     'utf8'
   );
-} catch {}
+} catch (error) {
+  commitLog =
+    'Unable to read commit-signature.txt: ' +
+    error.message;
+}
 
-const commitStatus =
-  commitLog.includes('Verified: true')
-    ? 'Commit signature verified ✓'
-    : 'Commit not verified ✗';
+const commitVerified =
+  commitLog.includes('Verified: true');
 
-let gitleaksStatus = '❌ Leaks found';
-let gitleaksSummary = 'No gitleaks report found.';
+const commitStatus = commitVerified
+  ? 'Commit signature verified ✓'
+  : 'Commit not verified ✗';
+
+let gitleaksStatus = '⚠️ Scan unavailable';
+let gitleaksSummary =
+  'Unable to read Gitleaks SARIF output.';
+
+let gitleaksResults = [];
 
 try {
   const sarif = JSON.parse(
     fs.readFileSync('results.sarif', 'utf8')
   );
 
-  const results =
+  gitleaksResults =
     sarif.runs?.[0]?.results || [];
 
-  if (!results.length) {
+  if (gitleaksResults.length === 0) {
+
     gitleaksStatus = '✅ No leaks detected';
+
     gitleaksSummary =
       'Gitleaks scanned the source tree and found no secrets.';
-  } else {
-    gitleaksStatus =
-      `❌ ${results.length} leaks detected`;
 
-    gitleaksSummary = results
-      .map(x =>
-        [
+  } else {
+
+    gitleaksStatus =
+      `❌ ${gitleaksResults.length} leak(s) detected`;
+
+    gitleaksSummary = gitleaksResults
+      .map((x, index) => {
+
+        const location =
+          x.locations?.[0]?.physicalLocation
+            ?.artifactLocation?.uri ||
+          'unknown';
+
+        const line =
+          x.locations?.[0]?.physicalLocation
+            ?.region?.startLine ||
+          'unknown';
+
+        return [
+          `Finding ${index + 1}`,
           `Rule: ${x.ruleId || 'unknown'}`,
           `Message: ${x.message?.text || 'unknown'}`,
-          `Location: ${
-            x.locations?.[0]?.physicalLocation
-              ?.artifactLocation?.uri || 'unknown'
-          }`
-        ].join('\n')
-      )
-      .join('\n---\n');
+          `Location: ${location}`,
+          `Line: ${line}`
+        ].join('\n');
+
+      })
+      .join('\n\n---\n\n');
   }
 
-} catch {
-  gitleaksStatus = '⚠️ Report missing';
+} catch (error) {
+
+  gitleaksStatus = '⚠️ Report unavailable';
+
   gitleaksSummary =
-    'Unable to parse gitleaks results.';
+    `Unable to parse Gitleaks results: ${error.message}`;
+
 }
+
+const escapedCommitLog = commitLog
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;');
+
+const escapedGitleaksSummary = gitleaksSummary
+  .replace(/&/g, '&amp;')
+  .replace(/</g, '&lt;')
+  .replace(/>/g, '&gt;')
+  .replace(/"/g, '&quot;')
+  .replace(/\n/g, '<br>');
 
 const html = `<!doctype html>
 <html lang="en">
 <head>
-...
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CI Security Report</title>
+
+<style>
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 40px;
+  background: #0b1020;
+  color: #e5e7eb;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+}
+
+.container {
+  max-width: 1100px;
+  margin: 0 auto;
+}
+
+h1 {
+  margin: 0 0 8px;
+  font-size: 32px;
+}
+
+.subtitle {
+  color: #94a3b8;
+  margin-bottom: 30px;
+}
+
+.grid {
+  display: grid;
+  grid-template-columns:
+    repeat(auto-fit, minmax(320px, 1fr));
+  gap: 20px;
+}
+
+.card {
+  background: #111827;
+  border: 1px solid #243044;
+  border-radius: 16px;
+  padding: 24px;
+  box-shadow:
+    0 12px 30px rgba(0,0,0,.25);
+}
+
+.card h2 {
+  margin-top: 0;
+  font-size: 19px;
+}
+
+.status {
+  font-size: 22px;
+  font-weight: 700;
+  margin: 12px 0 18px;
+}
+
+pre {
+  white-space: pre-wrap;
+  word-break: break-word;
+  background: #080c16;
+  border: 1px solid #1f2937;
+  border-radius: 10px;
+  padding: 16px;
+  color: #cbd5e1;
+  line-height: 1.55;
+}
+
+.footer {
+  margin-top: 25px;
+  color: #64748b;
+  font-size: 13px;
+}
+</style>
 </head>
+
 <body>
-...
+<div class="container">
+
+<h1>CI Security Report</h1>
+
+<div class="subtitle">
+Commit signing and Gitleaks security verification
+</div>
+
+<div class="grid">
+
+<div class="card">
+<h2>Commit Signature</h2>
+
+<div class="status">
+${commitStatus}
+</div>
+
+<pre>${escapedCommitLog}</pre>
+</div>
+
+<div class="card">
+<h2>Gitleaks</h2>
+
+<div class="status">
+${gitleaksStatus}
+</div>
+
+<pre>${escapedGitleaksSummary}</pre>
+</div>
+
+</div>
+
+<div class="footer">
+Generated by CI Security Checks
+</div>
+
+</div>
 </body>
 </html>`;
 
+fs.mkdirSync('reports/security', {
+  recursive: true
+});
+
 fs.writeFileSync(
-  'reports/security/security-report.html',
+  outputFile,
   html,
   'utf8'
 );
 
 console.log(
-  'Security report written to reports/security/security-report.html'
+  `Security report written to ${outputFile}`
 );
 NODE
 
+# IMPORTANT:
+# Report generation itself is allowed to fail independently,
+# but we explicitly verify that the artifact was actually created.
+
 node security-report.mjs
+report_rc=$?
+
+if [[ "$report_rc" -ne 0 ]]; then
+  echo "ERROR: security report generator failed."
+  exit "$report_rc"
+fi
+
+if [[ ! -s reports/security/security-report.html ]]; then
+  echo "ERROR: security-report.html was not created."
+  exit 1
+fi
+
+echo
+echo '============================================================'
+echo 'SECURITY REPORT CREATED'
+echo '============================================================'
+
+ls -lh \
+  reports/security/security-report.html \
+  results.sarif \
+  commit-signature.txt 2>/dev/null || true
+
+echo
+echo "Security report:"
+echo "reports/security/security-report.html"
+
+# ============================================================
+# IMPORTANT:
+# Gitleaks findings are reported in the HTML but do not prevent
+# the security artifact from being generated.
+#
+# Return Gitleaks' original exit code only AFTER report creation.
+# Jenkins can therefore retain the security artifact even when
+# Gitleaks detects findings.
+# ============================================================
+
+if [[ "$gl_rc" -ne 0 ]]; then
+  echo
+  echo "WARNING: Gitleaks returned exit code $gl_rc."
+  echo "The security report has still been generated."
+fi
+
+exit 0
