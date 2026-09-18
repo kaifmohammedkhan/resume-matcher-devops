@@ -201,9 +201,7 @@ pipeline {
                         // ====================================================
                         // SECURITY REPORT FIX
                         //
-                        // Only the security-report handling is changed here.
-                        // The existing test / Sonar / Trivy artifacts remain
-                        // exactly as before.
+                        // Existing security-report generation is preserved.
                         // ====================================================
 
                         stage('Consolidate & Stash CI Reports') {
@@ -348,6 +346,7 @@ pipeline {
 
                         stage('Consolidate & Stash OWASP Report') {
                             steps {
+
                                 sh '''
                                     cp reports/dependency-check-report.html \
                                         ./dependency-check-report.html 2>/dev/null || true
@@ -402,6 +401,87 @@ pipeline {
                         }
                     }
                 }
+            }
+        }
+
+        // ============================================================
+        // FINAL EMAIL JOB
+        //
+        // Runs only after the complete Parallel Jobs stage finishes.
+        //
+        // Existing CI / OWASP / QA logic is not changed.
+        // Reports are retrieved from their existing stashes.
+        // ============================================================
+
+        stage('Send Email Job') {
+            agent {
+                label 'gha-runner'
+            }
+
+            steps {
+
+                deleteDir()
+
+                // ====================================================
+                // RESTORE EXISTING CI REPORTS
+                // ====================================================
+
+                unstash 'ci-reports-premain'
+
+                // ====================================================
+                // RESTORE EXISTING OWASP REPORT
+                // ====================================================
+
+                unstash 'owasp-report-premain'
+
+                // ====================================================
+                // VERIFY ALL SIX REPORTS
+                // ====================================================
+
+                sh '''
+                    echo "============================================================"
+                    echo "EMAIL JOB - REPORT VERIFICATION"
+                    echo "============================================================"
+
+                    required_reports="
+                    test-summary.html
+                    sonar-summary.html
+                    trivy-fs-report.html
+                    trivy-img-report.html
+                    security-report.html
+                    dependency-check-report.html
+                    "
+
+                    for report in $required_reports; do
+                        if [ ! -s "$report" ]; then
+                            echo "ERROR: Required report missing or empty: $report"
+                            exit 1
+                        fi
+
+                        echo "FOUND: $report"
+                        ls -lh "$report"
+                    done
+
+                    echo "============================================================"
+                    echo "All six reports are available for email."
+                    echo "============================================================"
+                '''
+
+                // ====================================================
+                // MAKE EMAIL SCRIPT EXECUTABLE
+                // ====================================================
+
+                sh '''
+                    chmod +x scripts/ci-email.sh
+                '''
+
+                // ====================================================
+                // SEND COMBINED EMAIL
+                // ====================================================
+
+                sh '''
+                    ./scripts/ci-email.sh
+                '''
             }
         }
     }
