@@ -21,14 +21,25 @@ pipeline {
     }
 
     stages {
+
+        // ============================================================
+        // PARALLEL JOBS
+        // ============================================================
+
         stage('Parallel Jobs') {
             parallel {
+
+                // ====================================================
+                // CI JOB
+                // ====================================================
+
                 stage('CI Job') {
                     agent {
                         label 'gha-runner'
                     }
 
                     stages {
+
                         stage('Checkout Code') {
                             steps {
                                 deleteDir()
@@ -61,6 +72,7 @@ pipeline {
                                         name: 'Java-21',
                                         type: 'hudson.model.JDK'
                                     )
+
                                     env.CI_JAVA_HOME = jdkHome
                                 }
 
@@ -77,10 +89,22 @@ pipeline {
                         stage('SonarCloud Analysis') {
                             steps {
                                 withCredentials([
-                                    string(credentialsId: 'SONAR_TOKEN', variable: 'SONAR_TOKEN'),
-                                    string(credentialsId: 'SONAR_HOST', variable: 'SONAR_HOST'),
-                                    string(credentialsId: 'SONAR_ORG', variable: 'SONAR_ORG'),
-                                    string(credentialsId: 'SONAR_PROJECT_KEY', variable: 'SONAR_PROJECT_KEY')
+                                    string(
+                                        credentialsId: 'SONAR_TOKEN',
+                                        variable: 'SONAR_TOKEN'
+                                    ),
+                                    string(
+                                        credentialsId: 'SONAR_HOST',
+                                        variable: 'SONAR_HOST'
+                                    ),
+                                    string(
+                                        credentialsId: 'SONAR_ORG',
+                                        variable: 'SONAR_ORG'
+                                    ),
+                                    string(
+                                        credentialsId: 'SONAR_PROJECT_KEY',
+                                        variable: 'SONAR_PROJECT_KEY'
+                                    )
                                 ]) {
                                     sh '''
                                         export JAVA_HOME="$CI_JAVA_HOME"
@@ -151,7 +175,10 @@ pipeline {
                         stage('Install & Run Gitleaks') {
                             steps {
                                 withCredentials([
-                                    string(credentialsId: 'GITHUB_TOKEN', variable: 'GITHUB_TOKEN')
+                                    string(
+                                        credentialsId: 'GITHUB_TOKEN',
+                                        variable: 'GITHUB_TOKEN'
+                                    )
                                 ]) {
                                     sh '''
                                         docker run --rm \
@@ -171,13 +198,35 @@ pipeline {
                             }
                         }
 
+                        // ====================================================
+                        // SECURITY REPORT FIX
+                        //
+                        // Only the security-report handling is changed here.
+                        // The existing test / Sonar / Trivy artifacts remain
+                        // exactly as before.
+                        // ====================================================
+
                         stage('Consolidate & Stash CI Reports') {
                             steps {
+
                                 sh '''
                                     mkdir -p reports/security
 
+                                    echo "============================================================"
+                                    echo "Checking Security Report"
+                                    echo "============================================================"
+
+                                    if [ ! -s reports/security/security-report.html ]; then
+                                        echo "ERROR: reports/security/security-report.html was NOT generated."
+                                        echo "Security report generation failed."
+                                        exit 1
+                                    fi
+
                                     cp reports/security/security-report.html \
-                                        ./security-report.html 2>/dev/null || true
+                                        ./security-report.html
+
+                                    echo "Security report copied successfully:"
+                                    ls -lh ./security-report.html
 
                                     cp reports/sonar-summary.html \
                                         ./sonar-summary.html 2>/dev/null || true
@@ -197,10 +246,6 @@ pipeline {
                                     [ -f trivy-img-report.html ] || \
                                         echo "<html><body><h1>Trivy Image Scan Missing</h1></body></html>" \
                                         > trivy-img-report.html
-
-                                    [ -f security-report.html ] || \
-                                        echo "<html><body><h1>Security Report Missing</h1></body></html>" \
-                                        > security-report.html
                                 '''
 
                                 archiveArtifacts(
@@ -229,12 +274,17 @@ pipeline {
                     }
                 }
 
+                // ====================================================
+                // OWASP JOB
+                // ====================================================
+
                 stage('OWASP Job') {
                     agent {
                         label 'gha-runner'
                     }
 
                     stages {
+
                         stage('Checkout Code') {
                             steps {
                                 deleteDir()
@@ -261,6 +311,7 @@ pipeline {
                                         name: 'Java-21',
                                         type: 'hudson.model.JDK'
                                     )
+
                                     env.OWASP_JAVA_HOME = jdkHome
                                 }
 
@@ -277,7 +328,10 @@ pipeline {
                         stage('OWASP Dependency Check') {
                             steps {
                                 withCredentials([
-                                    string(credentialsId: 'NVD_API_KEY', variable: 'NVD_API_KEY')
+                                    string(
+                                        credentialsId: 'NVD_API_KEY',
+                                        variable: 'NVD_API_KEY'
+                                    )
                                 ]) {
                                     sh '''
                                         export JAVA_HOME="$OWASP_JAVA_HOME"
@@ -317,12 +371,17 @@ pipeline {
                     }
                 }
 
+                // ====================================================
+                // QA JOB
+                // ====================================================
+
                 stage('QA Job') {
                     agent {
                         label 'gha-runner'
                     }
 
                     stages {
+
                         stage('Checkout Code') {
                             steps {
                                 deleteDir()
