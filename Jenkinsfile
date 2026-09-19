@@ -25,7 +25,7 @@ pipeline {
 
     stages {
         stage('Build & Push') {
-            agent { label 'gha-runner' }
+            agent { label 'ghr-runner' }
             stages {
                 stage('Checkout repository') {
                     steps { checkout scm }
@@ -90,12 +90,14 @@ pipeline {
                             export OCI_CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
                             export OCI_REVISION="$GITHUB_SHA"
                             export OCI_SOURCE="https://github.com/$GITHUB_REPOSITORY"
-                            export OCI_VERSION="sha-${GITHUB_SHA:0:7}"
+                            GITHUB_SHORT_SHA="$(printf '%.7s' "$GITHUB_SHA")"
+                            export OCI_VERSION="sha-$GITHUB_SHORT_SHA"
                             cat > reports/docker/docker-labels.env <<EOF
 OCI_CREATED=$OCI_CREATED
 OCI_REVISION=$OCI_REVISION
 OCI_SOURCE=$OCI_SOURCE
 OCI_VERSION=$OCI_VERSION
+GITHUB_SHORT_SHA=$GITHUB_SHORT_SHA
 EOF
                         '''
                     }
@@ -105,15 +107,16 @@ EOF
                     steps {
                         sh '''
                             set -e
-                            . reports/docker/docker-labels.env
+                             . reports/docker/docker-labels.env
+                            GITHUB_SHORT_SHA="$(printf '%.7s' "$GITHUB_SHA")"
 
-                            docker buildx build                               --context .                               --platform linux/amd64,linux/arm64                               --push                               --metadata-file reports/docker/build-metadata.json                               --label "org.opencontainers.image.created=$OCI_CREATED"                               --label "org.opencontainers.image.revision=$OCI_REVISION"                               --label "org.opencontainers.image.source=$OCI_SOURCE"                               --label "org.opencontainers.image.version=$OCI_VERSION"                               -t "ghcr.io/$GITHUB_REPOSITORY:latest"                               -t "ghcr.io/$GITHUB_REPOSITORY:sha-${GITHUB_SHA:0:7}"                               -t "$DOCKERHUB_USERNAME/resume-matcher-devops:latest"                               -t "$DOCKERHUB_USERNAME/resume-matcher-devops:sha-${GITHUB_SHA:0:7}"
+                            docker buildx build                               --context .                               --platform linux/amd64,linux/arm64                               --push                               --metadata-file reports/docker/build-metadata.json                               --label "org.opencontainers.image.created=$OCI_CREATED"                               --label "org.opencontainers.image.revision=$OCI_REVISION"                               --label "org.opencontainers.image.source=$OCI_SOURCE"                               --label "org.opencontainers.image.version=$OCI_VERSION"                               -t "ghcr.io/$GITHUB_REPOSITORY:latest"                               -t "ghcr.io/$GITHUB_REPOSITORY:sha-$GITHUB_SHORT_SHA"                               -t "$DOCKERHUB_USERNAME/resume-matcher-devops:latest"                               -t "$DOCKERHUB_USERNAME/resume-matcher-devops:sha-$GITHUB_SHORT_SHA"
 
                             test -s reports/docker/build-metadata.json
                             IMAGE_DIGEST="$(node -e 'const fs=require("fs"); const d=JSON.parse(fs.readFileSync("reports/docker/build-metadata.json","utf8")); process.stdout.write(d["containerimage.digest"] || "");')"
 
                             if [ -z "$IMAGE_DIGEST" ]; then
-                              IMAGE_DIGEST="$(docker buildx imagetools inspect                                 "ghcr.io/$GITHUB_REPOSITORY:sha-${GITHUB_SHA:0:7}"                                 --format '{{.Manifest.Digest}}')"
+                              IMAGE_DIGEST="$(docker buildx imagetools inspect                                 "ghcr.io/$GITHUB_REPOSITORY:sha-$GITHUB_SHORT_SHA"                                 --format '{{.Manifest.Digest}}')"
                             fi
 
                             test -n "$IMAGE_DIGEST"
@@ -356,7 +359,7 @@ echo "Digest: $IMAGE_DIGEST"''' }
         }
 
         stage('Security Enhancements') {
-            agent { label 'gha-runner' }
+            agent { label 'ghr-runner' }
             stages {
                 stage('Checkout repository') {
                     steps { checkout scm }
