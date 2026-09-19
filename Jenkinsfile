@@ -4,9 +4,12 @@ pipeline {
     environment {
         EMAIL_USER = credentials('EMAIL_USER')
         EMAIL_PASS = credentials('EMAIL_PASS')
-        DOCKERHUB_USERNAME = credentials('DOCKERHUB_USERNAME')
+
+        DOCKERHUB_USERNAME = 'kaifmohammedkhan123'
         DOCKERHUB_TOKEN = credentials('DOCKERHUB_TOKEN')
-        GITHUB_TOKEN = credentials('github-agent-token')
+
+        // Dedicated Jenkins credential for GitHub Container Registry.
+        GHCR_TOKEN = credentials('GHCR_TOKEN')
 
         GITHUB_REPOSITORY = 'kaifmohammedkhan/resume-matcher-devops'
         GITHUB_WORKFLOW = 'Build and Push to GHCR and Docker Hub'
@@ -56,7 +59,6 @@ pipeline {
 
                             env.GITHUB_RUN_NUMBER = env.BUILD_NUMBER
 
-                            // Explicitly use the GitHub username.
                             env.GITHUB_ACTOR = 'kaifmohammedkhan'
 
                             env.IMAGE_TAGS =
@@ -99,7 +101,7 @@ pipeline {
                         sh '''
                             set -e
 
-                            echo "$GITHUB_TOKEN" | docker login ghcr.io \
+                            echo "$GHCR_TOKEN" | docker login ghcr.io \
                                 --username "$GITHUB_ACTOR" \
                                 --password-stdin
                         '''
@@ -536,7 +538,7 @@ NODE
                         sh '''
                             set -e
 
-                            echo "$GITHUB_TOKEN" | docker login ghcr.io \
+                            echo "$GHCR_TOKEN" | docker login ghcr.io \
                                 --username "$GITHUB_ACTOR" \
                                 --password-stdin
                         '''
