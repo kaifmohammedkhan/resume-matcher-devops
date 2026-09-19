@@ -230,101 +230,107 @@ EOF
                 stage('Generate Docker Build & Push HTML Report') {
                     steps {
                         sh '''
-                            node --input-type=commonjs <<'NODE'
+                            set -e
 
-const nodemailer = require("nodemailer");
+                            . reports/docker/docker-labels.env
+
+                            node --input-type=commonjs <<'NODE'
 const fs = require("fs");
 
-const reportPath =
-    "reports/docker/docker-build-push-report.html";
+const repo = process.env.GITHUB_REPOSITORY || "N/A";
+const branch = process.env.GITHUB_REF_NAME || "N/A";
+const commit = process.env.GITHUB_SHA || "N/A";
+const shortCommit = commit.substring(0, 7);
+const runNumber = process.env.GITHUB_RUN_NUMBER || "N/A";
+const workflow = process.env.GITHUB_WORKFLOW || "N/A";
+const imageDigest = process.env.IMAGE_DIGEST || "N/A";
+const dockerHubUsername = process.env.DOCKERHUB_USERNAME || "N/A";
+const generatedAt = new Date().toISOString();
 
-if (
-    !fs.existsSync(reportPath) ||
-    fs.statSync(reportPath).size === 0
-) {
-    throw new Error(
-        "Docker Build & Push HTML report does not exist or is empty."
-    );
+function escapeHtml(value) {
+    return String(value)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
 }
 
-const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-    }
-});
+const html = `<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width,initial-scale=1">
+    <title>Docker Build & Push Report</title>
+    <style>
+        body { background:#07111f; color:#f8fafc; font-family:Arial,sans-serif; padding:28px; margin:0; }
+        .container { max-width:900px; margin:auto; }
+        .panel { background:#0d1a2b; border:1px solid #263a56; border-radius:18px; padding:24px; margin-bottom:20px; }
+        h1 { font-size:26px; margin:0 0 10px; }
+        h2 { font-size:20px; margin:0 0 12px; }
+        .status { font-weight:bold; color:#34d399; font-size:16px; margin-bottom:14px; }
+        .meta { color:#a9b8cc; line-height:1.8; }
+        .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px; }
+        .card { background:#102138; border:1px solid #263a56; border-radius:12px; padding:18px; }
+        .label { color:#8fa4bd; font-size:12px; text-transform:uppercase; letter-spacing:.05em; }
+        .value { margin-top:7px; font-size:18px; font-weight:bold; word-break:break-word; }
+        .success { color:#34d399; }
+        .small { color:#8fa4bd; font-size:12px; margin-top:7px; line-height:1.6; }
+        .file { font-family:monospace; font-size:12px; word-break:break-all; }
+        .digest { font-family:monospace; font-size:12px; word-break:break-all; background:#091525; padding:10px; border-radius:8px; margin-top:8px; }
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="panel">
+        <h1>Docker Build & Push Report</h1>
+        <div class="status">✓ DOCKER IMAGE BUILD & PUSH COMPLETED SUCCESSFULLY</div>
+        <div class="meta">
+            Repository: ${escapeHtml(repo)}<br>
+            Branch: ${escapeHtml(branch)}<br>
+            Commit: ${escapeHtml(shortCommit)}<br>
+            Workflow Run: #${escapeHtml(runNumber)}<br>
+            Workflow: ${escapeHtml(workflow)}<br>
+            Generated: ${escapeHtml(generatedAt)}
+        </div>
+    </div>
 
-const html = `
-<div
-    style="
-        font-family:Arial,sans-serif;
-        max-width:700px;
-        margin:auto;
-        color:#1f2937;
-    "
->
-    <h2>
-        Docker Build & Push Report
-    </h2>
+    <div class="panel">
+        <h2>Registry Results</h2>
+        <div class="grid">
+            <div class="card">
+                <div class="label">GitHub Container Registry</div>
+                <div class="value success">✓ PUSHED</div>
+                <div class="small">ghcr.io/${escapeHtml(repo)}:latest</div>
+            </div>
+            <div class="card">
+                <div class="label">Docker Hub</div>
+                <div class="value success">✓ PUSHED</div>
+                <div class="small">${escapeHtml(dockerHubUsername)}/resume-matcher-devops:latest</div>
+            </div>
+        </div>
+    </div>
 
-    <p
-        style="
-            color:#059669;
-            font-weight:bold;
-        "
-    >
-        ✓ Docker image build and push completed successfully
-    </p>
+    <div class="panel">
+        <h2>Build Platforms</h2>
+        <div class="grid">
+            <div class="card"><div class="label">Platform</div><div class="value">linux/amd64</div></div>
+            <div class="card"><div class="label">Platform</div><div class="value">linux/arm64</div></div>
+        </div>
+    </div>
 
-    <hr>
-
-    <p>
-        <strong>GHCR:</strong>
-        ✓ Image pushed successfully
-    </p>
-
-    <p>
-        <strong>Docker Hub:</strong>
-        ✓ Image pushed successfully
-    </p>
-
-    <p>
-        <strong>Platforms:</strong>
-        linux/amd64, linux/arm64
-    </p>
-
-    <p>
-        The complete HTML build and push report
-        is attached to this email.
-    </p>
+    <div class="panel">
+        <h2>Immutable Image Identity</h2>
+        <div class="small">The digest below is the canonical identity of the multi-architecture image produced by this build.</div>
+        <div class="digest">${escapeHtml(imageDigest)}</div>
+    </div>
 </div>
-`;
+</body>
+</html>`;
 
-(async () => {
-    await transporter.sendMail({
-        from: process.env.EMAIL_USER,
-        to: process.env.QA_EMAIL_TO,
-        cc: process.env.QA_EMAIL_CC || "",
-        subject: "Docker Build & Push Report",
-        html,
-        attachments: [
-            {
-                filename: "docker-build-push-report.html",
-                path: reportPath
-            }
-        ]
-    });
-
-    console.log(
-        "Docker Build & Push report email sent successfully."
-    );
-
-})().catch(error => {
-    console.error(error);
-    process.exit(1);
-});
-
+fs.mkdirSync("reports/docker", { recursive: true });
+fs.writeFileSync("reports/docker/docker-build-push-report.html", html);
+console.log("Docker Build & Push HTML report generated successfully.");
 NODE
                         '''
                     }
@@ -376,22 +382,54 @@ NODE
                         sh '''
                             set -e
 
-                            test -n "$IMAGE_DIGEST"
-                            test "$IMAGE_DIGEST" != "unknown"
+                            test -s reports/docker/docker-build-push-report.html
 
-                            mkdir -p reports/docker
+                            node --input-type=commonjs <<'NODE'
+const nodemailer = require("nodemailer");
+const fs = require("fs");
 
-                            {
-                                echo "IMAGE_DIGEST=$IMAGE_DIGEST"
-                                echo "IMAGE_TAGS<<EOF_TAGS"
-                                printf '%s\\n' "$IMAGE_TAGS"
-                                echo "EOF_TAGS"
-                            } > reports/docker/image-metadata.txt
+const reportPath = "reports/docker/docker-build-push-report.html";
 
-                            echo "=============================================="
-                            echo "IMMUTABLE IMAGE DIGEST RECORDED"
-                            echo "=============================================="
-                            echo "Digest: $IMAGE_DIGEST"
+if (!fs.existsSync(reportPath) || fs.statSync(reportPath).size === 0) {
+    throw new Error("Docker Build & Push HTML report does not exist or is empty.");
+}
+
+const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+    }
+});
+
+const html = `
+<div style="font-family:Arial,sans-serif;max-width:700px;margin:auto;color:#1f2937;">
+    <h2>Docker Build & Push Report</h2>
+    <p style="color:#059669;font-weight:bold;">✓ Docker image build and push completed successfully</p>
+    <p><strong>Repository:</strong> ${process.env.GITHUB_REPOSITORY || "N/A"}</p>
+    <p><strong>Image Digest:</strong> ${process.env.IMAGE_DIGEST || "N/A"}</p>
+    <p>The complete HTML build and push report is attached to this email.</p>
+</div>`;
+
+(async () => {
+    await transporter.sendMail({
+        from: process.env.EMAIL_USER,
+        to: process.env.QA_EMAIL_TO,
+        cc: process.env.QA_EMAIL_CC || "",
+        subject: "Docker Build & Push Report",
+        html,
+        attachments: [{
+            filename: "docker-build-push-report.html",
+            path: reportPath
+        }]
+    });
+
+    console.log("Docker Build & Push report email sent successfully.");
+})().catch(error => {
+    console.error(error);
+    process.exit(1);
+});
+NODE
                         '''
                     }
                 }
@@ -1611,7 +1649,7 @@ NODE
 
                 stage('Install Nodemailer') {
                     steps {
-                        sh 'npm install nodemailer@9.0.3'
+                        sh 'npm install nodemailer@9.0.3 --no-audit --no-fund'
                     }
                 }
 
@@ -1619,7 +1657,62 @@ NODE
                     steps {
                         sh '''
                             set -e
-                            npm install nodemailer@9.0.3
+
+                            test -s reports/docker/docker-security-report.html
+                            test -s reports/docker/docker-security-raw-evidence.zip
+                            test -s reports/docker-build/docker-build-push-report.html
+
+                            node --input-type=commonjs <<'NODE'
+const nodemailer = require("nodemailer");
+const fs = require("fs");
+
+const securityReport = "reports/docker/docker-security-report.html";
+const rawEvidence = "reports/docker/docker-security-raw-evidence.zip";
+const buildReport = "reports/docker-build/docker-build-push-report.html";
+
+for (const file of [securityReport, rawEvidence, buildReport]) {
+    if (!fs.existsSync(file) || fs.statSync(file).size === 0) {
+        throw new Error(`Required email attachment is missing or empty: ${file}`);
+    }
+}
+
+const transporter = nodemailer.createTransport({
+    service: "gmail",
+    auth: {
+        user: process.env.EMAIL_USER,
+        pass: process.env.EMAIL_PASS
+    }
+});
+
+const html = `
+<div style="font-family:Arial,sans-serif;max-width:700px;margin:auto;color:#1f2937;">
+    <h2>Docker Security Enhancements Report</h2>
+    <p style="color:#059669;font-weight:bold;">✓ Security verification completed successfully</p>
+    <p><strong>Repository:</strong> ${process.env.GITHUB_REPOSITORY || "N/A"}</p>
+    <p><strong>Image Digest:</strong> ${process.env.IMAGE_DIGEST || "N/A"}</p>
+    <p>The security report, raw evidence ZIP, and Stage 1 build report are attached.</p>
+</div>`;
+
+(async () => {
+    await transporter.sendMail({
+        from: process.env.EMAIL_USER,
+        to: process.env.QA_EMAIL_TO,
+        cc: process.env.QA_EMAIL_CC || "",
+        subject: "Docker Security Enhancements Report",
+        html,
+        attachments: [
+            { filename: "docker-security-report.html", path: securityReport },
+            { filename: "docker-security-raw-evidence.zip", path: rawEvidence },
+            { filename: "docker-build-push-report.html", path: buildReport }
+        ]
+    });
+
+    console.log("Docker Security report email sent successfully.");
+})().catch(error => {
+    console.error(error);
+    process.exit(1);
+});
+NODE
                         '''
                     }
                 }
