@@ -227,6 +227,12 @@ EOF
                     }
                 }
 
+                stage('Install Nodemailer') {
+                    steps {
+                        sh 'npm install nodemailer@9.0.3'
+                    }
+                }
+
                 stage('Generate Docker Build & Push HTML Report') {
                     steps {
                         sh '''
@@ -358,12 +364,6 @@ NODE
                             artifacts: 'reports/docker/docker-build-push-report.html,reports/docker/image-metadata.txt',
                             fingerprint: true
                         )
-                    }
-                }
-
-                stage('Install Nodemailer') {
-                    steps {
-                        sh 'npm install nodemailer@9.0.3'
                     }
                 }
 
