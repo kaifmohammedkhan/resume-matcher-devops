@@ -5,6 +5,9 @@ pipeline {
         EMAIL_USER = credentials('EMAIL_USER')
         EMAIL_PASS = credentials('EMAIL_PASS')
 
+        QA_EMAIL_TO = 'kaifkhanmohammed718@gmail.com'
+        QA_EMAIL_CC = 'kaifkhanmohammed718@gmail.com'
+
         DOCKERHUB_USERNAME = 'kaifmohammedkhan123'
         DOCKERHUB_TOKEN = credentials('DOCKERHUB_TOKEN')
 
