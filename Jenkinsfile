@@ -25,7 +25,7 @@ pipeline {
 
     stages {
         stage('Build & Push') {
-            agent { label 'ghr-runner' }
+            agent { label 'gha-runner' }
             stages {
                 stage('Checkout repository') {
                     steps { checkout scm }
@@ -359,7 +359,7 @@ echo "Digest: $IMAGE_DIGEST"''' }
         }
 
         stage('Security Enhancements') {
-            agent { label 'ghr-runner' }
+            agent { label 'gha-runner' }
             stages {
                 stage('Checkout repository') {
                     steps { checkout scm }
