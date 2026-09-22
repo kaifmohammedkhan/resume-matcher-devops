@@ -218,7 +218,7 @@ EOF
                             {
                                 echo "IMAGE_DIGEST=$IMAGE_DIGEST"
                                 echo "IMAGE_TAGS<<EOF_TAGS"
-                                printf '%s\n' "$IMAGE_TAGS"
+                                printf '%s\\n' "$IMAGE_TAGS"
                                 echo "EOF_TAGS"
                             } > reports/docker/image-metadata.txt
 
@@ -504,8 +504,8 @@ NODE
                         sh '''
                             set -e
 
-                            if [ -z "$IMAGE_DIGEST" ] \vert{}\vert{} [ "$IMAGE_DIGEST" = "null" ]; then
-                                echo "Image digest is empty!"
+                            if [ -z "$IMAGE_DIGEST" ] \vert{}\vert{} [ "$IMAGE_DIGEST" = "unknown" ]; then
+                                echo "ERROR: Immutable image digest was not recorded by Stage 1."
                                 exit 1
                             fi
 
@@ -574,14 +574,19 @@ NODE
 
                                 umask 077
 
+                                # Jenkins Secret Text can preserve real newlines, but this
+                                # normalization also handles pasted literal \\n sequences and CRLF.
                                 printf '%s' "$COSIGN_PRIVATE_KEY" |
-                                    sed 's/\\\\n/\n/g' |
+                                    sed 's/\\\\n/\
+/g' |
                                     tr -d '\r' > cosign.key
 
                                 chmod 600 cosign.key
 
                                 if ! grep -Eq '^-----BEGIN .*PRIVATE KEY-----$' cosign.key; then
                                     echo "ERROR: COSIGN_PRIVATE_KEY is not a valid PEM private-key block."
+                                    echo "Ensure the Jenkins credential contains the complete cosign.key text,"
+                                    echo "including the BEGIN and END lines, with the actual line breaks."
                                     exit 1
                                 fi
 
@@ -594,8 +599,6 @@ NODE
 
                                 test -s cosign.pub
                                 chmod 644 cosign.pub
-
-                                rm -f cosign.key
 
                                 echo "Cosign signing and verification keys prepared."
                             '''
@@ -654,10 +657,10 @@ NODE
                             echo "=============================================="
                             echo "Docker Security Evidence"
                             echo "=============================================="
-                            echo "Repository  : $GITHUB_REPOSITORY"
-                            echo "Branch      : $GITHUB_REF_NAME"
-                            echo "Commit      : $GITHUB_SHA"
-                            echo "Run         : #$GITHUB_RUN_NUMBER"
+                            echo "Repository : $GITHUB_REPOSITORY"
+                            echo "Branch     : $GITHUB_REF_NAME"
+                            echo "Commit     : $GITHUB_SHA"
+                            echo "Run        : #$GITHUB_RUN_NUMBER"
                             echo "Image Digest: $IMAGE_DIGEST"
                             echo "=============================================="
                         '''
@@ -694,7 +697,8 @@ NODE
                                 trap 'rm -f cosign.key' EXIT
 
                                 printf '%s' "$COSIGN_PRIVATE_KEY" |
-                                    sed 's/\\\\n/\n/g' |
+                                    sed 's/\\\\n/\
+/g' |
                                     tr -d '\r' > cosign.key
 
                                 chmod 600 cosign.key
@@ -715,10 +719,15 @@ NODE
                                 umask 077
                                 trap 'rm -f cosign.key' EXIT
 
-                                printf '%s' "$COSIGN_PRIVATE_KEY" | awk '{gsub(/\\\\n/,"\n")}1' | tr -d '\r' > cosign.key
+                                # Using awk avoids Jenkins-to-bash backslash escaping hell
+                                printf '%s' "$COSIGN_PRIVATE_KEY" | awk '{gsub(/\\\\n/,"\\n")}1' | tr -d '\\r' > cosign.key
 
                                 chmod 600 cosign.key
+                                
+                                # Verify key is valid before signing
                                 cosign public-key --key cosign.key > /dev/null
+
+                                # Execute signing using the resolved digest
                                 cosign sign --yes --key cosign.key "${DOCKERHUB_USERNAME}/resume-matcher-devops@${IMAGE_DIGEST}"
                             '''
                         }
@@ -805,19 +814,9 @@ NODE
                             test -s reports/docker/sbom-ghcr.json
                             test -s reports/docker/sbom-dockerhub.json
 
-                            echo "=============================================="
-                            echo "ALL SBOM FILES VERIFIED"
-                            echo "=============================================="
+                            echo "GHCR SPDX SBOM generated successfully."
+                            echo "Docker Hub SPDX SBOM generated successfully."
                         '''
-                    }
-                }
-
-                stage('Upload Security Evidence') {
-                    steps {
-                        archiveArtifacts(
-                            artifacts: 'reports/docker/cosign-ghcr-verify.json,reports/docker/cosign-dockerhub-verify.json,reports/docker/sbom-ghcr.json,reports/docker/sbom-dockerhub.json',
-                            fingerprint: true
-                        )
                     }
                 }
             }
