@@ -50,3 +50,4 @@ docker-compose.test.yml
 ghcr-secret.yaml
 google-api-secret.yaml
 db-secret.yaml
+cosign.key
