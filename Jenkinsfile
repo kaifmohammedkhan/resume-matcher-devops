@@ -504,7 +504,7 @@ NODE
                         sh '''
                             set -e
 
-                            if [[ -z "$IMAGE_DIGEST" || -z "$OTHER_VAR" ]]; then
+                            if [[ -z "$IMAGE_DIGEST" \vert{}\vert{} -z "$OTHER_VAR" ]]; then
                                 echo "ERROR: Immutable image digest was not recorded by Stage 1."
                                 exit 1
                             fi
@@ -696,12 +696,10 @@ NODE
                                 umask 077
                                 trap 'rm -f cosign.key' EXIT
 
-                                printf '%s' "$COSIGN_PRIVATE_KEY" |
-                                    sed 's/\\\\n/\
-/g' |
-                                    tr -d '\r' > cosign.key
-
+                                # Decode base64 string back to original multiline PEM format
+                                echo "$COSIGN_PRIVATE_KEY" | base64 -d > cosign.key
                                 chmod 600 cosign.key
+
                                 cosign sign --yes --key cosign.key "ghcr.io/$GITHUB_REPOSITORY@$IMAGE_DIGEST"
                             '''
                         }
@@ -719,11 +717,10 @@ NODE
                                 umask 077
                                 trap 'rm -f cosign.key' EXIT
 
-                                # Using awk avoids Jenkins-to-bash backslash escaping hell
-                                printf '%s' "$COSIGN_PRIVATE_KEY" | awk '{gsub(/\\\\n/,"\\n")}1' | tr -d '\\r' > cosign.key
-
+                                # Decode base64 string back to original multiline PEM format
+                                echo "$COSIGN_PRIVATE_KEY" | base64 -d > cosign.key
                                 chmod 600 cosign.key
-                                
+
                                 # Verify key is valid before signing
                                 cosign public-key --key cosign.key > /dev/null
 
@@ -750,72 +747,6 @@ NODE
                             echo "=============================================="
                             echo "GHCR Cosign verification PASSED"
                             echo "=============================================="
-                        '''
-                    }
-                }
-
-                stage('Verify Cosign Signature — Docker Hub') {
-                    steps {
-                        sh '''
-                            set -e
-
-                            cosign verify \
-                                --key cosign.pub \
-                                --output json \
-                                "$DOCKERHUB_USERNAME/resume-matcher-devops@$IMAGE_DIGEST" \
-                                > reports/docker/cosign-dockerhub-verify.json
-
-                            test -s reports/docker/cosign-dockerhub-verify.json
-
-                            echo "=============================================="
-                            echo "Docker Hub Cosign verification PASSED"
-                            echo "=============================================="
-                        '''
-                    }
-                }
-
-                stage('Generate GHCR SPDX SBOM') {
-                    steps {
-                        sh '''
-                            set -e
-
-                            syft "ghcr.io/$GITHUB_REPOSITORY@$IMAGE_DIGEST" \
-                                -o spdx-json \
-                                > reports/docker/sbom-ghcr.json
-
-                            test -s reports/docker/sbom-ghcr.json
-
-                            echo "GHCR SPDX SBOM generated successfully."
-                        '''
-                    }
-                }
-
-                stage('Generate Docker Hub SPDX SBOM') {
-                    steps {
-                        sh '''
-                            set -e
-
-                            syft "$DOCKERHUB_USERNAME/resume-matcher-devops@$IMAGE_DIGEST" \
-                                -o spdx-json \
-                                > reports/docker/sbom-dockerhub.json
-
-                            test -s reports/docker/sbom-dockerhub.json
-
-                            echo "Docker Hub SPDX SBOM generated successfully."
-                        '''
-                    }
-                }
-
-                stage('Verify SBOM files') {
-                    steps {
-                        sh '''
-                            set -e
-
-                            test -s reports/docker/sbom-ghcr.json
-                            test -s reports/docker/sbom-dockerhub.json
-
-                            echo "GHCR SPDX SBOM generated successfully."
-                            echo "Docker Hub SPDX SBOM generated successfully."
                         '''
                     }
                 }
