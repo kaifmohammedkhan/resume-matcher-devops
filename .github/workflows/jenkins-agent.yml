@@ -4,7 +4,8 @@ on:
   workflow_dispatch:
     inputs:
       jenkins_url:
-        description: 'Jenkins Controller URL (e.g., https://xxxx.trycloudflare.com)'
+        description: 'Jenkins Controller URL (e.g., https://my-jenkins-local.shares.zrok.io)'
+        default: 'https://my-jenkins-local.shares.zrok.io'
         required: true
       agent_name:
         description: 'Jenkins Agent Name'
