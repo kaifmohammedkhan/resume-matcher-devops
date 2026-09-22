@@ -504,7 +504,7 @@ NODE
                         sh '''
                             set -e
 
-                            if [ -z "$IMAGE_DIGEST" ] || [ -z "$OTHER_VAR" ]; then
+                            if [ -z "$IMAGE_DIGEST" ] \vert{}\vert{} [ -z "$OTHER_VAR" ]; then
                                 echo "ERROR: Immutable image digest was not recorded by Stage 1."
                                 exit 1
                             fi
@@ -560,33 +560,21 @@ NODE
                 stage('Prepare Cosign Signing Key') {
                     steps {
                         withCredentials([
-                            string(
-                                credentialsId: 'COSIGN_PRIVATE_KEY',
-                                variable: 'COSIGN_PRIVATE_KEY'
-                            ),
-                            string(
-                                credentialsId: 'COSIGN_PASSPHRASE',
-                                variable: 'COSIGN_PASSWORD'
-                            )
+                            string(credentialsId: 'COSIGN_PRIVATE_KEY', variable: 'COSIGN_KEY_TEXT'),
+                            string(credentialsId: 'COSIGN_PASSPHRASE', variable: 'COSIGN_PASSWORD')
                         ]) {
                             sh '''
                                 set -eu
-
                                 umask 077
 
-                                # Jenkins Secret Text can preserve real newlines, but this
-                                # normalization also handles pasted literal \\n sequences and CRLF.
-                                printf '%s' "$COSIGN_PRIVATE_KEY" |
-                                    sed 's/\\\\n/\
-/g' |
-                                    tr -d '\r' > cosign.key
+                                # Normalize literal \\n to actual newlines and remove carriage returns
+                                printf '%s' "$COSIGN_KEY_TEXT" | awk '{gsub(/\\\\n/,"\n")}1' | tr -d '\r' > cosign.key
 
                                 chmod 600 cosign.key
 
                                 if ! grep -Eq '^-----BEGIN .*PRIVATE KEY-----$' cosign.key; then
                                     echo "ERROR: COSIGN_PRIVATE_KEY is not a valid PEM private-key block."
-                                    echo "Ensure the Jenkins credential contains the complete cosign.key text,"
-                                    echo "including the BEGIN and END lines, with the actual line breaks."
+                                    echo "Ensure the Jenkins credential contains the complete cosign.key text."
                                     exit 1
                                 fi
 
@@ -595,12 +583,13 @@ NODE
                                     exit 1
                                 fi
 
+                                # Generate public key using COSIGN_PASSWORD automatically from environment
                                 cosign public-key --key cosign.key > cosign.pub
 
                                 test -s cosign.pub
                                 chmod 644 cosign.pub
 
-                                echo "Cosign signing and verification keys prepared."
+                                echo "Cosign signing and verification keys prepared successfully."
                             '''
                         }
                     }
@@ -715,42 +704,4 @@ NODE
                             sh '''
                                 set -euo pipefail
                                 umask 077
-                                trap 'rm -f cosign.key' EXIT
-
-                                # Decode base64 string back to original multiline PEM format
-                                echo "$COSIGN_PRIVATE_KEY" | base64 -d > cosign.key
-                                chmod 600 cosign.key
-
-                                # Verify key is valid before signing
-                                cosign public-key --key cosign.key > /dev/null
-
-                                # Execute signing using the resolved digest
-                                cosign sign --yes --key cosign.key "${DOCKERHUB_USERNAME}/resume-matcher-devops@${IMAGE_DIGEST}"
-                            '''
-                        }
-                    }
-                }
-
-                stage('Verify Cosign Signature — GHCR') {
-                    steps {
-                        sh '''
-                            set -e
-
-                            cosign verify \
-                                --key cosign.pub \
-                                --output json \
-                                "ghcr.io/$GITHUB_REPOSITORY@$IMAGE_DIGEST" \
-                                > reports/docker/cosign-ghcr-verify.json
-
-                            test -s reports/docker/cosign-ghcr-verify.json
-
-                            echo "=============================================="
-                            echo "GHCR Cosign verification PASSED"
-                            echo "=============================================="
-                        '''
-                    }
-                }
-            }
-        }
-    }
-}
+                                trap 'rm -f cos
