@@ -504,7 +504,7 @@ NODE
                         sh '''
                             set -e
 
-                            if [ -z "$IMAGE_DIGEST" ] \vert{}\vert{} [ -z "$OTHER_VAR" ]; then
+                            if [ -z "$IMAGE_DIGEST" ] || [ -z "$ANOTHER_VAR" ]; then
                                 echo "ERROR: Immutable image digest was not recorded by Stage 1."
                                 exit 1
                             fi
