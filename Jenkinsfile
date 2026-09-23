@@ -437,3 +437,330 @@ NODE
                 }
             }
         }
+    
+        // ============================================================
+        // STAGE 2: SECURITY ENHANCEMENTS
+        // ============================================================
+
+        stage('Security Enhancements') {
+            agent { label 'gha-runner' }
+
+            stages {
+
+                stage('Checkout repository') {
+                    steps {
+                        checkout scm
+                    }
+                }
+
+                stage('Download Stage 1 Build Report') {
+                    steps {
+                        unstash 'docker-build-push-stage1'
+
+                        sh '''
+                            set -e
+
+                            mkdir -p reports/docker-build
+
+                            cp reports/docker/docker-build-push-report.html \
+                                reports/docker-build/docker-build-push-report.html
+
+                            cp reports/docker/image-metadata.txt \
+                                reports/docker-build/image-metadata.txt
+                        '''
+                    }
+                }
+
+                stage('Verify Docker Build & Push Report') {
+                    steps {
+                        sh '''
+                            set -e
+
+                            test -s reports/docker-build/docker-build-push-report.html
+
+                            echo "=============================================="
+                            echo "STAGE 1 BUILD REPORT FOUND"
+                            echo "=============================================="
+
+                            ls -lh reports/docker-build/docker-build-push-report.html
+                        '''
+                    }
+                }
+
+                stage('Load immutable image digest') {
+                    steps {
+                        script {
+                            env.IMAGE_DIGEST = sh(
+                                script: '''
+                                    set -e
+                                    test -s reports/docker-build/image-metadata.txt
+                                    sed -n 's/^IMAGE_DIGEST=//p' reports/docker-build/image-metadata.txt | head -n 1
+                                ''',
+                                returnStdout: true
+                            ).trim()
+                        }
+
+                        sh '''
+                            set -e
+
+                            if [ -z "$IMAGE_DIGEST" ]; then
+                                echo "ERROR: Immutable image digest was not recorded by Stage 1."
+                                exit 1
+                            fi
+
+                            case "$IMAGE_DIGEST" in
+                                sha256:*) ;;
+                                *)
+                                    echo "ERROR: Invalid image digest: $IMAGE_DIGEST"
+                                    exit 1
+                                    ;;
+                            esac
+
+                            echo "=============================================="
+                            echo "IMMUTABLE IMAGE IDENTITY LOADED"
+                            echo "=============================================="
+                            echo "Digest: $IMAGE_DIGEST"
+                        '''
+                    }
+                }
+
+                stage('Install Cosign') {
+                    steps {
+                        sh '''
+                            set -e
+
+                            if ! command -v cosign >/dev/null 2>&1; then
+                                COSIGN_VERSION="v3.1.3"
+
+                                curl -sSfL \
+                                    "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-amd64" \
+                                    -o /tmp/cosign
+
+                                chmod +x /tmp/cosign
+
+                                if command -v sudo >/dev/null 2>&1; then
+                                    sudo mv /tmp/cosign /usr/local/bin/cosign
+                                else
+                                    mkdir -p "$HOME/.local/bin"
+                                    mv /tmp/cosign "$HOME/.local/bin/cosign"
+                                    export PATH="$HOME/.local/bin:$PATH"
+                                fi
+                            fi
+                        '''
+                    }
+                }
+
+                stage('Verify Cosign installation') {
+                    steps {
+                        sh 'cosign version'
+                    }
+                }
+
+                stage('Prepare Cosign Signing Key') {
+                    steps {
+                        withCredentials([
+                            string(credentialsId: 'COSIGN_PRIVATE_KEY', variable: 'COSIGN_KEY_TEXT'),
+                            string(credentialsId: 'COSIGN_PASSPHRASE', variable: 'COSIGN_PASSWORD')
+                        ]) {
+                            sh '''
+                                set -eu
+                                umask 077
+
+                                # Normalize literal \\n to actual newlines and remove carriage returns
+                                printf '%s' "$COSIGN_KEY_TEXT" | awk '{gsub(/\\\\n/,"\n")}1' | tr -d '\\r' > cosign.key
+
+                                chmod 600 cosign.key
+
+                                if ! grep -Eq '^-----BEGIN .*PRIVATE KEY-----$' cosign.key; then
+                                    echo "ERROR: COSIGN_PRIVATE_KEY is not a valid PEM private-key block."
+                                    echo "Ensure the Jenkins credential contains the complete cosign.key text."
+                                    exit 1
+                                fi
+
+                                if ! grep -Eq '^-----END .*PRIVATE KEY-----$' cosign.key; then
+                                    echo "ERROR: COSIGN_PRIVATE_KEY is missing the PEM END line."
+                                    exit 1
+                                fi
+
+                                # Generate public key using COSIGN_PASSWORD automatically from environment
+                                cosign public-key --key cosign.key > cosign.pub
+
+                                test -s cosign.pub
+                                chmod 644 cosign.pub
+
+                                echo "Cosign signing and verification keys prepared successfully."
+                            '''
+                        }
+                    }
+                }
+
+                stage('Install Syft') {
+                    steps {
+                        sh '''
+                            set -e
+
+                            curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
+                                | sh -s -- -b /usr/local/bin
+                        '''
+                    }
+                }
+
+                stage('Verify Syft installation') {
+                    steps {
+                        sh 'syft version'
+                    }
+                }
+
+                stage('Log in to GitHub Container Registry') {
+                    steps {
+                        sh '''
+                            set -e
+
+                            echo "$GHCR_TOKEN" | docker login ghcr.io \
+                                --username "$GITHUB_ACTOR" \
+                                --password-stdin
+                        '''
+                    }
+                }
+
+                stage('Log in to Docker Hub') {
+                    steps {
+                        sh '''
+                            set -e
+
+                            echo "$DOCKERHUB_TOKEN" | docker login \
+                                --username "$DOCKERHUB_USERNAME" \
+                                --password-stdin
+                        '''
+                    }
+                }
+
+                stage('Prepare Docker security evidence directory') {
+                    steps {
+                        sh '''
+                            set -e
+
+                            mkdir -p reports/docker
+
+                            echo "=============================================="
+                            echo "Docker Security Evidence"
+                            echo "=============================================="
+                            echo "Repository : $GITHUB_REPOSITORY"
+                            echo "Branch     : $GITHUB_REF_NAME"
+                            echo "Commit     : $GITHUB_SHA"
+                            echo "Run        : #$GITHUB_RUN_NUMBER"
+                            echo "Image Digest: $IMAGE_DIGEST"
+                            echo "=============================================="
+                        '''
+                    }
+                }
+
+                stage('Verify GHCR image exists') {
+                    steps {
+                        sh '''
+                            set -e
+                            docker manifest inspect "ghcr.io/$GITHUB_REPOSITORY@$IMAGE_DIGEST"
+                        '''
+                    }
+                }
+
+                stage('Verify Docker Hub image exists') {
+                    steps {
+                        sh '''
+                            set -e
+                            docker manifest inspect "$DOCKERHUB_USERNAME/resume-matcher-devops@$IMAGE_DIGEST"
+                        '''
+                    }
+                }
+
+                stage('Cosign Sign GHCR Image') {
+                    steps {
+                        withCredentials([
+                            string(credentialsId: 'COSIGN_PRIVATE_KEY', variable: 'COSIGN_KEY_TEXT'),
+                            string(credentialsId: 'COSIGN_PASSPHRASE', variable: 'COSIGN_PASSWORD')
+                        ]) {
+                            sh '''
+                                set -euo pipefail
+                                umask 077
+                                trap 'rm -f cosign.key' EXIT
+
+                                # Normalize the credential to PEM format.
+                                printf '%s' "$COSIGN_KEY_TEXT" | awk '{gsub(/\\\\n/,"\n")}1' | tr -d '\\r' > cosign.key
+                                chmod 600 cosign.key
+
+                                cosign sign --yes --key cosign.key "ghcr.io/$GITHUB_REPOSITORY@$IMAGE_DIGEST"
+                            '''
+                        }
+                    }
+                }
+
+                stage('Cosign Sign Docker Hub Image') {
+                    steps {
+                        withCredentials([
+                            string(credentialsId: 'COSIGN_PRIVATE_KEY', variable: 'COSIGN_KEY_TEXT'),
+                            string(credentialsId: 'COSIGN_PASSPHRASE', variable: 'COSIGN_PASSWORD')
+                        ]) {
+                            sh '''
+                                set -euo pipefail
+                                umask 077
+                                trap 'rm -f cosign.key' EXIT
+
+                                # Normalize the credential to PEM format.
+                                printf '%s' "$COSIGN_KEY_TEXT" | awk '{gsub(/\\\\n/,"\n")}1' | tr -d '\\r' > cosign.key
+                                chmod 600 cosign.key
+
+                                cosign sign --yes --key cosign.key "$DOCKERHUB_USERNAME/resume-matcher-devops@$IMAGE_DIGEST"
+                            '''
+                        }
+                    }
+                }
+
+                stage('Generate GHCR SPDX SBOM') {
+                    steps {
+                        sh '''
+                            set -e
+
+                            syft "ghcr.io/$GITHUB_REPOSITORY@$IMAGE_DIGEST" \
+                                -o spdx-json \
+                                > reports/docker/sbom-ghcr.json
+
+                            test -s reports/docker/sbom-ghcr.json
+
+                            echo "GHCR SPDX SBOM generated successfully."
+                        '''
+                    }
+                }
+
+                stage('Generate Docker Hub SPDX SBOM') {
+                    steps {
+                        sh '''
+                            set -e
+
+                            syft "$DOCKERHUB_USERNAME/resume-matcher-devops@$IMAGE_DIGEST" \
+                                -o spdx-json \
+                                > reports/docker/sbom-dockerhub.json
+
+                            test -s reports/docker/sbom-dockerhub.json
+
+                            echo "Docker Hub SPDX SBOM generated successfully."
+                        '''
+                    }
+                }
+
+                stage('Verify SBOM files') {
+                    steps {
+                        sh '''
+                            set -e
+
+                            test -s reports/docker/sbom-ghcr.json
+                            test -s reports/docker/sbom-dockerhub.json
+
+                            echo "GHCR SPDX SBOM generated successfully."
+                            echo "Docker Hub SPDX SBOM generated successfully."
+                        '''
+                    }
+                }
+            }
+        }
+    }
+}
