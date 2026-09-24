@@ -379,59 +379,12 @@ NODE
                     }
                 }
 
-                stage('Email Docker Build & Push Report') {
+                stage('Preserve Stage 1 Build Report for Final Email') {
                     steps {
                         sh '''
                             set -e
-
                             test -s reports/docker/docker-build-push-report.html
-
-                            node --input-type=commonjs <<'NODE'
-const nodemailer = require("nodemailer");
-const fs = require("fs");
-
-const reportPath = "reports/docker/docker-build-push-report.html";
-
-if (!fs.existsSync(reportPath) || fs.statSync(reportPath).size === 0) {
-    throw new Error("Docker Build & Push HTML report does not exist or is empty.");
-}
-
-const transporter = nodemailer.createTransport({
-    service: "gmail",
-    auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS
-    }
-});
-
-const html = `
-<div style="font-family:Arial,sans-serif;max-width:700px;margin:auto;color:#1f2937;">
-    <h2>Docker Build & Push Report</h2>
-    <p style="color:#059669;font-weight:bold;">✓ Docker image build and push completed successfully</p>
-    <p><strong>Repository:</strong> ${process.env.GITHUB_REPOSITORY || "N/A"}</p>
-    <p><strong>Image Digest:</strong> ${process.env.IMAGE_DIGEST || "N/A"}</p>
-    <p>The complete HTML build and push report is attached to this email.</p>
-</div>`;
-
-(async () => {
-    await transporter.sendMail({
-        from: process.env.EMAIL_USER,
-        to: process.env.QA_EMAIL_TO,
-        cc: process.env.QA_EMAIL_CC || "",
-        subject: "Docker Build & Push Report",
-        html,
-        attachments: [{
-            filename: "docker-build-push-report.html",
-            path: reportPath
-        }]
-    });
-
-    console.log("Docker Build & Push report email sent successfully.");
-})().catch(error => {
-    console.error(error);
-    process.exit(1);
-});
-NODE
+                            echo "Stage 1 report retained for the final security email."
                         '''
                     }
                 }
@@ -762,6 +715,160 @@ NODE
                         '''
                     }
                 }
+                stage('Verify Cosign Signatures - GHCR') {
+                    steps {
+                        sh '''
+                            set -eu
+                            mkdir -p reports/docker/evidence
+                            cosign verify --key cosign.pub "ghcr.io/$GITHUB_REPOSITORY@$IMAGE_DIGEST" > reports/docker/evidence/cosign-verify-ghcr.json 2>&1
+                            test -s reports/docker/evidence/cosign-verify-ghcr.json
+                        '''
+                    }
+                }
+
+                stage('Verify Cosign Signatures - Docker Hub') {
+                    steps {
+                        sh '''
+                            set -eu
+                            mkdir -p reports/docker/evidence
+                            cosign verify --key cosign.pub "$DOCKERHUB_USERNAME/resume-matcher-devops@$IMAGE_DIGEST" > reports/docker/evidence/cosign-verify-dockerhub.json 2>&1
+                            test -s reports/docker/evidence/cosign-verify-dockerhub.json
+                        '''
+                    }
+                }
+
+                stage('Create and Verify GHCR SBOM Attestation') {
+                    steps {
+                        withCredentials([
+                            file(credentialsId: 'COSIGN_PRIVATE_KEY', variable: 'COSIGN_KEY_FILE'),
+                            string(credentialsId: 'COSIGN_PASSPHRASE', variable: 'COSIGN_PASSWORD')
+                        ]) {
+                            sh '''
+                                set -eu
+                                umask 077
+                                trap 'rm -f cosign.key' EXIT
+                                cp "$COSIGN_KEY_FILE" cosign.key
+                                tr -d '\\r' < cosign.key > cosign.key.normalized
+                                mv cosign.key.normalized cosign.key
+                                chmod 600 cosign.key
+                                mkdir -p reports/docker/evidence
+                                cosign attest --yes --key cosign.key --type spdxjson --predicate reports/docker/sbom-ghcr.json "ghcr.io/$GITHUB_REPOSITORY@$IMAGE_DIGEST"
+                                cosign verify-attestation --key cosign.pub --type spdxjson "ghcr.io/$GITHUB_REPOSITORY@$IMAGE_DIGEST" > reports/docker/evidence/attestation-verify-ghcr.json 2>&1
+                                test -s reports/docker/evidence/attestation-verify-ghcr.json
+                            '''
+                        }
+                    }
+                }
+
+                stage('Create and Verify Docker Hub SBOM Attestation') {
+                    steps {
+                        withCredentials([
+                            file(credentialsId: 'COSIGN_PRIVATE_KEY', variable: 'COSIGN_KEY_FILE'),
+                            string(credentialsId: 'COSIGN_PASSPHRASE', variable: 'COSIGN_PASSWORD')
+                        ]) {
+                            sh '''
+                                set -eu
+                                umask 077
+                                trap 'rm -f cosign.key' EXIT
+                                cp "$COSIGN_KEY_FILE" cosign.key
+                                tr -d '\\r' < cosign.key > cosign.key.normalized
+                                mv cosign.key.normalized cosign.key
+                                chmod 600 cosign.key
+                                mkdir -p reports/docker/evidence
+                                cosign attest --yes --key cosign.key --type spdxjson --predicate reports/docker/sbom-dockerhub.json "$DOCKERHUB_USERNAME/resume-matcher-devops@$IMAGE_DIGEST"
+                                cosign verify-attestation --key cosign.pub --type spdxjson "$DOCKERHUB_USERNAME/resume-matcher-devops@$IMAGE_DIGEST" > reports/docker/evidence/attestation-verify-dockerhub.json 2>&1
+                                test -s reports/docker/evidence/attestation-verify-dockerhub.json
+                            '''
+                        }
+                    }
+                }
+
+                stage('Generate Docker Security HTML Report') {
+                    steps {
+                        sh '''
+                            set -eu
+                            node --input-type=commonjs <<'NODE'
+const fs = require('fs');
+const esc = v => String(v ?? 'N/A').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const repo = process.env.GITHUB_REPOSITORY || 'N/A';
+const digest = process.env.IMAGE_DIGEST || 'N/A';
+const branch = process.env.GITHUB_REF_NAME || 'N/A';
+const sha = (process.env.GITHUB_SHA || 'N/A').slice(0, 7);
+const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Docker Security Report</title><style>body{margin:0;padding:28px;background:#07111f;color:#f8fafc;font-family:Arial,sans-serif}.wrap{max-width:900px;margin:auto}.panel{background:#0d1a2b;border:1px solid #263a56;border-radius:16px;padding:24px;margin-bottom:18px}.ok{color:#34d399;font-weight:bold}.muted{color:#a9b8cc;line-height:1.8}.digest{font:12px monospace;overflow-wrap:anywhere;background:#091525;padding:12px;border-radius:8px}.item{padding:9px 0;border-bottom:1px solid #263a56}</style></head><body><div class="wrap"><div class="panel"><h1>Docker Build, Push &amp; Security Report</h1><p class="ok">✓ Complete Docker pipeline completed successfully</p><p class="muted">Repository: ${esc(repo)}<br>Branch: ${esc(branch)}<br>Commit: ${esc(sha)}<br>Immutable image digest:</p><div class="digest">${esc(digest)}</div></div><div class="panel"><h2>Security Results</h2><div class="item">✓ GHCR and Docker Hub images pushed and verified.</div><div class="item">✓ Cosign signatures created and verified with the configured public key.</div><div class="item">✓ SPDX SBOMs generated for both registries.</div><div class="item">✓ SPDX SBOM attestations created and independently verified for both registries.</div><div class="item">Predicate type: spdxjson</div><div class="item">Signing mode: Cosign key-based signing. GitHub Actions OIDC/keyless verification is not claimed for this Jenkins execution.</div></div><div class="panel"><h2>Attachments and Evidence</h2><div class="item">Docker Build &amp; Push Report: attached</div><div class="item">Docker Security Report: attached</div><div class="item">Raw Security Evidence: attached as docker-security-raw-evidence.zip</div><p class="muted">The ZIP contains machine-readable Cosign verification records, SPDX SBOMs, and SBOM attestation verification records. The immutable digest is the canonical production identity; :latest is retained as a convenience alias.</p></div></div></body></html>`;
+fs.mkdirSync('reports/docker', {recursive:true});
+fs.writeFileSync('reports/docker/docker-security-report.html', html);
+NODE
+                            test -s reports/docker/docker-security-report.html
+                        '''
+                    }
+                }
+
+                stage('Package Raw Docker Security Evidence') {
+                    steps {
+                        sh '''
+                            set -eu
+                            python3 - <<'PYZIP'
+from pathlib import Path
+from zipfile import ZipFile, ZIP_DEFLATED
+root = Path('reports/docker')
+out = root / 'docker-security-raw-evidence.zip'
+files = [root/'evidence/cosign-verify-ghcr.json', root/'evidence/cosign-verify-dockerhub.json', root/'evidence/attestation-verify-ghcr.json', root/'evidence/attestation-verify-dockerhub.json', root/'sbom-ghcr.json', root/'sbom-dockerhub.json', root/'image-metadata.txt']
+missing = [str(f) for f in files if not f.is_file() or f.stat().st_size == 0]
+if missing:
+    raise SystemExit('Required evidence missing or empty: ' + ', '.join(missing))
+with ZipFile(out, 'w', ZIP_DEFLATED) as z:
+    for f in files:
+        z.write(f, f.relative_to(root))
+if not out.is_file() or out.stat().st_size == 0:
+    raise SystemExit('Failed to create raw security evidence ZIP')
+print('Raw security evidence ZIP created:', out)
+PYZIP
+                        '''
+                    }
+                }
+
+                stage('Verify Security Email Attachments') {
+                    steps {
+                        sh '''
+                            set -eu
+                            test -s reports/docker-build/docker-build-push-report.html
+                            test -s reports/docker/docker-security-report.html
+                            test -s reports/docker/docker-security-raw-evidence.zip
+                            ls -lh reports/docker-build/docker-build-push-report.html reports/docker/docker-security-report.html reports/docker/docker-security-raw-evidence.zip
+                        '''
+                    }
+                }
+
+                stage('Archive Docker Security Evidence') {
+                    steps {
+                        archiveArtifacts(artifacts: 'reports/docker/**,reports/docker-build/**', fingerprint: true)
+                    }
+                }
+
+                stage('Email Complete Docker Build, Push & Security Report') {
+                    steps {
+                        sh '''
+                            set -eu
+                            npm install nodemailer@9.0.3
+                            node --input-type=commonjs <<'NODE'
+const nodemailer = require('nodemailer');
+const fs = require('fs');
+const attachments = [
+  {filename:'docker-build-push-report.html',path:'reports/docker-build/docker-build-push-report.html'},
+  {filename:'docker-security-report.html',path:'reports/docker/docker-security-report.html'},
+  {filename:'docker-security-raw-evidence.zip',path:'reports/docker/docker-security-raw-evidence.zip'}
+];
+for (const a of attachments) if (!fs.existsSync(a.path) || fs.statSync(a.path).size === 0) throw new Error('Missing or empty attachment: ' + a.path);
+const repo = process.env.GITHUB_REPOSITORY || 'N/A';
+const digest = process.env.IMAGE_DIGEST || 'N/A';
+const transporter = nodemailer.createTransport({service:'gmail',auth:{user:process.env.EMAIL_USER,pass:process.env.EMAIL_PASS}});
+const html = `<div style="font-family:Arial,sans-serif;max-width:760px;margin:auto;color:#1f2937"><h2>Docker Build, Push &amp; Security Report</h2><p style="color:#059669;font-weight:bold">✓ Complete Docker pipeline completed successfully</p><p><strong>Docker Build:</strong> ✓ Multi-architecture build completed</p><p><strong>GHCR:</strong> ✓ Image pushed and verified; Cosign signature verified</p><p><strong>Docker Hub:</strong> ✓ Image pushed and verified; Cosign signature verified</p><p><strong>Image Identity:</strong> ✓ Security controls anchored to immutable image digest</p><p><strong>Cosign:</strong> ✓ Key-based signatures created and verified</p><p><strong>SPDX SBOM:</strong> ✓ Generated for GHCR and Docker Hub</p><p><strong>SBOM Attestation:</strong> ✓ Created and independently verified for both registries</p><p><strong>Predicate Type:</strong> spdxjson</p><p><strong>Attachments</strong><br>✓ Docker Build &amp; Push Report<br>✓ Docker Security Report<br>✓ Raw Security Evidence: docker-security-raw-evidence.zip</p><p>The build report contains Stage 1 build, registry publication, tags, and digest. The security report summarizes signing, SBOM generation, and attestation verification. The ZIP contains the machine-readable verification records and SPDX SBOMs.</p><p>The same evidence is archived in this Jenkins build. The immutable digest is the canonical production identity; :latest is a convenience alias.</p><p><strong>Repository:</strong> ${repo}<br><strong>Image digest:</strong> ${digest}</p><p>Note: this Jenkins run uses Cosign key-based signing; GitHub Actions OIDC/keyless verification is not claimed.</p></div>`;
+(async()=>{await transporter.sendMail({from:process.env.EMAIL_USER,to:process.env.QA_EMAIL_TO,cc:process.env.QA_EMAIL_CC||'',subject:'Docker Build, Push & Security Report',html,attachments});console.log('Final report email sent with all three attachments.');})().catch(e=>{console.error(e);process.exit(1);});
+NODE
+                        '''
+                    }
+                }
+
             }
         }
     }
