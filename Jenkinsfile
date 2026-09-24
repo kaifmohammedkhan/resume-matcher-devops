@@ -567,7 +567,7 @@ NODE
                                 umask 077
 
                                 # Normalize literal \\n to actual newlines and remove carriage returns
-                                printf '%s' "$COSIGN_KEY_TEXT" | awk '{gsub(/\\\\n/,"\n")}1' | tr -d '\\r' > cosign.key
+                                printf '%s' "$COSIGN_KEY_TEXT" | perl -pe 's/\\n/\n/g' | tr -d '\\r' > cosign.key
 
                                 chmod 600 cosign.key
 
@@ -685,7 +685,7 @@ NODE
                                 trap 'rm -f cosign.key' EXIT
 
                                 # Normalize the credential to PEM format.
-                                printf '%s' "$COSIGN_KEY_TEXT" | awk '{gsub(/\\\\n/,"\n")}1' | tr -d '\\r' > cosign.key
+                                printf '%s' "$COSIGN_KEY_TEXT" | perl -pe 's/\\n/\n/g' | tr -d '\\r' > cosign.key
                                 chmod 600 cosign.key
 
                                 cosign sign --yes --key cosign.key "ghcr.io/$GITHUB_REPOSITORY@$IMAGE_DIGEST"
@@ -706,7 +706,7 @@ NODE
                                 trap 'rm -f cosign.key' EXIT
 
                                 # Normalize the credential to PEM format.
-                                printf '%s' "$COSIGN_KEY_TEXT" | awk '{gsub(/\\\\n/,"\n")}1' | tr -d '\\r' > cosign.key
+                                printf '%s' "$COSIGN_KEY_TEXT" | perl -pe 's/\\n/\n/g' | tr -d '\\r' > cosign.key
                                 chmod 600 cosign.key
 
                                 cosign sign --yes --key cosign.key "$DOCKERHUB_USERNAME/resume-matcher-devops@$IMAGE_DIGEST"
