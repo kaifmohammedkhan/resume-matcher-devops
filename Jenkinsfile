@@ -559,32 +559,33 @@ NODE
                 stage('Prepare Cosign Signing Key') {
                     steps {
                         withCredentials([
-                            string(credentialsId: 'COSIGN_PRIVATE_KEY', variable: 'COSIGN_KEY_TEXT'),
+                            file(credentialsId: 'COSIGN_PRIVATE_KEY', variable: 'COSIGN_KEY_FILE'),
                             string(credentialsId: 'COSIGN_PASSPHRASE', variable: 'COSIGN_PASSWORD')
                         ]) {
                             sh '''
                                 set -eu
                                 umask 077
+                                trap 'rm -f cosign.key' EXIT
 
-                                # Normalize literal \\n to actual newlines and remove carriage returns
-                                printf '%s' "$COSIGN_KEY_TEXT" | perl -pe 's/\\n/\n/g' | tr -d '\\r' > cosign.key
-
+                                # Jenkins Secret file credentials are exposed as a temporary file path.
+                                test -r "$COSIGN_KEY_FILE"
+                                cp "$COSIGN_KEY_FILE" cosign.key
                                 chmod 600 cosign.key
+                                tr -d '\\r' < cosign.key > cosign.key.normalized
+                                mv cosign.key.normalized cosign.key
 
                                 if ! grep -Eq '^-----BEGIN .*PRIVATE KEY-----$' cosign.key; then
-                                    echo "ERROR: COSIGN_PRIVATE_KEY is not a valid PEM private-key block."
-                                    echo "Ensure the Jenkins credential contains the complete cosign.key text."
+                                    echo "ERROR: COSIGN_PRIVATE_KEY file is not a valid PEM private-key block."
+                                    echo "Ensure the Secret file credential contains the complete cosign.key."
                                     exit 1
                                 fi
 
                                 if ! grep -Eq '^-----END .*PRIVATE KEY-----$' cosign.key; then
-                                    echo "ERROR: COSIGN_PRIVATE_KEY is missing the PEM END line."
+                                    echo "ERROR: COSIGN_PRIVATE_KEY file is missing the PEM END line."
                                     exit 1
                                 fi
 
-                                # Generate public key using COSIGN_PASSWORD automatically from environment
                                 cosign public-key --key cosign.key > cosign.pub
-
                                 test -s cosign.pub
                                 chmod 644 cosign.pub
 
@@ -593,7 +594,6 @@ NODE
                         }
                     }
                 }
-
                 stage('Install Syft') {
                     steps {
                         sh '''
@@ -676,45 +676,47 @@ NODE
                 stage('Cosign Sign GHCR Image') {
                     steps {
                         withCredentials([
-                            string(credentialsId: 'COSIGN_PRIVATE_KEY', variable: 'COSIGN_KEY_TEXT'),
+                            file(credentialsId: 'COSIGN_PRIVATE_KEY', variable: 'COSIGN_KEY_FILE'),
                             string(credentialsId: 'COSIGN_PASSPHRASE', variable: 'COSIGN_PASSWORD')
                         ]) {
                             sh '''
-                                set -euo pipefail
+                                set -eu
                                 umask 077
                                 trap 'rm -f cosign.key' EXIT
 
-                                # Normalize the credential to PEM format.
-                                printf '%s' "$COSIGN_KEY_TEXT" | perl -pe 's/\\n/\n/g' | tr -d '\\r' > cosign.key
+                                test -r "$COSIGN_KEY_FILE"
+                                cp "$COSIGN_KEY_FILE" cosign.key
                                 chmod 600 cosign.key
+                                tr -d '\\r' < cosign.key > cosign.key.normalized
+                                mv cosign.key.normalized cosign.key
 
                                 cosign sign --yes --key cosign.key "ghcr.io/$GITHUB_REPOSITORY@$IMAGE_DIGEST"
                             '''
                         }
                     }
                 }
-
                 stage('Cosign Sign Docker Hub Image') {
                     steps {
                         withCredentials([
-                            string(credentialsId: 'COSIGN_PRIVATE_KEY', variable: 'COSIGN_KEY_TEXT'),
+                            file(credentialsId: 'COSIGN_PRIVATE_KEY', variable: 'COSIGN_KEY_FILE'),
                             string(credentialsId: 'COSIGN_PASSPHRASE', variable: 'COSIGN_PASSWORD')
                         ]) {
                             sh '''
-                                set -euo pipefail
+                                set -eu
                                 umask 077
                                 trap 'rm -f cosign.key' EXIT
 
-                                # Normalize the credential to PEM format.
-                                printf '%s' "$COSIGN_KEY_TEXT" | perl -pe 's/\\n/\n/g' | tr -d '\\r' > cosign.key
+                                test -r "$COSIGN_KEY_FILE"
+                                cp "$COSIGN_KEY_FILE" cosign.key
                                 chmod 600 cosign.key
+                                tr -d '\\r' < cosign.key > cosign.key.normalized
+                                mv cosign.key.normalized cosign.key
 
                                 cosign sign --yes --key cosign.key "$DOCKERHUB_USERNAME/resume-matcher-devops@$IMAGE_DIGEST"
                             '''
                         }
                     }
                 }
-
                 stage('Generate GHCR SPDX SBOM') {
                     steps {
                         sh '''
