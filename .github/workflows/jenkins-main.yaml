@@ -25,6 +25,6 @@ jobs:
           token: ${{ secrets.JENKINS_TOKEN }}
           job: "resume-matcher-main" # Change this to your exact Jenkins job name
           # Evaluates dynamically whether it's a PR or a direct Push event
-          parameter: >-
+          parameters: >-
             PR_NUMBER=${{ github.event.pull_request.number || 'NONE' }},
             BRANCH_NAME=${{ github.event.pull_request.head.ref || github.ref_name }}
