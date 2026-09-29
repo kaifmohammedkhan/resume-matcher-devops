@@ -1,6 +1,12 @@
 pipeline {
     agent any
 
+        parameters {
+        string(name: 'PR_NUMBER', defaultValue: '', description: 'Target PR Number')
+        string(name: 'BRANCH_NAME', defaultValue: 'pre-main', description: 'Source branch to test')
+    }
+
+
     environment {
         EMAIL_USER = credentials('EMAIL_USER')
         EMAIL_PASS = credentials('EMAIL_PASS')
