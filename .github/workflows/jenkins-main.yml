@@ -1,16 +1,16 @@
-name: Trigger Jenkins Workflow
+name: Trigger Jenkins Pipeline
 
 on:
-  # Trigger Scenario 1: Whenever a commit is directly pushed
+  # Scenario 1: Triggers on direct pushes to these branches
   push:
     branches:
-      - pre-main
+      - main
 
-  # Trigger Scenario 2: Whenever a Pull Request is opened or updated
+  # Scenario 2: Triggers when a PR is targeted at the main branch
   pull_request:
-    types: [opened, synchronize, reopened] 
+    types: [opened, synchronize, reopened]
     branches:
-      - pre-main
+      - main
 
 jobs:
   trigger-jenkins:
@@ -22,8 +22,8 @@ jobs:
           url: ${{ secrets.JENKINS_URL }}
           user: ${{ secrets.JENKINS_USER }}
           token: ${{ secrets.JENKINS_TOKEN }}
-          job: "resume-matcher-jenkins-premain" # Change this to your exact Jenkins job name
-          # Evaluates dynamically whether the event is a PR or a direct Push
+          job: "resume-matcher-main" # Change this to your exact Jenkins job name
+          # Evaluates dynamically whether it's a PR or a direct Push event
           parameters: >-
             PR_NUMBER=${{ github.event.pull_request.number || 'NONE' }},
             BRANCH_NAME=${{ github.event.pull_request.head.ref || github.ref_name }}

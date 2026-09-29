@@ -1,12 +1,9 @@
-name: Trigger Jenkins Workflow
+name: Trigger Jenkins Workflow - PreMain
 
 on:
-  # Trigger Scenario 1: Whenever a commit is directly pushed
   push:
     branches:
       - pre-main
-
-  # Trigger Scenario 2: Whenever a Pull Request is opened or updated
   pull_request:
     types: [opened, synchronize, reopened] 
     branches:
@@ -22,8 +19,7 @@ jobs:
           url: ${{ secrets.JENKINS_URL }}
           user: ${{ secrets.JENKINS_USER }}
           token: ${{ secrets.JENKINS_TOKEN }}
-          job: "resume-matcher-jenkins-premain" # Change this to your exact Jenkins job name
-          # Evaluates dynamically whether the event is a PR or a direct Push
+          job: "resume-matcher-jenkins-premain"
           parameters: >-
             PR_NUMBER=${{ github.event.pull_request.number || 'NONE' }},
             BRANCH_NAME=${{ github.event.pull_request.head.ref || github.ref_name }}
