@@ -1,10 +1,15 @@
-name: Trigger Jenkins on PR
+name: Trigger Jenkins Pipeline
 
 on:
+  # Scenario 1: Triggers on direct pushes to these branches
+  push:
+    branches:
+      - main
+      - pre-main
+
+  # Scenario 2: Triggers when a PR is targeted at the main branch
   pull_request:
-    # Triggers when a PR is opened, updated, or reopened
-    types: [opened, synchronize, reopened] 
-    # Only trigger if the PR is trying to merge into the pre-main branch
+    types: [opened, synchronize, reopened]
     branches:
       - main
 
@@ -18,6 +23,8 @@ jobs:
           url: ${{ secrets.JENKINS_URL }}
           user: ${{ secrets.JENKINS_USER }}
           token: ${{ secrets.JENKINS_TOKEN }}
-          job: "your-jenkins-job-name" # Change this to your exact Jenkins job name
-          # Passes the PR number and source branch info to Jenkins as parameters
-          parameter: "PR_NUMBER=${{ github.event.pull_request.number }},BRANCH_NAME=${{ github.event.pull_request.head.ref }}"
+          job: "resume-matcher-main" # Change this to your exact Jenkins job name
+          # Evaluates dynamically whether it's a PR or a direct Push event
+          parameter: >-
+            PR_NUMBER=${{ github.event.pull_request.number || 'NONE' }},
+            BRANCH_NAME=${{ github.event.pull_request.head.ref || github.ref_name }}
