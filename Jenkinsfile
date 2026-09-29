@@ -54,13 +54,6 @@ pipeline {
                             }
                         }
 
-                        stage('Checkout Code') {
-                            steps {
-                                deleteDir()
-                                checkout scm
-                            }
-                        }
-
                         stage('Normalize Line Endings') {
                             steps {
                                 sh 'sed -i "s/\r$//" scripts/*.sh'
