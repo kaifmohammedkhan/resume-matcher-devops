@@ -1,14 +1,10 @@
-without touching or changing any line or word of code just fix space indentation
-
-
 pipeline {
     agent any
 
-        parameters {
+    parameters {
         string(name: 'PR_NUMBER', defaultValue: '', description: 'Target PR Number')
         string(name: 'BRANCH_NAME', defaultValue: 'pre-main', description: 'Source branch to test')
     }
-
 
     environment {
         EMAIL_USER = credentials('EMAIL_USER')
@@ -49,7 +45,7 @@ pipeline {
 
                     stages {
 
-                                                stage('Checkout Code') {
+                        stage('Checkout Code') {
                             steps {
                                 deleteDir()
                                 // Dynamically checks out the branch provided by GitHub Actions
@@ -57,7 +53,6 @@ pipeline {
                                     branch: params.BRANCH_NAME
                             }
                         }
-
 
                         stage('Checkout Code') {
                             steps {
@@ -265,7 +260,7 @@ pipeline {
                                     ls -lh ./security-report.html
 
                                     cp reports/sonar-summary.html \
-                                        ./sonar-summary.html 2>/dev/null || true
+                                        ./sonar-summary.html 2>/devnull || true
 
                                     [ -f test-summary.html ] || \
                                         echo "<html><body><h1>Test Summary Missing</h1></body></html>" \
@@ -387,7 +382,7 @@ pipeline {
 
                                 sh '''
                                     cp reports/dependency-check-report.html \
-                                        ./dependency-check-report.html 2>/dev/null || true
+                                        ./dependency-check-report.html 2>/devnull || true
 
                                     [ -f dependency-check-report.html ] || \
                                         echo "<html><body><h1>OWASP Dependency Check Missing</h1></body></html>" \
