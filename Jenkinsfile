@@ -16,7 +16,6 @@ pipeline {
 
         GITHUB_REPOSITORY = 'kaifmohammedkhan/resume-matcher-devops'
         GITHUB_WORKFLOW = 'Build and Push to GHCR and Docker Hub'
-        // GITHUB_REF_NAME is resolved after checkout so PR builds are detected correctly.
         GITHUB_REF_NAME = ''
         GITHUB_ACTOR = 'kaifmohammedkhan'
         PUSH_LATEST = 'false'
@@ -57,11 +56,6 @@ pipeline {
                                 returnStdout: true
                             ).trim()
 
-                            // In Jenkins Multibranch Pipeline, BRANCH_NAME is:
-                            //   main     -> the production/main branch
-                            //   PR-123   -> a Pull Request build
-                            // For a normal branch job where BRANCH_NAME is unavailable,
-                            // fall back to the checked-out Git branch name.
                             def jenkinsBranch = env.BRANCH_NAME ?: ''
                             def gitBranch = sh(
                                 script: 'git symbolic-ref --quiet --short HEAD || true',
@@ -74,7 +68,6 @@ pipeline {
 
                             env.GITHUB_REF_NAME = jenkinsBranch ?: 'detached'
                             env.PUSH_LATEST = (jenkinsBranch == 'main') ? 'true' : 'false'
-
                             env.GITHUB_RUN_NUMBER = env.BUILD_NUMBER
                             env.GITHUB_ACTOR = 'kaifmohammedkhan'
 
@@ -90,9 +83,6 @@ pipeline {
                                     "ghcr.io/${env.GITHUB_REPOSITORY}:sha-${shortSha}\n" +
                                     "${env.DOCKERHUB_USERNAME}/resume-matcher-devops:sha-${shortSha}"
                             }
-
-                            echo "Jenkins branch: ${env.GITHUB_REF_NAME}"
-                            echo "Latest tag publishing enabled: ${env.PUSH_LATEST}"
                         }
                     }
                 }
@@ -182,14 +172,16 @@ EOF
 
                             GITHUB_SHORT_SHA="$(printf '%.7s' "$GITHUB_SHA")"
 
-                            BUILD_TAG_ARGS="--tag ghcr.io/$GITHUB_REPOSITORY:sha-$GITHUB_SHORT_SHA --tag $DOCKERHUB_USERNAME/resume-matcher-devops:sha-$GITHUB_SHORT_SHA"
+                            TAG_ARGS=(
+                                "-t" "ghcr.io/$GITHUB_REPOSITORY:sha-$GITHUB_SHORT_SHA"
+                                "-t" "$DOCKERHUB_USERNAME/resume-matcher-devops:sha-$GITHUB_SHORT_SHA"
+                            )
 
                             if [ "$PUSH_LATEST" = "true" ]; then
-                                BUILD_TAG_ARGS="$BUILD_TAG_ARGS --tag ghcr.io/$GITHUB_REPOSITORY:latest --tag $DOCKERHUB_USERNAME/resume-matcher-devops:latest"
-                                echo "Publishing :latest because this build is for main."
-                            else
-                                echo "Skipping :latest because this build is not for main."
-                                echo "Publishing immutable sha-$GITHUB_SHORT_SHA tags only."
+                                TAG_ARGS+=(
+                                    "-t" "ghcr.io/$GITHUB_REPOSITORY:latest"
+                                    "-t" "$DOCKERHUB_USERNAME/resume-matcher-devops:latest"
+                                )
                             fi
 
                             docker buildx build \
@@ -200,7 +192,7 @@ EOF
                                 --label "org.opencontainers.image.revision=$OCI_REVISION" \
                                 --label "org.opencontainers.image.source=$OCI_SOURCE" \
                                 --label "org.opencontainers.image.version=$OCI_VERSION" \
-                                $BUILD_TAG_ARGS \
+                                "${TAG_ARGS[@]}" \
                                 .
 
                             test -s reports/docker/build-metadata.json
@@ -286,10 +278,9 @@ const workflow = process.env.GITHUB_WORKFLOW || "N/A";
 const imageDigest = process.env.IMAGE_DIGEST || "N/A";
 const dockerHubUsername = process.env.DOCKERHUB_USERNAME || "N/A";
 const pushLatest = process.env.PUSH_LATEST === "true";
-const latestStatus = pushLatest ? "✓ PUSHED" : "Not pushed (main only)";
-const latestNote = pushLatest
-    ? "latest tag updated because this build is from main."
-    : "latest tag was intentionally not updated; non-main builds publish immutable sha-* tags only.";
+const latestStatus = pushLatest
+    ? "✓ :latest updated because this build is from main"
+    : "✓ :latest not updated; non-main/PR build published immutable sha-* tags only";
 const generatedAt = new Date().toISOString();
 
 function escapeHtml(value) {
@@ -345,14 +336,22 @@ const html = `<!doctype html>
         <div class="grid">
             <div class="card">
                 <div class="label">GitHub Container Registry</div>
-                <div class="value ${pushLatest ? "success" : ""}">${latestStatus}</div>
-                <div class="small">${pushLatest ? 'ghcr.io/' + escapeHtml(repo) + ':latest' : 'latest not updated; immutable sha-* tag published'}</div>
+                <div class="value success">✓ PUSHED</div>
+                <div class="small">ghcr.io/${escapeHtml(repo)}:sha-${escapeHtml(shortCommit)}${pushLatest ? " and :latest" : " only"}</div>
             </div>
             <div class="card">
                 <div class="label">Docker Hub</div>
-                <div class="value ${pushLatest ? "success" : ""}">${latestStatus}</div>
-                <div class="small">${pushLatest ? escapeHtml(dockerHubUsername) + '/resume-matcher-devops:latest' : 'latest not updated; immutable sha-* tag published'}</div>
+                <div class="value success">✓ PUSHED</div>
+                <div class="small">${escapeHtml(dockerHubUsername)}/resume-matcher-devops:sha-${escapeHtml(shortCommit)}${pushLatest ? " and :latest" : " only"}</div>
             </div>
+        </div>
+    </div>
+
+    <div class="panel">
+        <h2>Tag Policy</h2>
+        <div class="card">
+            <div class="value success">${escapeHtml(latestStatus)}</div>
+            <div class="small">PR and non-main builds never overwrite the production :latest alias in either registry.</div>
         </div>
     </div>
 
@@ -362,11 +361,6 @@ const html = `<!doctype html>
             <div class="card"><div class="label">Platform</div><div class="value">linux/amd64</div></div>
             <div class="card"><div class="label">Platform</div><div class="value">linux/arm64</div></div>
         </div>
-    </div>
-
-    <div class="panel">
-        <h2>Tag Publishing Policy</h2>
-        <div class="small">${escapeHtml(latestNote)}</div>
     </div>
 
     <div class="panel">
@@ -836,7 +830,7 @@ const repo = process.env.GITHUB_REPOSITORY || 'N/A';
 const digest = process.env.IMAGE_DIGEST || 'N/A';
 const branch = process.env.GITHUB_REF_NAME || 'N/A';
 const sha = (process.env.GITHUB_SHA || 'N/A').slice(0, 7);
-const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Docker Security Report</title><style>body{margin:0;padding:28px;background:#07111f;color:#f8fafc;font-family:Arial,sans-serif}.wrap{max-width:900px;margin:auto}.panel{background:#0d1a2b;border:1px solid #263a56;border-radius:16px;padding:24px;margin-bottom:18px}.ok{color:#34d399;font-weight:bold}.muted{color:#a9b8cc;line-height:1.8}.digest{font:12px monospace;overflow-wrap:anywhere;background:#091525;padding:12px;border-radius:8px}.item{padding:9px 0;border-bottom:1px solid #263a56}</style></head><body><div class="wrap"><div class="panel"><h1>Docker Build, Push &amp; Security Report</h1><p class="ok">✓ Complete Docker pipeline completed successfully</p><p class="muted">Repository: ${esc(repo)}<br>Branch: ${esc(branch)}<br>Commit: ${esc(sha)}<br>Immutable image digest:</p><div class="digest">${esc(digest)}</div></div><div class="panel"><h2>Security Results</h2><div class="item">✓ GHCR and Docker Hub immutable sha-* images pushed and verified.${process.env.PUSH_LATEST === 'true' ? ' :latest was also updated because this build is from main.' : ' :latest was not updated because this build is not from main.'}</div><div class="item">✓ Cosign signatures created and verified with the configured public key.</div><div class="item">✓ SPDX SBOMs generated for both registries.</div><div class="item">✓ SPDX SBOM attestations created and independently verified for both registries.</div><div class="item">Predicate type: spdxjson</div><div class="item">Signing mode: Cosign key-based signing. GitHub Actions OIDC/keyless verification is not claimed for this Jenkins execution.</div></div><div class="panel"><h2>Attachments and Evidence</h2><div class="item">Docker Build &amp; Push Report: attached</div><div class="item">Docker Security Report: attached</div><div class="item">Raw Security Evidence: attached as docker-security-raw-evidence.zip</div><p class="muted">The ZIP contains machine-readable Cosign verification records, SPDX SBOMs, and SBOM attestation verification records. The immutable digest is the canonical image identity. The :latest tag is updated only by builds from main; non-main builds retain immutable sha-* tags without changing :latest.</p></div></div></body></html>`;
+const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Docker Security Report</title><style>body{margin:0;padding:28px;background:#07111f;color:#f8fafc;font-family:Arial,sans-serif}.wrap{max-width:900px;margin:auto}.panel{background:#0d1a2b;border:1px solid #263a56;border-radius:16px;padding:24px;margin-bottom:18px}.ok{color:#34d399;font-weight:bold}.muted{color:#a9b8cc;line-height:1.8}.digest{font:12px monospace;overflow-wrap:anywhere;background:#091525;padding:12px;border-radius:8px}.item{padding:9px 0;border-bottom:1px solid #263a56}</style></head><body><div class="wrap"><div class="panel"><h1>Docker Build, Push &amp; Security Report</h1><p class="ok">✓ Complete Docker pipeline completed successfully</p><p class="muted">Repository: ${esc(repo)}<br>Branch: ${esc(branch)}<br>Commit: ${esc(sha)}<br>Immutable image digest:</p><div class="digest">${esc(digest)}</div></div><div class="panel"><h2>Security Results</h2><div class="item">✓ GHCR and Docker Hub images pushed and verified.</div><div class="item">✓ Cosign signatures created and verified with the configured public key.</div><div class="item">✓ SPDX SBOMs generated for both registries.</div><div class="item">✓ SPDX SBOM attestations created and independently verified for both registries.</div><div class="item">Predicate type: spdxjson</div><div class="item">Signing mode: Cosign key-based signing. GitHub Actions OIDC/keyless verification is not claimed for this Jenkins execution.</div></div><div class="panel"><h2>Attachments and Evidence</h2><div class="item">Docker Build &amp; Push Report: attached</div><div class="item">Docker Security Report: attached</div><div class="item">Raw Security Evidence: attached as docker-security-raw-evidence.zip</div><p class="muted">The ZIP contains machine-readable Cosign verification records, SPDX SBOMs, and SBOM attestation verification records. The immutable digest is the canonical production identity; :latest is updated only by main builds.</p></div></div></body></html>`;
 fs.mkdirSync('reports/docker', {recursive:true});
 fs.writeFileSync('reports/docker/docker-security-report.html', html);
 NODE
@@ -906,9 +900,9 @@ const digest = process.env.IMAGE_DIGEST || 'N/A';
 const pushLatest = process.env.PUSH_LATEST === 'true';
 const latestStatus = pushLatest
   ? '✓ :latest updated because this build is from main'
-  : '✓ :latest not updated; non-main build published immutable sha-* tags only';
+  : '✓ :latest not updated; non-main/PR build published immutable sha-* tags only';
 const transporter = nodemailer.createTransport({service:'gmail',auth:{user:process.env.EMAIL_USER,pass:process.env.EMAIL_PASS}});
-const html = `<div style="font-family:Arial,sans-serif;max-width:760px;margin:auto;color:#1f2937"><h2>Docker Build, Push &amp; Security Report</h2><p style="color:#059669;font-weight:bold">✓ Complete Docker pipeline completed successfully</p><p><strong>Docker Build:</strong> ✓ Multi-architecture build completed</p><p><strong>GHCR:</strong> ✓ Immutable sha-* image pushed and verified; Cosign signature verified</p><p><strong>Docker Hub:</strong> ✓ Immutable sha-* image pushed and verified; Cosign signature verified</p><p><strong>Latest Tag Policy:</strong> ${latestStatus}</p><p><strong>Image Identity:</strong> ✓ Security controls anchored to immutable image digest</p><p><strong>Cosign:</strong> ✓ Key-based signatures created and verified</p><p><strong>SPDX SBOM:</strong> ✓ Generated for GHCR and Docker Hub</p><p><strong>SBOM Attestation:</strong> ✓ Created and independently verified for both registries</p><p><strong>Predicate Type:</strong> spdxjson</p><p><strong>Attachments</strong><br>✓ Docker Build &amp; Push Report<br>✓ Docker Security Report<br>✓ Raw Security Evidence: docker-security-raw-evidence.zip</p><p>The build report contains Stage 1 build, registry publication, tags, and digest. The security report summarizes signing, SBOM generation, and attestation verification. The ZIP contains the machine-readable verification records and SPDX SBOMs.</p><p>The same evidence is archived in this Jenkins build. The immutable digest is the canonical production identity; :latest is a convenience alias.</p><p><strong>Repository:</strong> ${repo}<br><strong>Image digest:</strong> ${digest}</p><p>Note: this Jenkins run uses Cosign key-based signing; GitHub Actions OIDC/keyless verification is not claimed.</p></div>`;
+const html = `<div style="font-family:Arial,sans-serif;max-width:760px;margin:auto;color:#1f2937"><h2>Docker Build, Push &amp; Security Report</h2><p style="color:#059669;font-weight:bold">✓ Complete Docker pipeline completed successfully</p><p><strong>Docker Build:</strong> ✓ Multi-architecture build completed</p><p><strong>GHCR:</strong> ✓ Image pushed and verified; Cosign signature verified</p><p><strong>Docker Hub:</strong> ✓ Image pushed and verified; Cosign signature verified</p><p><strong>Tag policy:</strong> ${latestStatus}</p><p><strong>Image Identity:</strong> ✓ Security controls anchored to immutable image digest</p><p><strong>Cosign:</strong> ✓ Key-based signatures created and verified</p><p><strong>SPDX SBOM:</strong> ✓ Generated for GHCR and Docker Hub</p><p><strong>SBOM Attestation:</strong> ✓ Created and independently verified for both registries</p><p><strong>Predicate Type:</strong> spdxjson</p><p><strong>Attachments</strong><br>✓ Docker Build &amp; Push Report<br>✓ Docker Security Report<br>✓ Raw Security Evidence: docker-security-raw-evidence.zip</p><p>The build report contains Stage 1 build, registry publication, tags, and digest. The security report summarizes signing, SBOM generation, and attestation verification. The ZIP contains the machine-readable verification records and SPDX SBOMs.</p><p>The same evidence is archived in this Jenkins build. The immutable digest is the canonical production identity; :latest is updated only by main builds.</p><p><strong>Repository:</strong> ${repo}<br><strong>Image digest:</strong> ${digest}</p><p>Note: this Jenkins run uses Cosign key-based signing; GitHub Actions OIDC/keyless verification is not claimed.</p></div>`;
 (async()=>{await transporter.sendMail({from:process.env.EMAIL_USER,to:process.env.QA_EMAIL_TO,cc:process.env.QA_EMAIL_CC||'',subject:'Docker Build, Push & Security Report',html,attachments});console.log('Final report email sent with all three attachments.');})().catch(e=>{console.error(e);process.exit(1);});
 NODE
                         '''
