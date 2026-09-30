@@ -16,9 +16,15 @@ fi
 echo "🌿 Switching to 'main' branch..."
 git checkout -B main || git switch -C main
 
+# [ADDED] 2b. Enable the custom merge driver locally before the merge occurs
+echo "⚙️ Activating 'keep-ours' merge driver for Jenkinsfile..."
+git config merge.ours.driver true
+
 # 3. Merge pre-main into main (strict branch merge semantics)
 echo "🔀 Merging 'pre-main' into 'main'..."
 git fetch origin pre-main || true
+
+# Note: The merge driver will now step in and ignore pre-main's Jenkinsfile if it differs from main's
 git merge pre-main || {
     echo "❌ Merge conflicts detected. Please resolve them manually."
     exit 1
