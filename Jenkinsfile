@@ -4,22 +4,6 @@ pipeline {
     environment {
         EMAIL_USER = credentials('EMAIL_USER')
         EMAIL_PASS = credentials('EMAIL_PASS')
-
-        QA_EMAIL_TO = 'kaifkhanmohammed718@gmail.com'
-        QA_EMAIL_CC = 'kaifkhanmohammed718@gmail.com'
-
-        DOCKERHUB_USERNAME = 'kaifmohammedkhan123'
-        DOCKERHUB_TOKEN = credentials('DOCKERHUB_TOKEN')
-
-        // Dedicated Jenkins credential for GitHub Container Registry.
-        GHCR_TOKEN = credentials('GHCR_TOKEN')
-
-        GITHUB_REPOSITORY = 'kaifmohammedkhan/resume-matcher-devops'
-        GITHUB_WORKFLOW = 'Build and Push to GHCR and Docker Hub'
-        // GITHUB_REF_NAME is resolved after checkout so PR builds are detected correctly.
-        GITHUB_REF_NAME = ''
-        GITHUB_ACTOR = 'kaifmohammedkhan'
-        PUSH_LATEST = 'false'
     }
 
     options {
@@ -32,889 +16,346 @@ pipeline {
         ))
     }
 
+    triggers {
+        githubPush()
+    }
+
     stages {
-
         // ============================================================
-        // STAGE 1: BUILD AND PUSH
+        // PARALLEL JOBS
+        // Each branch gets its own Jenkins-managed workspace.
+        // IMPORTANT:
+        // Do NOT use customWorkspace here.
+        // GitHub Actions Cloud agents provide their own writable
+        // workspace under /home/runner/agent/...
         // ============================================================
 
-        stage('Build & Push') {
-            agent { label 'gha-runner' }
-
-            stages {
-
-                stage('Checkout repository') {
-                    steps {
-                        checkout scm
+        stage('Parallel Jobs') {
+            parallel {
+                // ====================================================
+                // CI JOB
+                // ====================================================
+                stage('CI Job') {
+                    agent {
+                        label 'gha-runner'
                     }
-                }
 
-                stage('Initialize GitHub metadata') {
-                    steps {
-                        script {
-                            env.GITHUB_SHA = sh(
-                                script: 'git rev-parse HEAD',
-                                returnStdout: true
-                            ).trim()
-
-                            // In Jenkins Multibranch Pipeline, BRANCH_NAME is:
-                            //   main     -> the production/main branch
-                            //   PR-123   -> a Pull Request build
-                            // For a normal branch job where BRANCH_NAME is unavailable,
-                            // fall back to the checked-out Git branch name.
-                            def jenkinsBranch = env.BRANCH_NAME ?: ''
-                            def gitBranch = sh(
-                                script: 'git symbolic-ref --quiet --short HEAD || true',
-                                returnStdout: true
-                            ).trim()
-
-                            if (!jenkinsBranch && gitBranch) {
-                                jenkinsBranch = gitBranch
+                    stages {
+                        stage('Checkout Code') {
+                            steps {
+                                deleteDir()
+                                checkout scm
                             }
+                        }
 
-                            env.GITHUB_REF_NAME = jenkinsBranch ?: 'detached'
-                            env.PUSH_LATEST = (jenkinsBranch == 'main') ? 'true' : 'false'
-
-                            env.GITHUB_RUN_NUMBER = env.BUILD_NUMBER
-                            env.GITHUB_ACTOR = 'kaifmohammedkhan'
-
-                            def shortSha = env.GITHUB_SHA.take(7)
-                            if (env.PUSH_LATEST == 'true') {
-                                env.IMAGE_TAGS =
-                                    "ghcr.io/${env.GITHUB_REPOSITORY}:latest\n" +
-                                    "ghcr.io/${env.GITHUB_REPOSITORY}:sha-${shortSha}\n" +
-                                    "${env.DOCKERHUB_USERNAME}/resume-matcher-devops:latest\n" +
-                                    "${env.DOCKERHUB_USERNAME}/resume-matcher-devops:sha-${shortSha}"
-                            } else {
-                                env.IMAGE_TAGS =
-                                    "ghcr.io/${env.GITHUB_REPOSITORY}:sha-${shortSha}\n" +
-                                    "${env.DOCKERHUB_USERNAME}/resume-matcher-devops:sha-${shortSha}"
+                        stage('Normalize Line Endings') {
+                            steps {
+                                sh 'sed -i "s/\r$//" scripts/*.sh'
                             }
+                        }
 
-                            echo "Jenkins branch: ${env.GITHUB_REF_NAME}"
-                            echo "Latest tag publishing enabled: ${env.PUSH_LATEST}"
+                        stage('Ensure Scripts Executable') {
+                            steps {
+                                sh 'chmod +x scripts/*.sh'
+                            }
+                        }
+
+                        stage('Run Tests') {
+                            steps {
+                                sh './scripts/ci-test.sh'
+                            }
+                        }
+
+                        stage('Setup Java 21') {
+                            steps {
+                                script {
+                                    def jdkHome = tool(
+                                        name: 'Java-21',
+                                        type: 'hudson.model.JDK'
+                                    )
+                                    env.CI_JAVA_HOME = jdkHome
+                                }
+
+                                sh '''
+                                    export JAVA_HOME="$CI_JAVA_HOME"
+                                    export PATH="$JAVA_HOME/bin:$PATH"
+
+                                    echo "Java configuration:"
+                                    java -version
+                                '''
+                            }
+                        }
+
+                        stage('SonarCloud Analysis') {
+                            steps {
+                                withCredentials([
+                                    string(credentialsId: 'SONAR_TOKEN', variable: 'SONAR_TOKEN'),
+                                    string(credentialsId: 'SONAR_HOST', variable: 'SONAR_HOST'),
+                                    string(credentialsId: 'SONAR_ORG', variable: 'SONAR_ORG'),
+                                    string(credentialsId: 'SONAR_PROJECT_KEY', variable: 'SONAR_PROJECT_KEY')
+                                ]) {
+                                    sh '''
+                                        export JAVA_HOME="$CI_JAVA_HOME"
+                                        export PATH="$JAVA_HOME/bin:$PATH"
+
+                                        ./scripts/ci-sonarcloud.sh
+                                    '''
+                                }
+                            }
+                        }
+
+                        stage('Download Trivy HTML Template') {
+                            steps {
+                                sh '''
+                                    curl --proto '=https' --tlsv1.2 -sSLf \
+                                    https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/html.tpl \
+                                    -o html.tpl
+                                '''
+                            }
+                        }
+
+                        stage('Run Trivy FS Scan') {
+                            steps {
+                                sh '''
+                                    docker run --rm \
+                                        -v "$PWD:/work" \
+                                        -w /work \
+                                        aquasec/trivy:latest \
+                                        fs . \
+                                        --format template \
+                                        --template '@html.tpl' \
+                                        -o trivy-fs-report.html \
+                                        --ignore-unfixed \
+                                        --vuln-type os,library
+                                '''
+                            }
+                        }
+
+                        stage('Build Local Image for Trivy Scan') {
+                            steps {
+                                sh 'docker build -t app-local:latest .'
+                            }
+                        }
+
+                        stage('Run Trivy Image Scan') {
+                            steps {
+                                sh '''
+                                    docker run --rm \
+                                        -v /var/run/docker.sock:/var/run/docker.sock \
+                                        -v "$PWD:/work" \
+                                        -w /work \
+                                        aquasec/trivy:latest \
+                                        image app-local:latest \
+                                        --format template \
+                                        --template '@html.tpl' \
+                                        -o trivy-img-report.html \
+                                        --ignore-unfixed \
+                                        --vuln-type os,library
+                                '''
+                            }
+                        }
+
+                        stage('Install & Run Gitleaks') {
+                            steps {
+                                withCredentials([
+                                    string(credentialsId: 'GITHUB_TOKEN', variable: 'GITHUB_TOKEN')
+                                ]) {
+                                    sh '''
+                                        docker run --rm \
+                                            -v "$PWD:/repo" \
+                                            zricethezav/gitleaks:latest \
+                                            detect \
+                                            --source /repo \
+                                            --verbose || true
+                                    '''
+                                }
+                            }
+                        }
+
+                        stage('Security Checks') {
+                            steps {
+                                sh './scripts/ci-security-checks.sh'
+                            }
+                        }
+
+                        stage('Consolidate & Stash CI Reports') {
+                            steps {
+                                sh '''
+                                    mkdir -p reports/security
+
+                                    cp reports/security/security-report.html \
+                                        ./security-report.html 2>/dev/null || true
+
+                                    cp reports/sonar-summary.html \
+                                        ./sonar-summary.html 2>/dev/null || true
+
+                                    [ -f test-summary.html ] || \
+                                        echo "<html><body><h1>Test Summary Missing</h1></body></html>" \
+                                        > test-summary.html
+
+                                    [ -f sonar-summary.html ] || \
+                                        echo "<html><body><h1>Sonar Summary Missing</h1></body></html>" \
+                                        > sonar-summary.html
+
+                                    [ -f trivy-fs-report.html ] || \
+                                        echo "<html><body><h1>Trivy FS Scan Missing</h1></body></html>" \
+                                        > trivy-fs-report.html
+
+                                    [ -f trivy-img-report.html ] || \
+                                        echo "<html><body><h1>Trivy Image Scan Missing</h1></body></html>" \
+                                        > trivy-img-report.html
+
+                                    [ -f security-report.html ] || \
+                                        echo "<html><body><h1>Security Report Missing</h1></body></html>" \
+                                        > security-report.html
+                                '''
+
+                                archiveArtifacts(
+                                    artifacts: '''
+                                        test-summary.html,
+                                        sonar-summary.html,
+                                        trivy-fs-report.html,
+                                        trivy-img-report.html,
+                                        security-report.html
+                                    ''',
+                                    allowEmptyArchive: true
+                                )
+
+                                stash(
+                                    name: 'ci-reports-premain',
+                                    includes: '''
+                                        test-summary.html,
+                                        sonar-summary.html,
+                                        trivy-fs-report.html,
+                                        trivy-img-report.html,
+                                        security-report.html
+                                    '''
+                                )
+                            }
                         }
                     }
                 }
 
-                stage('Set up QEMU') {
-                    steps {
-                        sh '''
-                            set -e
-                            docker run --privileged --rm tonistiigi/binfmt --install all
-                        '''
+                // ====================================================
+                // OWASP JOB
+                // ====================================================
+                stage('OWASP Job') {
+                    agent {
+                        label 'gha-runner'
                     }
-                }
 
-                stage('Set up Docker Buildx') {
-                    steps {
-                        sh '''
-                            set -e
+                    stages {
+                        stage('Checkout Code') {
+                            steps {
+                                deleteDir()
+                                checkout scm
+                            }
+                        }
 
-                            docker buildx inspect resume-matcher-builder >/dev/null 2>&1 || \
-                                docker buildx create \
-                                    --name resume-matcher-builder \
-                                    --driver docker-container \
-                                    --use
+                        stage('Normalize Line Endings') {
+                            steps {
+                                sh 'sed -i "s/\r$//" scripts/*.sh'
+                            }
+                        }
 
-                            docker buildx use resume-matcher-builder
-                            docker buildx inspect --bootstrap
-                        '''
-                    }
-                }
+                        stage('Ensure Scripts Executable') {
+                            steps {
+                                sh 'chmod +x scripts/*.sh'
+                            }
+                        }
 
-                stage('Log in to GitHub Container Registry') {
-                    steps {
-                        sh '''
-                            set -e
+                        stage('Setup Java 21') {
+                            steps {
+                                script {
+                                    def jdkHome = tool(
+                                        name: 'Java-21',
+                                        type: 'hudson.model.JDK'
+                                    )
+                                    env.OWASP_JAVA_HOME = jdkHome
+                                }
 
-                            echo "$GHCR_TOKEN" | docker login ghcr.io \
-                                --username "$GITHUB_ACTOR" \
-                                --password-stdin
-                        '''
-                    }
-                }
+                                sh '''
+                                    export JAVA_HOME="$OWASP_JAVA_HOME"
+                                    export PATH="$JAVA_HOME/bin:$PATH"
 
-                stage('Log in to Docker Hub') {
-                    steps {
-                        sh '''
-                            set -e
+                                    echo "Java configuration:"
+                                    java -version
+                                '''
+                            }
+                        }
 
-                            echo "$DOCKERHUB_TOKEN" | docker login \
-                                --username "$DOCKERHUB_USERNAME" \
-                                --password-stdin
-                        '''
-                    }
-                }
+                        stage('OWASP Dependency Check') {
+                            steps {
+                                withCredentials([
+                                    string(credentialsId: 'NVD_API_KEY', variable: 'NVD_API_KEY')
+                                ]) {
+                                    sh '''
+                                        export JAVA_HOME="$OWASP_JAVA_HOME"
+                                        export PATH="$JAVA_HOME/bin:$PATH"
 
-                stage('Extract metadata (tags, labels) for Docker') {
-                    steps {
-                        sh '''
-                            set -e
+                                        export JAVA_OPTS="-Xms1024m -Xmx4096m"
+                                        export JVM_ARGS="-Xmx4g -XX:MaxRAMPercentage=75.0"
 
-                            mkdir -p reports/docker
+                                        ./scripts/ci-owasp.sh --purge
+                                    '''
+                                }
+                            }
+                        }
 
-                            export OCI_CREATED="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-                            export OCI_REVISION="$GITHUB_SHA"
-                            export OCI_SOURCE="https://github.com/$GITHUB_REPOSITORY"
+                        stage('Consolidate & Stash OWASP Report') {
+                            steps {
+                                sh '''
+                                    cp reports/dependency-check-report.html \
+                                        ./dependency-check-report.html 2>/dev/null || true
 
-                            GITHUB_SHORT_SHA="$(printf '%.7s' "$GITHUB_SHA")"
+                                    [ -f dependency-check-report.html ] || \
+                                        echo "<html><body><h1>OWASP Dependency Check Missing</h1></body></html>" \
+                                        > dependency-check-report.html
+                                '''
 
-                            export OCI_VERSION="sha-$GITHUB_SHORT_SHA"
+                                archiveArtifacts(
+                                    artifacts: 'dependency-check-report.html',
+                                    allowEmptyArchive: true
+                                )
 
-                            cat > reports/docker/docker-labels.env <<EOF
-OCI_CREATED=$OCI_CREATED
-OCI_REVISION=$OCI_REVISION
-OCI_SOURCE=$OCI_SOURCE
-OCI_VERSION=$OCI_VERSION
-GITHUB_SHORT_SHA=$GITHUB_SHORT_SHA
-EOF
-                        '''
-                    }
-                }
-
-                stage('Build and push Docker image') {
-                    steps {
-                        sh '''
-                            set -e
-
-                            . reports/docker/docker-labels.env
-
-                            GITHUB_SHORT_SHA="$(printf '%.7s' "$GITHUB_SHA")"
-
-                            BUILD_TAG_ARGS="--tag ghcr.io/$GITHUB_REPOSITORY:sha-$GITHUB_SHORT_SHA --tag $DOCKERHUB_USERNAME/resume-matcher-devops:sha-$GITHUB_SHORT_SHA"
-
-                            if [ "$PUSH_LATEST" = "true" ]; then
-                                BUILD_TAG_ARGS="$BUILD_TAG_ARGS --tag ghcr.io/$GITHUB_REPOSITORY:latest --tag $DOCKERHUB_USERNAME/resume-matcher-devops:latest"
-                                echo "Publishing :latest because this build is for main."
-                            else
-                                echo "Skipping :latest because this build is not for main."
-                                echo "Publishing immutable sha-$GITHUB_SHORT_SHA tags only."
-                            fi
-
-                            docker buildx build \
-                                --platform linux/amd64,linux/arm64 \
-                                --push \
-                                --metadata-file reports/docker/build-metadata.json \
-                                --label "org.opencontainers.image.created=$OCI_CREATED" \
-                                --label "org.opencontainers.image.revision=$OCI_REVISION" \
-                                --label "org.opencontainers.image.source=$OCI_SOURCE" \
-                                --label "org.opencontainers.image.version=$OCI_VERSION" \
-                                $BUILD_TAG_ARGS \
-                                .
-
-                            test -s reports/docker/build-metadata.json
-
-                            IMAGE_DIGEST="$(node -e 'const fs=require("fs"); const d=JSON.parse(fs.readFileSync("reports/docker/build-metadata.json","utf8")); process.stdout.write(d["containerimage.digest"] || "");')"
-
-                            if [ -z "$IMAGE_DIGEST" ]; then
-                                IMAGE_DIGEST="$(docker buildx imagetools inspect \
-                                    "ghcr.io/$GITHUB_REPOSITORY:sha-$GITHUB_SHORT_SHA" \
-                                    --format '{{.Manifest.Digest}}')"
-                            fi
-
-                            test -n "$IMAGE_DIGEST"
-                            test "$IMAGE_DIGEST" != "unknown"
-
-                            case "$IMAGE_DIGEST" in
-                                sha256:*) ;;
-                                *)
-                                    echo "ERROR: Invalid image digest: $IMAGE_DIGEST"
-                                    exit 1
-                                    ;;
-                            esac
-
-                            echo "IMAGE_DIGEST=$IMAGE_DIGEST" > reports/docker/image-digest.env
-                        '''
-
-                        script {
-                            env.IMAGE_DIGEST = sh(
-                                script: "sed -n 's/^IMAGE_DIGEST=//p' reports/docker/image-digest.env",
-                                returnStdout: true
-                            ).trim()
+                                stash(
+                                    name: 'owasp-report-premain',
+                                    includes: 'dependency-check-report.html'
+                                )
+                            }
                         }
                     }
                 }
 
-                stage('Record immutable image digest') {
-                    steps {
-                        sh '''
-                            set -e
-
-                            test -n "$IMAGE_DIGEST"
-                            test "$IMAGE_DIGEST" != "unknown"
-
-                            mkdir -p reports/docker
-
-                            {
-                                echo "IMAGE_DIGEST=$IMAGE_DIGEST"
-                                echo "IMAGE_TAGS<<EOF_TAGS"
-                                printf '%s\\n' "$IMAGE_TAGS"
-                                echo "EOF_TAGS"
-                            } > reports/docker/image-metadata.txt
-
-                            echo "=============================================="
-                            echo "IMMUTABLE IMAGE DIGEST RECORDED"
-                            echo "=============================================="
-                            echo "Digest: $IMAGE_DIGEST"
-                        '''
+                // ====================================================
+                // QA JOB
+                // ====================================================
+                stage('QA Job') {
+                    agent {
+                        label 'gha-runner'
                     }
-                }
 
-                stage('Install Nodemailer') {
-                    steps {
-                        sh 'npm install nodemailer@9.0.3'
-                    }
-                }
-
-                stage('Generate Docker Build & Push HTML Report') {
-                    steps {
-                        sh '''
-                            set -e
-
-                            . reports/docker/docker-labels.env
-
-                            node --input-type=commonjs <<'NODE'
-const fs = require("fs");
-
-const repo = process.env.GITHUB_REPOSITORY || "N/A";
-const branch = process.env.GITHUB_REF_NAME || "N/A";
-const commit = process.env.GITHUB_SHA || "N/A";
-const shortCommit = commit.substring(0, 7);
-const runNumber = process.env.GITHUB_RUN_NUMBER || "N/A";
-const workflow = process.env.GITHUB_WORKFLOW || "N/A";
-const imageDigest = process.env.IMAGE_DIGEST || "N/A";
-const dockerHubUsername = process.env.DOCKERHUB_USERNAME || "N/A";
-const pushLatest = process.env.PUSH_LATEST === "true";
-const latestStatus = pushLatest ? "✓ PUSHED" : "Not pushed (main only)";
-const latestNote = pushLatest
-    ? "latest tag updated because this build is from main."
-    : "latest tag was intentionally not updated; non-main builds publish immutable sha-* tags only.";
-const generatedAt = new Date().toISOString();
-
-function escapeHtml(value) {
-    return String(value)
-        .replace(/&/g, "&amp;")
-        .replace(/</g, "&lt;")
-        .replace(/>/g, "&gt;")
-        .replace(/"/g, "&quot;")
-        .replace(/'/g, "&#039;");
-}
-
-const html = `<!doctype html>
-<html lang="en">
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width,initial-scale=1">
-    <title>Docker Build & Push Report</title>
-    <style>
-        body { background:#07111f; color:#f8fafc; font-family:Arial,sans-serif; padding:28px; margin:0; }
-        .container { max-width:900px; margin:auto; }
-        .panel { background:#0d1a2b; border:1px solid #263a56; border-radius:18px; padding:24px; margin-bottom:20px; }
-        h1 { font-size:26px; margin:0 0 10px; }
-        h2 { font-size:20px; margin:0 0 12px; }
-        .status { font-weight:bold; color:#34d399; font-size:16px; margin-bottom:14px; }
-        .meta { color:#a9b8cc; line-height:1.8; }
-        .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(260px,1fr)); gap:14px; }
-        .card { background:#102138; border:1px solid #263a56; border-radius:12px; padding:18px; }
-        .label { color:#8fa4bd; font-size:12px; text-transform:uppercase; letter-spacing:.05em; }
-        .value { margin-top:7px; font-size:18px; font-weight:bold; word-break:break-word; }
-        .success { color:#34d399; }
-        .small { color:#8fa4bd; font-size:12px; margin-top:7px; line-height:1.6; }
-        .file { font-family:monospace; font-size:12px; word-break:break-all; }
-        .digest { font-family:monospace; font-size:12px; word-break:break-all; background:#091525; padding:10px; border-radius:8px; margin-top:8px; }
-    </style>
-</head>
-<body>
-<div class="container">
-    <div class="panel">
-        <h1>Docker Build & Push Report</h1>
-        <div class="status">✓ DOCKER IMAGE BUILD & PUSH COMPLETED SUCCESSFULLY</div>
-        <div class="meta">
-            Repository: ${escapeHtml(repo)}<br>
-            Branch: ${escapeHtml(branch)}<br>
-            Commit: ${escapeHtml(shortCommit)}<br>
-            Workflow Run: #${escapeHtml(runNumber)}<br>
-            Workflow: ${escapeHtml(workflow)}<br>
-            Generated: ${escapeHtml(generatedAt)}
-        </div>
-    </div>
-
-    <div class="panel">
-        <h2>Registry Results</h2>
-        <div class="grid">
-            <div class="card">
-                <div class="label">GitHub Container Registry</div>
-                <div class="value ${pushLatest ? "success" : ""}">${latestStatus}</div>
-                <div class="small">${pushLatest ? 'ghcr.io/' + escapeHtml(repo) + ':latest' : 'latest not updated; immutable sha-* tag published'}</div>
-            </div>
-            <div class="card">
-                <div class="label">Docker Hub</div>
-                <div class="value ${pushLatest ? "success" : ""}">${latestStatus}</div>
-                <div class="small">${pushLatest ? escapeHtml(dockerHubUsername) + '/resume-matcher-devops:latest' : 'latest not updated; immutable sha-* tag published'}</div>
-            </div>
-        </div>
-    </div>
-
-    <div class="panel">
-        <h2>Build Platforms</h2>
-        <div class="grid">
-            <div class="card"><div class="label">Platform</div><div class="value">linux/amd64</div></div>
-            <div class="card"><div class="label">Platform</div><div class="value">linux/arm64</div></div>
-        </div>
-    </div>
-
-    <div class="panel">
-        <h2>Tag Publishing Policy</h2>
-        <div class="small">${escapeHtml(latestNote)}</div>
-    </div>
-
-    <div class="panel">
-        <h2>Immutable Image Identity</h2>
-        <div class="small">The digest below is the canonical identity of the multi-architecture image produced by this build.</div>
-        <div class="digest">${escapeHtml(imageDigest)}</div>
-    </div>
-</div>
-</body>
-</html>`;
-
-fs.mkdirSync("reports/docker", { recursive: true });
-fs.writeFileSync("reports/docker/docker-build-push-report.html", html);
-console.log("Docker Build & Push HTML report generated successfully.");
-NODE
-                        '''
-                    }
-                }
-
-                stage('Verify Docker Build & Push Report') {
-                    steps {
-                        sh '''
-                            set -e
-
-                            test -s reports/docker/docker-build-push-report.html
-
-                            echo "=============================================="
-                            echo "DOCKER BUILD & PUSH REPORT VERIFIED"
-                            echo "=============================================="
-
-                            ls -lh reports/docker/docker-build-push-report.html
-                        '''
-                    }
-                }
-
-                stage('Upload Docker Build & Push Report') {
-                    steps {
-                        archiveArtifacts(
-                            artifacts: 'reports/docker/docker-build-push-report.html,reports/docker/image-metadata.txt',
-                            fingerprint: true
-                        )
-                    }
-                }
-
-                stage('Preserve Stage 1 Build Evidence') {
-                    steps {
-                        stash(
-                            name: 'docker-build-push-stage1',
-                            includes: 'reports/docker/docker-build-push-report.html,reports/docker/image-metadata.txt',
-                            useDefaultExcludes: false
-                        )
-                    }
-                }
-
-                stage('Preserve Stage 1 Build Report for Final Email') {
-                    steps {
-                        sh '''
-                            set -e
-                            test -s reports/docker/docker-build-push-report.html
-                            echo "Stage 1 report retained for the final security email."
-                        '''
-                    }
-                }
-            }
-        }
-    
-        // ============================================================
-        // STAGE 2: SECURITY ENHANCEMENTS
-        // ============================================================
-
-        stage('Security Enhancements') {
-            agent { label 'gha-runner' }
-
-            stages {
-
-                stage('Checkout repository') {
-                    steps {
-                        checkout scm
-                    }
-                }
-
-                stage('Download Stage 1 Build Report') {
-                    steps {
-                        unstash 'docker-build-push-stage1'
-
-                        sh '''
-                            set -e
-
-                            mkdir -p reports/docker-build
-
-                            cp reports/docker/docker-build-push-report.html \
-                                reports/docker-build/docker-build-push-report.html
-
-                            cp reports/docker/image-metadata.txt \
-                                reports/docker-build/image-metadata.txt
-                        '''
-                    }
-                }
-
-                stage('Verify Docker Build & Push Report') {
-                    steps {
-                        sh '''
-                            set -e
-
-                            test -s reports/docker-build/docker-build-push-report.html
-
-                            echo "=============================================="
-                            echo "STAGE 1 BUILD REPORT FOUND"
-                            echo "=============================================="
-
-                            ls -lh reports/docker-build/docker-build-push-report.html
-                        '''
-                    }
-                }
-
-                stage('Load immutable image digest') {
-                    steps {
-                        script {
-                            env.IMAGE_DIGEST = sh(
-                                script: '''
-                                    set -e
-                                    test -s reports/docker-build/image-metadata.txt
-                                    sed -n 's/^IMAGE_DIGEST=//p' reports/docker-build/image-metadata.txt | head -n 1
-                                ''',
-                                returnStdout: true
-                            ).trim()
+                    stages {
+                        stage('Checkout Code') {
+                            steps {
+                                deleteDir()
+                                checkout scm
+                            }
                         }
 
-                        sh '''
-                            set -e
+                        stage('Normalize Line Endings') {
+                            steps {
+                                sh 'sed -i "s/\r$//" scripts/*.sh'
+                            }
+                        }
 
-                            if [ -z "$IMAGE_DIGEST" ]; then
-                                echo "ERROR: Immutable image digest was not recorded by Stage 1."
-                                exit 1
-                            fi
-
-                            case "$IMAGE_DIGEST" in
-                                sha256:*) ;;
-                                *)
-                                    echo "ERROR: Invalid image digest: $IMAGE_DIGEST"
-                                    exit 1
-                                    ;;
-                            esac
-
-                            echo "=============================================="
-                            echo "IMMUTABLE IMAGE IDENTITY LOADED"
-                            echo "=============================================="
-                            echo "Digest: $IMAGE_DIGEST"
-                        '''
-                    }
-                }
-
-                stage('Install Cosign') {
-                    steps {
-                        sh '''
-                            set -e
-
-                            if ! command -v cosign >/dev/null 2>&1; then
-                                COSIGN_VERSION="v2.6.5"
-
-                                curl -sSfL \
-                                    "https://github.com/sigstore/cosign/releases/download/${COSIGN_VERSION}/cosign-linux-amd64" \
-                                    -o /tmp/cosign
-
-                                chmod +x /tmp/cosign
-
-                                if command -v sudo >/dev/null 2>&1; then
-                                    sudo mv /tmp/cosign /usr/local/bin/cosign
-                                else
-                                    mkdir -p "$HOME/.local/bin"
-                                    mv /tmp/cosign "$HOME/.local/bin/cosign"
-                                    export PATH="$HOME/.local/bin:$PATH"
-                                fi
-                            fi
-                        '''
-                    }
-                }
-
-                stage('Verify Cosign installation') {
-                    steps {
-                        sh 'cosign version'
-                    }
-                }
-
-                stage('Prepare Cosign Signing Key') {
-                    steps {
-                        withCredentials([
-                            file(credentialsId: 'COSIGN_PRIVATE_KEY', variable: 'COSIGN_KEY_FILE'),
-                            string(credentialsId: 'COSIGN_PASSPHRASE', variable: 'COSIGN_PASSWORD')
-                        ]) {
-                            sh '''
-                                set -eu
-                                umask 077
-                                trap 'rm -f cosign.key' EXIT
-
-                                # Jenkins Secret file credentials are exposed as a temporary file path.
-                                test -r "$COSIGN_KEY_FILE"
-                                cp "$COSIGN_KEY_FILE" cosign.key
-                                chmod 600 cosign.key
-                                tr -d '\\r' < cosign.key > cosign.key.normalized
-                                mv cosign.key.normalized cosign.key
-
-                                if ! grep -Eq '^-----BEGIN .*PRIVATE KEY-----$' cosign.key; then
-                                    echo "ERROR: COSIGN_PRIVATE_KEY file is not a valid PEM private-key block."
-                                    echo "Ensure the Secret file credential contains the complete cosign.key."
-                                    exit 1
-                                fi
-
-                                if ! grep -Eq '^-----END .*PRIVATE KEY-----$' cosign.key; then
-                                    echo "ERROR: COSIGN_PRIVATE_KEY file is missing the PEM END line."
-                                    exit 1
-                                fi
-
-                                cosign public-key --key cosign.key > cosign.pub
-                                test -s cosign.pub
-                                chmod 644 cosign.pub
-
-                                echo "Cosign signing and verification keys prepared successfully."
-                            '''
+                        stage('Ensure Scripts Executable') {
+                            steps {
+                                sh 'chmod +x scripts/*.sh'
+                            }
                         }
                     }
                 }
-                stage('Install Syft') {
-                    steps {
-                        sh '''
-                            set -e
-
-                            curl -sSfL https://raw.githubusercontent.com/anchore/syft/main/install.sh \
-                                | sh -s -- -b /usr/local/bin
-                        '''
-                    }
-                }
-
-                stage('Verify Syft installation') {
-                    steps {
-                        sh 'syft version'
-                    }
-                }
-
-                stage('Log in to GitHub Container Registry') {
-                    steps {
-                        sh '''
-                            set -e
-
-                            echo "$GHCR_TOKEN" | docker login ghcr.io \
-                                --username "$GITHUB_ACTOR" \
-                                --password-stdin
-                        '''
-                    }
-                }
-
-                stage('Log in to Docker Hub') {
-                    steps {
-                        sh '''
-                            set -e
-
-                            echo "$DOCKERHUB_TOKEN" | docker login \
-                                --username "$DOCKERHUB_USERNAME" \
-                                --password-stdin
-                        '''
-                    }
-                }
-
-                stage('Prepare Docker security evidence directory') {
-                    steps {
-                        sh '''
-                            set -e
-
-                            mkdir -p reports/docker
-
-                            echo "=============================================="
-                            echo "Docker Security Evidence"
-                            echo "=============================================="
-                            echo "Repository : $GITHUB_REPOSITORY"
-                            echo "Branch     : $GITHUB_REF_NAME"
-                            echo "Commit     : $GITHUB_SHA"
-                            echo "Run        : #$GITHUB_RUN_NUMBER"
-                            echo "Image Digest: $IMAGE_DIGEST"
-                            echo "=============================================="
-                        '''
-                    }
-                }
-
-                stage('Verify GHCR image exists') {
-                    steps {
-                        sh '''
-                            set -e
-                            docker manifest inspect "ghcr.io/$GITHUB_REPOSITORY@$IMAGE_DIGEST"
-                        '''
-                    }
-                }
-
-                stage('Verify Docker Hub image exists') {
-                    steps {
-                        sh '''
-                            set -e
-                            docker manifest inspect "$DOCKERHUB_USERNAME/resume-matcher-devops@$IMAGE_DIGEST"
-                        '''
-                    }
-                }
-
-                stage('Cosign Sign GHCR Image') {
-                    steps {
-                        withCredentials([
-                            file(credentialsId: 'COSIGN_PRIVATE_KEY', variable: 'COSIGN_KEY_FILE'),
-                            string(credentialsId: 'COSIGN_PASSPHRASE', variable: 'COSIGN_PASSWORD')
-                        ]) {
-                            sh '''
-                                set -eu
-                                umask 077
-                                trap 'rm -f cosign.key' EXIT
-
-                                test -r "$COSIGN_KEY_FILE"
-                                cp "$COSIGN_KEY_FILE" cosign.key
-                                chmod 600 cosign.key
-                                tr -d '\\r' < cosign.key > cosign.key.normalized
-                                mv cosign.key.normalized cosign.key
-
-                                cosign sign --yes --key cosign.key "ghcr.io/$GITHUB_REPOSITORY@$IMAGE_DIGEST"
-                            '''
-                        }
-                    }
-                }
-                stage('Cosign Sign Docker Hub Image') {
-                    steps {
-                        withCredentials([
-                            file(credentialsId: 'COSIGN_PRIVATE_KEY', variable: 'COSIGN_KEY_FILE'),
-                            string(credentialsId: 'COSIGN_PASSPHRASE', variable: 'COSIGN_PASSWORD')
-                        ]) {
-                            sh '''
-                                set -eu
-                                umask 077
-                                trap 'rm -f cosign.key' EXIT
-
-                                test -r "$COSIGN_KEY_FILE"
-                                cp "$COSIGN_KEY_FILE" cosign.key
-                                chmod 600 cosign.key
-                                tr -d '\\r' < cosign.key > cosign.key.normalized
-                                mv cosign.key.normalized cosign.key
-
-                                cosign sign --yes --key cosign.key "$DOCKERHUB_USERNAME/resume-matcher-devops@$IMAGE_DIGEST"
-                            '''
-                        }
-                    }
-                }
-                stage('Generate GHCR SPDX SBOM') {
-                    steps {
-                        sh '''
-                            set -e
-
-                            syft "ghcr.io/$GITHUB_REPOSITORY@$IMAGE_DIGEST" \
-                                -o spdx-json \
-                                > reports/docker/sbom-ghcr.json
-
-                            test -s reports/docker/sbom-ghcr.json
-
-                            echo "GHCR SPDX SBOM generated successfully."
-                        '''
-                    }
-                }
-
-                stage('Generate Docker Hub SPDX SBOM') {
-                    steps {
-                        sh '''
-                            set -e
-
-                            syft "$DOCKERHUB_USERNAME/resume-matcher-devops@$IMAGE_DIGEST" \
-                                -o spdx-json \
-                                > reports/docker/sbom-dockerhub.json
-
-                            test -s reports/docker/sbom-dockerhub.json
-
-                            echo "Docker Hub SPDX SBOM generated successfully."
-                        '''
-                    }
-                }
-
-                stage('Verify SBOM files') {
-                    steps {
-                        sh '''
-                            set -e
-
-                            test -s reports/docker/sbom-ghcr.json
-                            test -s reports/docker/sbom-dockerhub.json
-
-                            echo "GHCR SPDX SBOM generated successfully."
-                            echo "Docker Hub SPDX SBOM generated successfully."
-                        '''
-                    }
-                }
-                stage('Verify Cosign Signatures - GHCR') {
-                    steps {
-                        sh '''
-                            set -eu
-                            mkdir -p reports/docker/evidence
-                            cosign verify --key cosign.pub "ghcr.io/$GITHUB_REPOSITORY@$IMAGE_DIGEST" > reports/docker/evidence/cosign-verify-ghcr.json 2>&1
-                            test -s reports/docker/evidence/cosign-verify-ghcr.json
-                        '''
-                    }
-                }
-
-                stage('Verify Cosign Signatures - Docker Hub') {
-                    steps {
-                        sh '''
-                            set -eu
-                            mkdir -p reports/docker/evidence
-                            cosign verify --key cosign.pub "$DOCKERHUB_USERNAME/resume-matcher-devops@$IMAGE_DIGEST" > reports/docker/evidence/cosign-verify-dockerhub.json 2>&1
-                            test -s reports/docker/evidence/cosign-verify-dockerhub.json
-                        '''
-                    }
-                }
-
-                stage('Create and Verify GHCR SBOM Attestation') {
-                    steps {
-                        withCredentials([
-                            file(credentialsId: 'COSIGN_PRIVATE_KEY', variable: 'COSIGN_KEY_FILE'),
-                            string(credentialsId: 'COSIGN_PASSPHRASE', variable: 'COSIGN_PASSWORD')
-                        ]) {
-                            sh '''
-                                set -eu
-                                umask 077
-                                trap 'rm -f cosign.key' EXIT
-                                cp "$COSIGN_KEY_FILE" cosign.key
-                                tr -d '\\r' < cosign.key > cosign.key.normalized
-                                mv cosign.key.normalized cosign.key
-                                chmod 600 cosign.key
-                                mkdir -p reports/docker/evidence
-                                cosign attest --yes --key cosign.key --type spdxjson --predicate reports/docker/sbom-ghcr.json "ghcr.io/$GITHUB_REPOSITORY@$IMAGE_DIGEST"
-                                cosign verify-attestation --key cosign.pub --type spdxjson "ghcr.io/$GITHUB_REPOSITORY@$IMAGE_DIGEST" > reports/docker/evidence/attestation-verify-ghcr.json 2>&1
-                                test -s reports/docker/evidence/attestation-verify-ghcr.json
-                            '''
-                        }
-                    }
-                }
-
-                stage('Create and Verify Docker Hub SBOM Attestation') {
-                    steps {
-                        withCredentials([
-                            file(credentialsId: 'COSIGN_PRIVATE_KEY', variable: 'COSIGN_KEY_FILE'),
-                            string(credentialsId: 'COSIGN_PASSPHRASE', variable: 'COSIGN_PASSWORD')
-                        ]) {
-                            sh '''
-                                set -eu
-                                umask 077
-                                trap 'rm -f cosign.key' EXIT
-                                cp "$COSIGN_KEY_FILE" cosign.key
-                                tr -d '\\r' < cosign.key > cosign.key.normalized
-                                mv cosign.key.normalized cosign.key
-                                chmod 600 cosign.key
-                                mkdir -p reports/docker/evidence
-                                cosign attest --yes --key cosign.key --type spdxjson --predicate reports/docker/sbom-dockerhub.json "$DOCKERHUB_USERNAME/resume-matcher-devops@$IMAGE_DIGEST"
-                                cosign verify-attestation --key cosign.pub --type spdxjson "$DOCKERHUB_USERNAME/resume-matcher-devops@$IMAGE_DIGEST" > reports/docker/evidence/attestation-verify-dockerhub.json 2>&1
-                                test -s reports/docker/evidence/attestation-verify-dockerhub.json
-                            '''
-                        }
-                    }
-                }
-
-                stage('Generate Docker Security HTML Report') {
-                    steps {
-                        sh '''
-                            set -eu
-                            node --input-type=commonjs <<'NODE'
-const fs = require('fs');
-const esc = v => String(v ?? 'N/A').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const repo = process.env.GITHUB_REPOSITORY || 'N/A';
-const digest = process.env.IMAGE_DIGEST || 'N/A';
-const branch = process.env.GITHUB_REF_NAME || 'N/A';
-const sha = (process.env.GITHUB_SHA || 'N/A').slice(0, 7);
-const html = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Docker Security Report</title><style>body{margin:0;padding:28px;background:#07111f;color:#f8fafc;font-family:Arial,sans-serif}.wrap{max-width:900px;margin:auto}.panel{background:#0d1a2b;border:1px solid #263a56;border-radius:16px;padding:24px;margin-bottom:18px}.ok{color:#34d399;font-weight:bold}.muted{color:#a9b8cc;line-height:1.8}.digest{font:12px monospace;overflow-wrap:anywhere;background:#091525;padding:12px;border-radius:8px}.item{padding:9px 0;border-bottom:1px solid #263a56}</style></head><body><div class="wrap"><div class="panel"><h1>Docker Build, Push &amp; Security Report</h1><p class="ok">✓ Complete Docker pipeline completed successfully</p><p class="muted">Repository: ${esc(repo)}<br>Branch: ${esc(branch)}<br>Commit: ${esc(sha)}<br>Immutable image digest:</p><div class="digest">${esc(digest)}</div></div><div class="panel"><h2>Security Results</h2><div class="item">✓ GHCR and Docker Hub immutable sha-* images pushed and verified.${process.env.PUSH_LATEST === 'true' ? ' :latest was also updated because this build is from main.' : ' :latest was not updated because this build is not from main.'}</div><div class="item">✓ Cosign signatures created and verified with the configured public key.</div><div class="item">✓ SPDX SBOMs generated for both registries.</div><div class="item">✓ SPDX SBOM attestations created and independently verified for both registries.</div><div class="item">Predicate type: spdxjson</div><div class="item">Signing mode: Cosign key-based signing. GitHub Actions OIDC/keyless verification is not claimed for this Jenkins execution.</div></div><div class="panel"><h2>Attachments and Evidence</h2><div class="item">Docker Build &amp; Push Report: attached</div><div class="item">Docker Security Report: attached</div><div class="item">Raw Security Evidence: attached as docker-security-raw-evidence.zip</div><p class="muted">The ZIP contains machine-readable Cosign verification records, SPDX SBOMs, and SBOM attestation verification records. The immutable digest is the canonical image identity. The :latest tag is updated only by builds from main; non-main builds retain immutable sha-* tags without changing :latest.</p></div></div></body></html>`;
-fs.mkdirSync('reports/docker', {recursive:true});
-fs.writeFileSync('reports/docker/docker-security-report.html', html);
-NODE
-                            test -s reports/docker/docker-security-report.html
-                        '''
-                    }
-                }
-
-                stage('Package Raw Docker Security Evidence') {
-                    steps {
-                        sh '''
-                            set -eu
-                            python3 - <<'PYZIP'
-from pathlib import Path
-from zipfile import ZipFile, ZIP_DEFLATED
-root = Path('reports/docker')
-out = root / 'docker-security-raw-evidence.zip'
-files = [root/'evidence/cosign-verify-ghcr.json', root/'evidence/cosign-verify-dockerhub.json', root/'evidence/attestation-verify-ghcr.json', root/'evidence/attestation-verify-dockerhub.json', root/'sbom-ghcr.json', root/'sbom-dockerhub.json', root/'image-metadata.txt']
-missing = [str(f) for f in files if not f.is_file() or f.stat().st_size == 0]
-if missing:
-    raise SystemExit('Required evidence missing or empty: ' + ', '.join(missing))
-with ZipFile(out, 'w', ZIP_DEFLATED) as z:
-    for f in files:
-        z.write(f, f.relative_to(root))
-if not out.is_file() or out.stat().st_size == 0:
-    raise SystemExit('Failed to create raw security evidence ZIP')
-print('Raw security evidence ZIP created:', out)
-PYZIP
-                        '''
-                    }
-                }
-
-                stage('Verify Security Email Attachments') {
-                    steps {
-                        sh '''
-                            set -eu
-                            test -s reports/docker-build/docker-build-push-report.html
-                            test -s reports/docker/docker-security-report.html
-                            test -s reports/docker/docker-security-raw-evidence.zip
-                            ls -lh reports/docker-build/docker-build-push-report.html reports/docker/docker-security-report.html reports/docker/docker-security-raw-evidence.zip
-                        '''
-                    }
-                }
-
-                stage('Archive Docker Security Evidence') {
-                    steps {
-                        archiveArtifacts(artifacts: 'reports/docker/**,reports/docker-build/**', fingerprint: true)
-                    }
-                }
-
-                stage('Email Complete Docker Build, Push & Security Report') {
-                    steps {
-                        sh '''
-                            set -eu
-                            npm install nodemailer@9.0.3
-                            node --input-type=commonjs <<'NODE'
-const nodemailer = require('nodemailer');
-const fs = require('fs');
-const attachments = [
-  {filename:'docker-build-push-report.html',path:'reports/docker-build/docker-build-push-report.html'},
-  {filename:'docker-security-report.html',path:'reports/docker/docker-security-report.html'},
-  {filename:'docker-security-raw-evidence.zip',path:'reports/docker/docker-security-raw-evidence.zip'}
-];
-for (const a of attachments) if (!fs.existsSync(a.path) || fs.statSync(a.path).size === 0) throw new Error('Missing or empty attachment: ' + a.path);
-const repo = process.env.GITHUB_REPOSITORY || 'N/A';
-const digest = process.env.IMAGE_DIGEST || 'N/A';
-const pushLatest = process.env.PUSH_LATEST === 'true';
-const latestStatus = pushLatest
-  ? '✓ :latest updated because this build is from main'
-  : '✓ :latest not updated; non-main build published immutable sha-* tags only';
-const transporter = nodemailer.createTransport({service:'gmail',auth:{user:process.env.EMAIL_USER,pass:process.env.EMAIL_PASS}});
-const html = `<div style="font-family:Arial,sans-serif;max-width:760px;margin:auto;color:#1f2937"><h2>Docker Build, Push &amp; Security Report</h2><p style="color:#059669;font-weight:bold">✓ Complete Docker pipeline completed successfully</p><p><strong>Docker Build:</strong> ✓ Multi-architecture build completed</p><p><strong>GHCR:</strong> ✓ Immutable sha-* image pushed and verified; Cosign signature verified</p><p><strong>Docker Hub:</strong> ✓ Immutable sha-* image pushed and verified; Cosign signature verified</p><p><strong>Latest Tag Policy:</strong> ${latestStatus}</p><p><strong>Image Identity:</strong> ✓ Security controls anchored to immutable image digest</p><p><strong>Cosign:</strong> ✓ Key-based signatures created and verified</p><p><strong>SPDX SBOM:</strong> ✓ Generated for GHCR and Docker Hub</p><p><strong>SBOM Attestation:</strong> ✓ Created and independently verified for both registries</p><p><strong>Predicate Type:</strong> spdxjson</p><p><strong>Attachments</strong><br>✓ Docker Build &amp; Push Report<br>✓ Docker Security Report<br>✓ Raw Security Evidence: docker-security-raw-evidence.zip</p><p>The build report contains Stage 1 build, registry publication, tags, and digest. The security report summarizes signing, SBOM generation, and attestation verification. The ZIP contains the machine-readable verification records and SPDX SBOMs.</p><p>The same evidence is archived in this Jenkins build. The immutable digest is the canonical production identity; :latest is a convenience alias.</p><p><strong>Repository:</strong> ${repo}<br><strong>Image digest:</strong> ${digest}</p><p>Note: this Jenkins run uses Cosign key-based signing; GitHub Actions OIDC/keyless verification is not claimed.</p></div>`;
-(async()=>{await transporter.sendMail({from:process.env.EMAIL_USER,to:process.env.QA_EMAIL_TO,cc:process.env.QA_EMAIL_CC||'',subject:'Docker Build, Push & Security Report',html,attachments});console.log('Final report email sent with all three attachments.');})().catch(e=>{console.error(e);process.exit(1);});
-NODE
-                        '''
-                    }
-                }
-
             }
         }
     }
