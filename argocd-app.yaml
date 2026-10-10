@@ -11,7 +11,7 @@ spec:
     path: helmrepository/resumematcher
     helm:
       valueFiles:
-        - helmrepository/values.override.yaml  # Path relative to repo root
+        - values.override.yaml  # Direct reference inside the chart folder
   destination:
     server: 'https://kubernetes.default.svc'
     namespace: default
