@@ -64,7 +64,8 @@ spec:
               mountPath: /var/lib/postgresql/data
       volumes:
         - name: pgdata
-          emptyDir: {}
+          persistentVolumeClaim:
+          claimName: postgres-pvc-new
 ---
 apiVersion: v1
 kind: Service
