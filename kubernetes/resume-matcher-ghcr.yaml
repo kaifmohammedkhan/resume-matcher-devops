@@ -1,29 +1,57 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: resume-matcher
+  name: resume-matcher-ghcr
   labels:
-    app: resume-matcher
+    app: resume-matcher-ghcr
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: resume-matcher
+      app: resume-matcher-ghcr
   template:
     metadata:
       labels:
-        app: resume-matcher
+        app: resume-matcher-ghcr
     spec:
+      imagePullSecrets:
+        - name: ghcr-secret
       initContainers:
         - name: wait-for-db
           image: postgres:15
           command: ['sh', '-c', 'until pg_isready -h db -p 5432; do echo waiting for db; sleep 2; done;']
       containers:
-        - name: resume-matcher
-          image: kaifmohammedkhan123/resume-matcher-devops
+        - name: resume-matcher-ghcr
+          image: ghcr.io/kaifmohammedkhan/resume-matcher-devops:sha-703771a
           imagePullPolicy: Always
           ports:
             - containerPort: 3000
+          env:
+            - name: GOOGLE_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: google-api-key
+                  key: API_KEY
+            - name: GOOGLE_CX_ID
+              valueFrom:
+                secretKeyRef:
+                  name: google-cx-id
+                  key: CX_ID
+            - name: DB_USER
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: POSTGRES_USER
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: POSTGRES_PASSWORD
+            - name: DB_NAME
+              valueFrom:
+                secretKeyRef:
+                  name: db-secret
+                  key: POSTGRES_DB
           volumeMounts:
             - name: uploads
               mountPath: /app/uploads
@@ -53,20 +81,3 @@ spec:
         - name: secret-volume
           secret:
             secretName: db-secret
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: resume-matcher-service
-  labels:
-    app: resume-matcher
-spec:
-  selector:
-    app: resume-matcher
-  ports:
-    - name: http
-      protocol: TCP
-      port: 3000
-      targetPort: 3000
-      nodePort: 30080
-  type: NodePort

@@ -8,10 +8,7 @@ spec:
   source:
     repoURL: 'https://github.com/kaifmohammedkhan/resume-matcher-devops.git'
     targetRevision: HEAD
-    path: helmrepository/resumematcher
-    helm:
-      valueFiles:
-        - values.override.yaml  # Direct reference inside the chart folder
+    path: kubernetes
   destination:
     server: 'https://kubernetes.default.svc'
     namespace: default
