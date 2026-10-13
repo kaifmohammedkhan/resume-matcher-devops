@@ -72,9 +72,11 @@ spec:
               memory: "512Mi"
       volumes:
         - name: uploads
-          emptyDir: {}
+          persistentVolumeClaim:
+          claimName: postgres-pvc-new
         - name: logs
-          emptyDir: {}
+          persistentVolumeClaim:
+          claimName: postgres-pvc-new
         - name: config-volume
           configMap:
             name: resume-config
