@@ -73,10 +73,10 @@ spec:
       volumes:
         - name: uploads
           persistentVolumeClaim:
-          claimName: postgres-pvc-new
+            claimName: postgres-pvc-new
         - name: logs
           persistentVolumeClaim:
-          claimName: postgres-pvc-new
+            claimName: postgres-pvc-new
         - name: config-volume
           configMap:
             name: resume-config
