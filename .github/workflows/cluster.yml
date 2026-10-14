@@ -80,7 +80,7 @@ jobs:
           echo "             STARTING ZROK2 SSH TUNNEL"
           echo "============================================================"
 
-          script -q -c "zrok2 share public --backend-mode proxy localhost:22" /dev/null > /tmp/zrok2-share.log 2>&1 &
+          script -q -c "zrok2 share private --backend-mode tcpTunnel localhost:22" /dev/null > /tmp/zrok2-share.log 2>&1 &
 
           ZROK_PID=$!
 
