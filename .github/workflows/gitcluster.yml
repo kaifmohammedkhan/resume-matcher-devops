@@ -21,12 +21,10 @@ jobs:
 
       - name: Install zrok2 CLI
         run: |
-          curl -sLO https://github.com/openziti/zrok/releases/latest/download/zrok_linux_amd64.tar.gz
-          tar -xzf zrok_linux_amd64.tar.gz
-          sudo mv zrok2 /usr/local/bin/
+          curl -sSf https://get.openziti.io/install.bash | sudo bash -s zrok2
           zrok2 version
 
-      - name: Start zrok Tunnel for SSH
+      - name: Start zrok2 Tunnel for SSH
         env:
           ZROK_TOKEN: ${{ secrets.ZROK_TOKEN }}
         run: |
