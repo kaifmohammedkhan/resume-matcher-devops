@@ -25,9 +25,14 @@ jobs:
 
           echo "root:debugpassword123" | sudo chpasswd
 
-          sudo sed -i \
-            's/^#\?PermitRootLogin .*/PermitRootLogin yes/' \
-            /etc/ssh/sshd_config
+          # Enable root login and password authentication
+          sudo sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin yes/' /etc/ssh/sshd_config
+          sudo sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+
+          # Override any modern Ubuntu sshd_config.d restrictions
+          sudo mkdir -p /etc/ssh/sshd_config.d
+          echo "PasswordAuthentication yes" | sudo tee /etc/ssh/sshd_config.d/99-auth.conf
+          echo "PermitRootLogin yes" | sudo tee -a /etc/ssh/sshd_config.d/99-auth.conf
 
           sudo systemctl restart ssh
 
