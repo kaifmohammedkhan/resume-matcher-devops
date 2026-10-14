@@ -1,6 +1,10 @@
 name: Interactive Zrok Debug (6 Hours Max)
 
 on:
+  push:
+    branches:
+      - pre-main
+      - main
   workflow_dispatch:
 
 jobs:
