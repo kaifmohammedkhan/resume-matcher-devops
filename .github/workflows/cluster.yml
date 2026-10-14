@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - pre-main
-      - main
   workflow_dispatch:
 
 jobs:
@@ -32,9 +31,13 @@ jobs:
 
           sudo systemctl restart ssh
 
-          echo "SSH server status:"
+          echo "============================================================"
+          echo "                    SSH SERVER"
+          echo "============================================================"
+
           sudo systemctl --no-pager status ssh || true
 
+          echo
           echo "SSH listening ports:"
           sudo ss -tlnp | grep ':22 ' || true
 
@@ -44,6 +47,10 @@ jobs:
           set -euo pipefail
 
           curl -sSf https://get.openziti.io/install.bash | sudo bash -s zrok2
+
+          echo "============================================================"
+          echo "                    ZROK2 VERSION"
+          echo "============================================================"
 
           command -v zrok2
           zrok2 version
@@ -64,12 +71,18 @@ jobs:
 
           echo "zrok2 account successfully enabled."
 
-      - name: Start zrok2 Tunnel for SSH
+      - name: Start zrok2 SSH Tunnel
         shell: bash
         run: |
           set -euo pipefail
 
-          zrok2 share public --backend-mode tcp 22 > /tmp/zrok2-share.log 2>&1 &
+          echo "============================================================"
+          echo "              STARTING ZROK2 SSH TUNNEL"
+          echo "============================================================"
+
+          zrok2 share public \
+            --backend-mode proxy \
+            22 > /tmp/zrok2-share.log 2>&1 &
 
           ZROK_PID=$!
 
@@ -77,19 +90,22 @@ jobs:
 
           sleep 10
 
+          echo
           echo "============================================================"
-          echo "             ZROK2 TUNNEL INFORMATION"
+          echo "              ZROK2 TUNNEL INFORMATION"
           echo "============================================================"
 
           cat /tmp/zrok2-share.log
+
+          echo
+          echo "============================================================"
 
           if ! kill -0 "${ZROK_PID}" 2>/dev/null; then
             echo "ERROR: zrok2 tunnel process terminated."
             exit 1
           fi
 
-          echo "============================================================"
-          echo "Tunnel is active."
+          echo "zrok2 tunnel is active."
           echo "Keeping runner alive for the full 6-hour limit..."
           echo "============================================================"
 
