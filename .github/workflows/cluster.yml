@@ -77,12 +77,10 @@ jobs:
           set -euo pipefail
 
           echo "============================================================"
-          echo "              STARTING ZROK2 SSH TUNNEL"
+          echo "             STARTING ZROK2 SSH TUNNEL"
           echo "============================================================"
 
-          zrok2 share public \
-            --backend-mode proxy \
-            22 > /tmp/zrok2-share.log 2>&1 &
+          script -q -c "zrok2 share public --backend-mode proxy localhost:22" /dev/null > /tmp/zrok2-share.log 2>&1 &
 
           ZROK_PID=$!
 
@@ -92,7 +90,7 @@ jobs:
 
           echo
           echo "============================================================"
-          echo "              ZROK2 TUNNEL INFORMATION"
+          echo "             ZROK2 TUNNEL INFORMATION"
           echo "============================================================"
 
           cat /tmp/zrok2-share.log
