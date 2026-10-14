@@ -13,23 +13,80 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configure SSH Server
+        shell: bash
         run: |
-          sudo apt-get update && sudo apt-get install -y openssh-server
+          set -euo pipefail
+
+          sudo apt-get update
+          sudo apt-get install -y openssh-server
+
           echo "root:debugpassword123" | sudo chpasswd
-          sudo sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
+
+          sudo sed -i \
+            's/^#\?PermitRootLogin .*/PermitRootLogin yes/' \
+            /etc/ssh/sshd_config
+
           sudo systemctl restart ssh
 
+          echo "SSH server status:"
+          sudo systemctl --no-pager status ssh || true
+
+          echo "SSH listening ports:"
+          sudo ss -tlnp | grep ':22 ' || true
+
       - name: Install zrok2 CLI
+        shell: bash
         run: |
+          set -euo pipefail
+
           curl -sSf https://get.openziti.io/install.bash | sudo bash -s zrok2
+
+          command -v zrok2
           zrok2 version
 
-      - name: Start zrok2 Tunnel for SSH
+      - name: Enable zrok2
+        shell: bash
         env:
           ZROK_TOKEN: ${{ secrets.ZROK_TOKEN }}
         run: |
-          zrok2 enable ${ZROK_TOKEN}
-          zrok2 share public --backend-mode tcp 22 &
-          
-          echo "Tunnel is active. Keeping runner alive for the full 6-hour limit..."
+          set -euo pipefail
+
+          if [ -z "${ZROK_TOKEN}" ]; then
+            echo "ERROR: ZROK_TOKEN secret is empty or unavailable."
+            exit 1
+          fi
+
+          zrok2 enable "${ZROK_TOKEN}"
+
+          echo "zrok2 account successfully enabled."
+
+      - name: Start zrok2 Tunnel for SSH
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          zrok2 share public --backend-mode tcp 22 > /tmp/zrok2-share.log 2>&1 &
+
+          ZROK_PID=$!
+
+          echo "zrok2 process started with PID: ${ZROK_PID}"
+
+          sleep 10
+
+          echo "============================================================"
+          echo "             ZROK2 TUNNEL INFORMATION"
+          echo "============================================================"
+
+          cat /tmp/zrok2-share.log
+
+          if ! kill -0 "${ZROK_PID}" 2>/dev/null; then
+            echo "ERROR: zrok2 tunnel process terminated."
+            exit 1
+          fi
+
+          echo "============================================================"
+          echo "Tunnel is active."
+          echo "Keeping runner alive for the full 6-hour limit..."
+          echo "============================================================"
+
           sleep 21600
