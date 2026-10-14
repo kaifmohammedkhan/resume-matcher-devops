@@ -1,0 +1,38 @@
+name: Interactive Zrok Debug (6 Hours Max)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  debug:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360 # Extends the job limit to GitHub's maximum 6-hour threshold
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Configure SSH Server
+        run: |
+          sudo apt-get update && sudo apt-get install -y openssh-server
+          echo "root:debugpassword123" | sudo chpasswd
+          sudo sed -i 's/#PermitRootLogin prohibit-password/PermitRootLogin yes/' /etc/ssh/sshd_config
+          sudo systemctl restart ssh
+
+      - name: Install zrok CLI
+        run: |
+          sh -c "$(curl -sSL https://get.zrok.io)" || {
+            curl -sLO https://github.com/openziti/zrok/releases/latest/download/zrok_linux_amd64.tar.gz
+            tar -xzf zrok_linux_amd64.tar.gz
+            sudo mv zrok /usr/local/bin/
+          }
+
+      - name: Start zrok Tunnel for SSH
+        env:
+          ZROK_TOKEN: ${{ secrets.ZROK_TOKEN }}
+        run: |
+          zrok enable ${ZROK_TOKEN}
+          zrok share public --backend-mode tcp 22 &
+          
+          echo "Tunnel is active. Keeping runner alive for the full 6-hour limit..."
+          sleep 21600
