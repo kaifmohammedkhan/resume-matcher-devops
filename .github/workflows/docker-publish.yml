@@ -943,6 +943,47 @@ jobs:
           persist-credentials: true   # Updated from false to true for git authentication
 
       # ==========================================================
+      # LOAD STAGE 1 IMAGE DIGEST FOR GITOPS UPDATE
+      # ==========================================================
+
+      - name: Load Stage 1 Image Digest for GitOps Update
+        if: success()
+        uses: actions/download-artifact@v6
+        with:
+          name: docker-build-push-report
+          path: reports/docker-build
+
+      - name: Validate Stage 1 Image Digest for GitOps Update
+        if: success()
+        run: |
+          set -e
+
+          test -s reports/docker-build/image-metadata.txt
+
+          IMAGE_DIGEST="$(sed -n 's/^IMAGE_DIGEST=//p' reports/docker-build/image-metadata.txt | head -n 1)"
+
+          if [ -z "$IMAGE_DIGEST" ] || [ "$IMAGE_DIGEST" = "unknown" ]; then
+            echo "ERROR: Immutable image digest was not recorded by Stage 1."
+            exit 1
+          fi
+
+          case "$IMAGE_DIGEST" in
+            sha256:*) ;;
+            *)
+              echo "ERROR: Invalid image digest: $IMAGE_DIGEST"
+              exit 1
+              ;;
+          esac
+
+          echo "IMAGE_DIGEST=$IMAGE_DIGEST" >> "$GITHUB_ENV"
+
+          echo "=============================================="
+          echo "STAGE 1 IMMUTABLE DIGEST LOADED FOR GITOPS"
+          echo "=============================================="
+          echo "Digest: $IMAGE_DIGEST"
+
+
+      # ==========================================================
       # UPDATE KUBERNETES MANIFEST WITH IMAGE DIGEST (ARGO CD)
       # ==========================================================
 
@@ -958,7 +999,7 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
           # Path to your Kubernetes deployment manifest
-          MANIFEST_PATH="kubernetess/resume-matcher-ghcr.yaml"
+          MANIFEST_PATH="kubernetes/resume-matcher-ghcr.yaml"
 
           if [ ! -f "$MANIFEST_PATH" ]; then
             echo "ERROR: Manifest file not found at $MANIFEST_PATH"
@@ -2184,6 +2225,381 @@ jobs:
 
 
       # ==========================================================
+      # ENSURE GITOPS MANIFEST USES VERIFIED IMAGE DIGEST
+      # ==========================================================
+
+      - name: Ensure Kubernetes Manifest Uses Verified Image Digest
+        if: success()
+        run: |
+          set -e
+
+          MANIFEST_PATH="kubernetes/resume-matcher-ghcr.yaml"
+          EXPECTED_IMAGE="ghcr.io/${{ github.repository }}@$IMAGE_DIGEST"
+
+          if [ ! -f "$MANIFEST_PATH" ]; then
+            echo "ERROR: Manifest file not found at $MANIFEST_PATH"
+            exit 1
+          fi
+
+          sed -i "s|image: ghcr.io/kaifmohammedkhan/resume-matcher-devops[:@].*|image: $EXPECTED_IMAGE|g" "$MANIFEST_PATH"
+
+          if ! grep -Fq "image: $EXPECTED_IMAGE" "$MANIFEST_PATH"; then
+            echo "ERROR: Kubernetes manifest does not contain the verified immutable image digest."
+            exit 1
+          fi
+
+          if git diff --quiet -- "$MANIFEST_PATH"; then
+            echo "GitOps manifest already references the verified immutable digest."
+          else
+            git config --global user.name "github-actions[bot]"
+            git config --global user.email "github-actions[bot]@users.noreply.github.com"
+            git add "$MANIFEST_PATH"
+            git commit -m "ci(argocd): ensure verified image digest ${IMAGE_DIGEST} [skip ci]"
+            git push origin main
+            echo "GitOps manifest updated and pushed with verified digest."
+          fi
+
+          echo "GITOPS_EXPECTED_IMAGE=$EXPECTED_IMAGE" >> "$GITHUB_ENV"
+
+
+      # ==========================================================
+      # STAGE 3 — ARGO CD GITOPS DEPLOYMENT VERIFICATION
+      # ==========================================================
+
+      - name: Install Argo CD CLI
+        if: success()
+        run: |
+          set -e
+          curl -sSL -o /tmp/argocd https://github.com/argoproj/argo-cd/releases/latest/download/argocd-linux-amd64
+          install -m 0755 /tmp/argocd /usr/local/bin/argocd
+          argocd version --client
+
+      - name: Verify Argo CD Deployment and Immutable Image
+        if: success()
+        env:
+          ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
+          ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          REPORT_DIR="reports/argocd"
+          REPORT_PATH="$REPORT_DIR/argocd-deployment-report.html"
+          EVIDENCE_PATH="$REPORT_DIR/argocd-deployment-evidence.json"
+          mkdir -p "$REPORT_DIR"
+
+          : "${ARGOCD_SERVER:?ERROR: GitHub secret ARGOCD_SERVER is required for Argo CD verification.}"
+          : "${ARGOCD_AUTH_TOKEN:?ERROR: GitHub secret ARGOCD_AUTH_TOKEN is required for Argo CD verification.}"
+          : "${GITOPS_EXPECTED_IMAGE:?ERROR: Expected GitOps image reference is missing.}"
+
+          echo "=============================================="
+          echo "ARGO CD GITOPS DEPLOYMENT VERIFICATION"
+          echo "=============================================="
+          echo "Server        : $ARGOCD_SERVER"
+          echo "Expected image: $GITOPS_EXPECTED_IMAGE"
+          echo "Expected digest: $IMAGE_DIGEST"
+          echo "=============================================="
+
+          APP_LIST_JSON="$(mktemp)"
+          APP_JSON="$(mktemp)"
+          RESOURCE_JSON="$(mktemp)"
+          DEPLOYMENT_YAML="$(mktemp)"
+
+          trap 'rm -f "$APP_LIST_JSON" "$APP_JSON" "$RESOURCE_JSON" "$DEPLOYMENT_YAML"' EXIT
+
+          argocd app list \
+            --server "$ARGOCD_SERVER" \
+            --auth-token "$ARGOCD_AUTH_TOKEN" \
+            --grpc-web \
+            -o json > "$APP_LIST_JSON"
+
+          APP_NAME="$(jq -r --arg repo "https://github.com/${GITHUB_REPOSITORY}" '
+            [.[] | select(
+              ((.spec.source.repoURL // "") | contains($repo)) or
+              (any(.spec.sources[]?.repoURL?; contains($repo)))
+            ) | .metadata.name] | .[0] // ""
+          ' "$APP_LIST_JSON")"
+
+          if [ -z "$APP_NAME" ]; then
+            echo "ERROR: No Argo CD Application was found for repository $GITHUB_REPOSITORY"
+            exit 1
+          fi
+
+          echo "Argo CD Application: $APP_NAME"
+
+          argocd app get "$APP_NAME" \
+            --server "$ARGOCD_SERVER" \
+            --auth-token "$ARGOCD_AUTH_TOKEN" \
+            --grpc-web \
+            -o json > "$APP_JSON"
+
+          echo "Waiting for Argo CD to reconcile the GitOps change..."
+          argocd app wait "$APP_NAME" \
+            --server "$ARGOCD_SERVER" \
+            --auth-token "$ARGOCD_AUTH_TOKEN" \
+            --grpc-web \
+            --sync \
+            --health \
+            --timeout 600
+
+          argocd app get "$APP_NAME" \
+            --server "$ARGOCD_SERVER" \
+            --auth-token "$ARGOCD_AUTH_TOKEN" \
+            --grpc-web \
+            -o json > "$APP_JSON"
+
+          SYNC_STATUS="$(jq -r '.status.sync.status // "Unknown"' "$APP_JSON")"
+          HEALTH_STATUS="$(jq -r '.status.health.status // "Unknown"' "$APP_JSON")"
+          SYNC_REVISION="$(jq -r '.status.sync.revision // "Unknown"' "$APP_JSON")"
+          OPERATION_PHASE="$(jq -r '.status.operationState.phase // "Unknown"' "$APP_JSON")"
+          TARGET_REVISION="$(jq -r '.spec.source.targetRevision // .spec.sources[0].targetRevision // "Unknown"' "$APP_JSON")"
+          DEST_NAMESPACE="$(jq -r '.spec.destination.namespace // "Unknown"' "$APP_JSON")"
+
+          DEPLOYMENT_NAME="$(argocd app resources "$APP_NAME" \
+            --server "$ARGOCD_SERVER" \
+            --auth-token "$ARGOCD_AUTH_TOKEN" \
+            --grpc-web \
+            -o json | jq -r '
+              [.[] | select(.kind == "Deployment" and (.group // "apps") == "apps") | .name] | .[0] // ""
+            ')"
+
+          if [ -z "$DEPLOYMENT_NAME" ]; then
+            echo "ERROR: No apps/Deployment resource was found in Argo CD application $APP_NAME"
+            exit 1
+          fi
+
+          argocd app get-resource "$APP_NAME" \
+            --server "$ARGOCD_SERVER" \
+            --auth-token "$ARGOCD_AUTH_TOKEN" \
+            --grpc-web \
+            --group apps \
+            --kind Deployment \
+            --resource-name "$DEPLOYMENT_NAME" \
+            -o yaml > "$DEPLOYMENT_YAML"
+
+          LIVE_IMAGE="$(awk '/^[[:space:]]*image:[[:space:]]*/ {print $2; exit}' "$DEPLOYMENT_YAML")"
+
+          if [ -z "$LIVE_IMAGE" ]; then
+            echo "ERROR: Could not extract the live Deployment image from Argo CD."
+            exit 1
+          fi
+
+          LIVE_DIGEST="${LIVE_IMAGE##*@}"
+
+          if [[ "$LIVE_IMAGE" != *@sha256:* ]]; then
+            echo "ERROR: Live Deployment image is not pinned to an immutable digest: $LIVE_IMAGE"
+            exit 1
+          fi
+
+          if [ "$LIVE_IMAGE" != "$GITOPS_EXPECTED_IMAGE" ]; then
+            echo "ERROR: Live Deployment image does not match the verified GitOps image."
+            echo "Expected: $GITOPS_EXPECTED_IMAGE"
+            echo "Live    : $LIVE_IMAGE"
+            exit 1
+          fi
+
+          if [ "$LIVE_DIGEST" != "$IMAGE_DIGEST" ]; then
+            echo "ERROR: Live Deployment digest does not match the Stage 1 build digest."
+            echo "Expected: $IMAGE_DIGEST"
+            echo "Live    : $LIVE_DIGEST"
+            exit 1
+          fi
+
+          DESIRED_IMAGE="$(grep -E '^[[:space:]]*image:[[:space:]]*ghcr.io/' kubernetes/resume-matcher-ghcr.yaml | head -n 1 | awk '{print $2}')"
+          READY_REPLICAS="$(jq -r '.status.summary.images[]? // empty' "$APP_JSON" | grep -F "$GITOPS_EXPECTED_IMAGE" | head -n 1 || true)"
+
+          jq -n \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg branch "$GITHUB_REF_NAME" \
+            --arg commit "$GITHUB_SHA" \
+            --arg run "$GITHUB_RUN_NUMBER" \
+            --arg app "$APP_NAME" \
+            --arg server "$ARGOCD_SERVER" \
+            --arg targetRevision "$TARGET_REVISION" \
+            --arg syncRevision "$SYNC_REVISION" \
+            --arg syncStatus "$SYNC_STATUS" \
+            --arg healthStatus "$HEALTH_STATUS" \
+            --arg operationPhase "$OPERATION_PHASE" \
+            --arg namespace "$DEST_NAMESPACE" \
+            --arg deployment "$DEPLOYMENT_NAME" \
+            --arg expectedImage "$GITOPS_EXPECTED_IMAGE" \
+            --arg desiredImage "$DESIRED_IMAGE" \
+            --arg liveImage "$LIVE_IMAGE" \
+            --arg expectedDigest "$IMAGE_DIGEST" \
+            --arg liveDigest "$LIVE_DIGEST" \
+            --arg statusSummary "$READY_REPLICAS" \
+            '{
+              repository: $repository,
+              branch: $branch,
+              commit: $commit,
+              workflowRun: $run,
+              argoCD: {
+                server: $server,
+                application: $app,
+                targetRevision: $targetRevision,
+                syncRevision: $syncRevision,
+                syncStatus: $syncStatus,
+                healthStatus: $healthStatus,
+                operationPhase: $operationPhase,
+                namespace: $namespace
+              },
+              kubernetes: {
+                deployment: $deployment,
+                desiredManifestImage: $desiredImage,
+                liveDeploymentImage: $liveImage,
+                statusSummaryImage: $statusSummary
+              },
+              immutableImageVerification: {
+                expectedDigest: $expectedDigest,
+                liveDigest: $liveDigest,
+                digestMatch: ($expectedDigest == $liveDigest),
+                imageMatch: ($expectedImage == $liveImage),
+                result: "PASSED"
+              }
+            }' > "$EVIDENCE_PATH"
+
+          node --input-type=commonjs <<'NODE'
+          const fs = require("fs");
+
+          const evidence = JSON.parse(
+            fs.readFileSync("reports/argocd/argocd-deployment-evidence.json", "utf8")
+          );
+
+          function esc(value) {
+            return String(value ?? "N/A")
+              .replace(/&/g, "&amp;")
+              .replace(/</g, "&lt;")
+              .replace(/>/g, "&gt;")
+              .replace(/"/g, "&quot;")
+              .replace(/'/g, "&#039;");
+          }
+
+          const html = `<!doctype html>
+          <html lang="en">
+          <head>
+            <meta charset="utf-8">
+            <meta name="viewport" content="width=device-width,initial-scale=1">
+            <title>Argo CD GitOps Deployment Verification Report</title>
+            <style>
+              body { background:#07111f; color:#f8fafc; font-family:Arial,sans-serif; padding:28px; margin:0; }
+              .container { max-width:1100px; margin:auto; }
+              .panel { background:#0d1a2b; border:1px solid #263a56; border-radius:18px; padding:24px; margin-bottom:20px; }
+              h1 { font-size:28px; margin:0 0 10px; }
+              h2 { font-size:20px; margin:0 0 16px; }
+              .status { color:#34d399; font-size:17px; font-weight:bold; margin-bottom:16px; }
+              .meta { color:#a9b8cc; line-height:1.9; }
+              .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); gap:14px; }
+              .card { background:#102138; border:1px solid #263a56; border-radius:12px; padding:18px; }
+              .label { color:#8fa4bd; font-size:12px; text-transform:uppercase; letter-spacing:.05em; }
+              .value { margin-top:8px; font-size:18px; font-weight:bold; word-break:break-word; }
+              .success { color:#34d399; }
+              .small { color:#a9b8cc; font-size:13px; line-height:1.7; margin-top:10px; word-break:break-word; }
+              .digest { font-family:monospace; font-size:12px; word-break:break-all; background:#091525; padding:10px; border-radius:8px; margin-top:8px; }
+              .notice { background:#0b2035; border-left:4px solid #60a5fa; padding:16px; border-radius:8px; line-height:1.7; color:#cbd5e1; }
+              .chain { font-family:monospace; line-height:2; background:#091525; padding:18px; border-radius:10px; word-break:break-all; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="panel">
+                <h1>Argo CD GitOps Deployment Verification Report</h1>
+                <div class="status">✓ DEPLOYMENT VERIFICATION PASSED</div>
+                <div class="meta">
+                  Repository: ${esc(evidence.repository)}<br>
+                  Branch: ${esc(evidence.branch)}<br>
+                  Commit: ${esc(evidence.commit.substring(0, 7))}<br>
+                  Workflow Run: #${esc(evidence.workflowRun)}<br>
+                  Generated: ${esc(new Date().toISOString())}
+                </div>
+              </div>
+
+              <div class="panel">
+                <h2>Argo CD Application</h2>
+                <div class="grid">
+                  <div class="card"><div class="label">Application</div><div class="value">${esc(evidence.argoCD.application)}</div></div>
+                  <div class="card"><div class="label">Sync Status</div><div class="value success">✓ ${esc(evidence.argoCD.syncStatus)}</div></div>
+                  <div class="card"><div class="label">Health Status</div><div class="value success">✓ ${esc(evidence.argoCD.healthStatus)}</div></div>
+                  <div class="card"><div class="label">Operation</div><div class="value success">✓ ${esc(evidence.argoCD.operationPhase)}</div></div>
+                </div>
+                <div class="small">Target revision: ${esc(evidence.argoCD.targetRevision)}<br>Synced revision: ${esc(evidence.argoCD.syncRevision)}<br>Namespace: ${esc(evidence.argoCD.namespace)}</div>
+              </div>
+
+              <div class="panel">
+                <h2>Immutable Image Verification</h2>
+                <div class="grid">
+                  <div class="card"><div class="label">Build Digest</div><div class="digest">${esc(evidence.immutableImageVerification.expectedDigest)}</div></div>
+                  <div class="card"><div class="label">Live Deployment Digest</div><div class="digest">${esc(evidence.immutableImageVerification.liveDigest)}</div></div>
+                  <div class="card"><div class="label">Digest Match</div><div class="value success">✓ MATCH</div></div>
+                  <div class="card"><div class="label">Image Reference Match</div><div class="value success">✓ MATCH</div></div>
+                </div>
+              </div>
+
+              <div class="panel">
+                <h2>Kubernetes Deployment</h2>
+                <div class="grid">
+                  <div class="card"><div class="label">Deployment</div><div class="value">${esc(evidence.kubernetes.deployment)}</div></div>
+                  <div class="card"><div class="label">Desired Manifest Image</div><div class="small">${esc(evidence.kubernetes.desiredManifestImage)}</div></div>
+                  <div class="card"><div class="label">Live Deployment Image</div><div class="small">${esc(evidence.kubernetes.liveDeploymentImage)}</div></div>
+                  <div class="card"><div class="label">Argo CD Image Summary</div><div class="small">${esc(evidence.kubernetes.statusSummaryImage)}</div></div>
+                </div>
+              </div>
+
+              <div class="panel">
+                <h2>End-to-End Integrity Chain</h2>
+                <div class="chain">
+                  BUILD DIGEST<br>
+                  ${esc(evidence.immutableImageVerification.expectedDigest)}<br><br>
+                  ↓<br><br>
+                  GITOPS DESIRED IMAGE<br>
+                  ${esc(evidence.kubernetes.desiredManifestImage)}<br><br>
+                  ↓<br><br>
+                  ARGO CD<br>
+                  ${esc(evidence.argoCD.application)} — ${esc(evidence.argoCD.syncStatus)} / ${esc(evidence.argoCD.healthStatus)}<br><br>
+                  ↓<br><br>
+                  KUBERNETES LIVE DEPLOYMENT<br>
+                  ${esc(evidence.kubernetes.liveDeploymentImage)}<br><br>
+                  ↓<br><br>
+                  ✓ BUILD DIGEST == LIVE DEPLOYED DIGEST
+                </div>
+              </div>
+
+              <div class="panel">
+                <div class="notice">
+                  The deployment verification is anchored to the immutable SHA256 digest produced by the Docker build.
+                  The report confirms that Argo CD reached Synced/Healthy state and that the live Kubernetes Deployment
+                  references the exact same immutable image digest. The mutable <code>:latest</code> tag is not used for
+                  the deployment integrity comparison.
+                </div>
+              </div>
+            </div>
+          </body>
+          </html>`;
+
+          fs.writeFileSync(
+            "reports/argocd/argocd-deployment-report.html",
+            html
+          );
+
+          console.log("Argo CD deployment HTML report generated successfully.");
+          NODE
+
+          test -s "$REPORT_PATH"
+          test -s "$EVIDENCE_PATH"
+
+          echo "=============================================="
+          echo "ARGO CD DEPLOYMENT VERIFICATION PASSED"
+          echo "=============================================="
+          echo "Application       : $APP_NAME"
+          echo "Sync Status       : $SYNC_STATUS"
+          echo "Health Status     : $HEALTH_STATUS"
+          echo "Deployment        : $DEPLOYMENT_NAME"
+          echo "Expected Digest   : $IMAGE_DIGEST"
+          echo "Live Digest       : $LIVE_DIGEST"
+          echo "Digest Match      : YES"
+          echo "Report            : $REPORT_PATH"
+          echo "Evidence          : $EVIDENCE_PATH"
+
+
+      # ==========================================================
       # VERIFY EMAIL ATTACHMENT FILES
       # ==========================================================
 
@@ -2195,6 +2611,7 @@ jobs:
           test -s reports/docker/docker-security-report.html
           test -s reports/docker/docker-security-raw-evidence.zip
           test -s reports/docker-build/docker-build-push-report.html
+          test -s reports/argocd/argocd-deployment-report.html
 
           echo "=============================================="
           echo "EMAIL ATTACHMENTS VERIFIED"
@@ -2214,6 +2631,11 @@ jobs:
           echo "Raw security evidence:"
           ls -lh \
             reports/docker/docker-security-raw-evidence.zip
+
+          echo ""
+          echo "Argo CD deployment report:"
+          ls -lh \
+            reports/argocd/argocd-deployment-report.html
 
 
       # ==========================================================
@@ -2282,6 +2704,9 @@ jobs:
           const dockerBuildReportPath =
             "reports/docker-build/docker-build-push-report.html";
 
+          const argoCdReportPath =
+            "reports/argocd/argocd-deployment-report.html";
+
 
           // ======================================================
           // REQUIRED FILES
@@ -2293,7 +2718,9 @@ jobs:
 
             rawEvidenceZipPath,
 
-            dockerBuildReportPath
+            dockerBuildReportPath,
+
+            argoCdReportPath
 
           ];
 
@@ -2458,6 +2885,26 @@ jobs:
 
               </p>
 
+              <p>
+
+                <strong>
+                  Argo CD Deployment:
+                </strong>
+
+                ✓ Application reconciled to the verified immutable image digest
+
+              </p>
+
+              <p>
+
+                <strong>
+                  Kubernetes Deployment:
+                </strong>
+
+                ✓ Live Deployment image digest matches the build digest
+
+              </p>
+
               <hr>
 
               <h3>
@@ -2539,6 +2986,29 @@ jobs:
               <p>
 
                 <strong>
+                  Argo CD Deployment Report:
+                </strong>
+
+                ✓ Attached as
+
+                <code>
+                  argocd-deployment-report.html
+                </code>
+
+              </p>
+
+              <p>
+
+                The Argo CD report verifies GitOps reconciliation,
+                Argo CD sync/health status, the live Kubernetes
+                Deployment image reference, and the immutable digest
+                match against the verified build artifact.
+
+              </p>
+
+              <p>
+
+                <strong>
                   Production identity:
                 </strong>
 
@@ -2572,7 +3042,7 @@ jobs:
                 emailCc,
 
               subject:
-                "Docker Build, Push & Security Report",
+                "Docker Build, Security & Argo CD Deployment Report",
 
               html:
                 summaryHtml,
@@ -2604,6 +3074,15 @@ jobs:
                   path:
                     rawEvidenceZipPath
 
+                },
+
+                {
+                  filename:
+                    "argocd-deployment-report.html",
+
+                  path:
+                    argoCdReportPath
+
                 }
 
               ]
@@ -2616,11 +3095,11 @@ jobs:
             );
 
             console.log(
-              "Docker build and security email sent successfully."
+              "Docker build, security, and Argo CD deployment email sent successfully."
             );
 
             console.log(
-              "Total attachments: 3"
+              "Total attachments: 4"
             );
 
             console.log(
