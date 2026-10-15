@@ -177,7 +177,7 @@ metadata:
   namespace: default
 spec:
   selector:
-    app: resume-matcher
+    app: resume-matcher-ghcr
   ports:
     - name: http
       protocol: TCP
@@ -201,7 +201,7 @@ metadata:
 spec:
   selector:
     matchLabels:
-      app: resume-matcher
+      app: resume-matcher-ghcr
   namespaceSelector:
     matchNames:
       - default
