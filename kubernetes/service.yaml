@@ -91,16 +91,16 @@ kind: Deployment
 metadata:
   name: resume-matcher-ghcr
   labels:
-    app: resume-matcher-ghcr
+    app: resume-matcher-ghcr-ghcr
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: resume-matcher-ghcr
+      app: resume-matcher-ghcr-ghcr
   template:
     metadata:
       labels:
-        app: resume-matcher-ghcr
+        app: resume-matcher-ghcr-ghcr
     spec:
       imagePullSecrets:
         - name: ghcr-secret
@@ -177,7 +177,7 @@ metadata:
   namespace: default
 spec:
   selector:
-    app: resume-matcher-ghcr
+    app: resume-matcher-ghcr-ghcr
   ports:
     - name: http
       protocol: TCP
@@ -201,7 +201,7 @@ metadata:
 spec:
   selector:
     matchLabels:
-      app: resume-matcher-ghcr
+      app: resume-matcher-ghcr-ghcr
   namespaceSelector:
     matchNames:
       - default

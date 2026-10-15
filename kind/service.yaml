@@ -158,12 +158,12 @@ spec:
 
   selector:
     matchLabels:
-      app: resume-matcher
+      app: resume-matcher-ghcr
 
   template:
     metadata:
       labels:
-        app: resume-matcher
+        app: resume-matcher-ghcr
 
     spec:
       serviceAccountName: resume-matcher-sa
@@ -255,7 +255,7 @@ metadata:
   namespace: default
 spec:
   selector:
-    app: resume-matcher
+    app: resume-matcher-ghcr
 
   ports:
     - name: http
@@ -283,7 +283,7 @@ metadata:
 spec:
   selector:
     matchLabels:
-      app: resume-matcher
+      app: resume-matcher-ghcr
 
   namespaceSelector:
     matchNames:

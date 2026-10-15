@@ -28,10 +28,10 @@ metadata:
   name: resume-matcher-service
   namespace: default
   labels:
-    app: resume-matcher
+    app: resume-matcher-ghcr
 spec:
   selector:
-    app: resume-matcher
+    app: resume-matcher-ghcr
   ports:
     - name: http
       protocol: TCP

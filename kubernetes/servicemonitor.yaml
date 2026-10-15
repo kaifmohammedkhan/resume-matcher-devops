@@ -5,7 +5,7 @@ metadata:
 spec:
   selector:
     matchLabels:
-      app: resume-matcher
+      app: resume-matcher-ghcr
   endpoints:
     - port: http
       path: /metrics
