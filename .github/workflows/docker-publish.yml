@@ -916,8 +916,7 @@ jobs:
 
           NODE
 
-
-  # ==============================
+# ============================================================
   # STAGE 2 — SECURITY ENHANCEMENTS
   # ============================================================
 
@@ -927,7 +926,7 @@ jobs:
     runs-on: ubuntu-latest
 
     permissions:
-      contents: read
+      contents: write   # Updated from read to write to allow git push
       packages: write
       id-token: write
 
@@ -941,9 +940,48 @@ jobs:
         uses: actions/checkout@v5
         with:
           fetch-depth: 1
-          persist-credentials: false
+          persist-credentials: true   # Updated from false to true for git authentication
 
+      # ==========================================================
+      # UPDATE KUBERNETES MANIFEST WITH IMAGE DIGEST (ARGO CD)
+      # ==========================================================
 
+      - name: Update Kubernetes Manifest with Image Digest
+        if: success()
+        run: |
+          set -e
+
+          echo "Updating deployment manifest with digest: $IMAGE_DIGEST"
+
+          # Configure Git identity
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Path to your Kubernetes deployment manifest
+          MANIFEST_PATH="kubernetess/resume-matcher-ghcr.yaml"
+
+          if [ ! -f "$MANIFEST_PATH" ]; then
+            echo "ERROR: Manifest file not found at $MANIFEST_PATH"
+            exit 1
+          fi
+
+          # Replace old tag or digest with the new immutable sha256 digest
+          sed -i "s|image: ghcr.io/kaifmohammedkhan/resume-matcher-devops[:@].*|image: ghcr.io/kaifmohammedkhan/resume-matcher-devops@$IMAGE_DIGEST|g" "$MANIFEST_PATH"
+
+          # Check if changes were made
+          if git diff --quiet "$MANIFEST_PATH"; then
+            echo "No changes detected in manifest."
+            exit 0
+          fi
+
+          # Commit and push changes back to main branch
+          git add "$MANIFEST_PATH"
+          git commit -m "ci(argocd): update resume-matcher image digest to ${IMAGE_DIGEST} [skip ci]"
+          git push origin main
+
+          echo "=============================================="
+          echo "GIT MANIFEST UPDATED & PUSHED SUCCESSFULLY"
+          echo "=============================================="
       # ==========================================================
       # DOWNLOAD STAGE 1 BUILD REPORT
       # ==========================================================
