@@ -9,16 +9,16 @@ kind: Deployment
 metadata:
   name: resume-matcher-ghcr
   labels:
-    app: resume-matcher-ghcr-ghcr
+    app: resume-matcher-ghcr
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: resume-matcher-ghcr-ghcr
+      app: resume-matcher-ghcr
   template:
     metadata:
       labels:
-        app: resume-matcher-ghcr-ghcr
+        app: resume-matcher-ghcr
     spec:
       serviceAccountName: resume-matcher-sa
       automountServiceAccountToken: false
@@ -94,10 +94,10 @@ kind: Service
 metadata:
   name: resume-matcher-ghcr-service
   labels:
-    app: resume-matcher-ghcr-ghcr
+    app: resume-matcher-ghcr
 spec:
   selector:
-    app: resume-matcher-ghcr-ghcr
+    app: resume-matcher-ghcr
   ports:
     - name: http
       protocol: TCP

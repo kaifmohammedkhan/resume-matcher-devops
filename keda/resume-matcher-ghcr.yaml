@@ -9,16 +9,16 @@ kind: Deployment
 metadata:
   name: resume-matcher-ghcr
   labels:
-    app: resume-matcher-ghcr-ghcr
+    app: resume-matcher-ghcr
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: resume-matcher-ghcr-ghcr
+      app: resume-matcher-ghcr
   template:
     metadata:
       labels:
-        app: resume-matcher-ghcr-ghcr
+        app: resume-matcher-ghcr
     spec:
       serviceAccountName: resume-matcher-sa
       automountServiceAccountToken: false

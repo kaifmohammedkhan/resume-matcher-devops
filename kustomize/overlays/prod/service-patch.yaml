@@ -5,7 +5,7 @@ metadata:
 spec:
   type: LoadBalancer   # ✅ prod: external access via MetalLB
   selector:
-    app: resume-matcher-ghcr-ghcr
+    app: resume-matcher-ghcr
   ports:
     - name: http
       port: 3000

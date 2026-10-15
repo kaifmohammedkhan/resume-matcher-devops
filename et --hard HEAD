@@ -1,0 +1,328 @@
+[1mdiff --git a/EKS/resume-matcher-ghcr.yaml b/EKS/resume-matcher-ghcr.yaml[m
+[1mindex 57643c6..d6b0032 100644[m
+[1m--- a/EKS/resume-matcher-ghcr.yaml[m
+[1m+++ b/EKS/resume-matcher-ghcr.yaml[m
+[36m@@ -9,16 +9,16 @@[m [mkind: Deployment[m
+ metadata:[m
+   name: resume-matcher-ghcr[m
+   labels:[m
+[31m-    app: resume-matcher-ghcr-ghcr[m
+[32m+[m[32m    app: resume-matcher-ghcr-ghcr-ghcr[m
+ spec:[m
+   replicas: 2[m
+   selector:[m
+     matchLabels:[m
+[31m-      app: resume-matcher-ghcr-ghcr[m
+[32m+[m[32m      app: resume-matcher-ghcr-ghcr-ghcr[m
+   template:[m
+     metadata:[m
+       labels:[m
+[31m-        app: resume-matcher-ghcr-ghcr[m
+[32m+[m[32m        app: resume-matcher-ghcr-ghcr-ghcr[m
+     spec:[m
+       serviceAccountName: resume-matcher-sa[m
+       automountServiceAccountToken: false[m
+[1mdiff --git a/EKS/service.yaml b/EKS/service.yaml[m
+[1mindex b90a452..16cc157 100644[m
+[1m--- a/EKS/service.yaml[m
+[1m+++ b/EKS/service.yaml[m
+[36m@@ -27,10 +27,10 @@[m [mmetadata:[m
+   name: resume-matcher-service[m
+   namespace: default[m
+   labels:[m
+[31m-    app: resume-matcher-ghcr[m
+[32m+[m[32m    app: resume-matcher-ghcr-ghcr[m
+ spec:[m
+   selector:[m
+[31m-    app: resume-matcher-ghcr-ghcr   # ✅ Match Deployment label[m
+[32m+[m[32m    app: resume-matcher-ghcr-ghcr-ghcr   # ✅ Match Deployment label[m
+   ports:[m
+     - name: http[m
+       protocol: TCP[m
+[1mdiff --git a/keda/resume-matcher-ghcr.yaml b/keda/resume-matcher-ghcr.yaml[m
+[1mindex b091c02..08a1095 100644[m
+[1m--- a/keda/resume-matcher-ghcr.yaml[m
+[1m+++ b/keda/resume-matcher-ghcr.yaml[m
+[36m@@ -9,16 +9,16 @@[m [mkind: Deployment[m
+ metadata:[m
+   name: resume-matcher-ghcr[m
+   labels:[m
+[31m-    app: resume-matcher-ghcr-ghcr[m
+[32m+[m[32m    app: resume-matcher-ghcr-ghcr-ghcr[m
+ spec:[m
+   replicas: 1[m
+   selector:[m
+     matchLabels:[m
+[31m-      app: resume-matcher-ghcr-ghcr[m
+[32m+[m[32m      app: resume-matcher-ghcr-ghcr-ghcr[m
+   template:[m
+     metadata:[m
+       labels:[m
+[31m-        app: resume-matcher-ghcr-ghcr[m
+[32m+[m[32m        app: resume-matcher-ghcr-ghcr-ghcr[m
+     spec:[m
+       serviceAccountName: resume-matcher-sa[m
+       automountServiceAccountToken: false[m
+[1mdiff --git a/keda/service.yaml b/keda/service.yaml[m
+[1mindex 1829f48..a94f70f 100644[m
+[1m--- a/keda/service.yaml[m
+[1m+++ b/keda/service.yaml[m
+[36m@@ -28,10 +28,10 @@[m [mmetadata:[m
+   name: resume-matcher-service[m
+   namespace: default[m
+   labels:[m
+[31m-    app: resume-matcher-ghcr[m
+[32m+[m[32m    app: resume-matcher-ghcr-ghcr[m
+ spec:[m
+   selector:[m
+[31m-    app: resume-matcher-ghcr[m
+[32m+[m[32m    app: resume-matcher-ghcr-ghcr[m
+   ports:[m
+     - name: http[m
+       protocol: TCP[m
+[1mdiff --git a/kind/resume-matcher-ghcr.yaml b/kind/resume-matcher-ghcr.yaml[m
+[1mindex c78c4fc..ece5472 100644[m
+[1m--- a/kind/resume-matcher-ghcr.yaml[m
+[1m+++ b/kind/resume-matcher-ghcr.yaml[m
+[36m@@ -9,16 +9,16 @@[m [mkind: Deployment[m
+ metadata:[m
+   name: resume-matcher-ghcr[m
+   labels:[m
+[31m-    app: resume-matcher-ghcr-ghcr[m
+[32m+[m[32m    app: resume-matcher-ghcr-ghcr-ghcr[m
+ spec:[m
+   replicas: 2[m
+   selector:[m
+     matchLabels:[m
+[31m-      app: resume-matcher-ghcr-ghcr[m
+[32m+[m[32m      app: resume-matcher-ghcr-ghcr-ghcr[m
+   template:[m
+     metadata:[m
+       labels:[m
+[31m-        app: resume-matcher-ghcr-ghcr[m
+[32m+[m[32m        app: resume-matcher-ghcr-ghcr-ghcr[m
+     spec:[m
+       serviceAccountName: resume-matcher-sa[m
+       automountServiceAccountToken: false[m
+[36m@@ -94,10 +94,10 @@[m [mkind: Service[m
+ metadata:[m
+   name: resume-matcher-ghcr-service[m
+   labels:[m
+[31m-    app: resume-matcher-ghcr-ghcr[m
+[32m+[m[32m    app: resume-matcher-ghcr-ghcr-ghcr[m
+ spec:[m
+   selector:[m
+[31m-    app: resume-matcher-ghcr-ghcr[m
+[32m+[m[32m    app: resume-matcher-ghcr-ghcr-ghcr[m
+   ports:[m
+     - name: http[m
+       protocol: TCP[m
+[1mdiff --git a/kind/service.yaml b/kind/service.yaml[m
+[1mindex 16d3113..169c017 100644[m
+[1m--- a/kind/service.yaml[m
+[1m+++ b/kind/service.yaml[m
+[36m@@ -158,12 +158,12 @@[m [mspec:[m
+ [m
+   selector:[m
+     matchLabels:[m
+[31m-      app: resume-matcher-ghcr[m
+[32m+[m[32m      app: resume-matcher-ghcr-ghcr[m
+ [m
+   template:[m
+     metadata:[m
+       labels:[m
+[31m-        app: resume-matcher-ghcr[m
+[32m+[m[32m        app: resume-matcher-ghcr-ghcr[m
+ [m
+     spec:[m
+       serviceAccountName: resume-matcher-sa[m
+[36m@@ -255,7 +255,7 @@[m [mmetadata:[m
+   namespace: default[m
+ spec:[m
+   selector:[m
+[31m-    app: resume-matcher-ghcr[m
+[32m+[m[32m    app: resume-matcher-ghcr-ghcr[m
+ [m
+   ports:[m
+     - name: http[m
+[36m@@ -283,7 +283,7 @@[m [mmetadata:[m
+ spec:[m
+   selector:[m
+     matchLabels:[m
+[31m-      app: resume-matcher-ghcr[m
+[32m+[m[32m      app: resume-matcher-ghcr-ghcr[m
+ [m
+   namespaceSelector:[m
+     matchNames:[m
+[1mdiff --git a/kubernetes/resume-matcher-ghcr.yaml b/kubernetes/resume-matcher-ghcr.yaml[m
+[1mindex 7527c76..5bd236e 100644[m
+[1m--- a/kubernetes/resume-matcher-ghcr.yaml[m
+[1m+++ b/kubernetes/resume-matcher-ghcr.yaml[m
+[36m@@ -3,16 +3,16 @@[m [mkind: Deployment[m
+ metadata:[m
+   name: resume-matcher-ghcr[m
+   labels:[m
+[31m-    app: resume-matcher-ghcr-ghcr[m
+[32m+[m[32m    app: resume-matcher-ghcr-ghcr-ghcr[m
+ spec:[m
+   replicas: 2[m
+   selector:[m
+     matchLabels:[m
+[31m-      app: resume-matcher-ghcr-ghcr[m
+[32m+[m[32m      app: resume-matcher-ghcr-ghcr-ghcr[m
+   template:[m
+     metadata:[m
+       labels:[m
+[31m-        app: resume-matcher-ghcr-ghcr[m
+[32m+[m[32m        app: resume-matcher-ghcr-ghcr-ghcr[m
+     spec:[m
+       imagePullSecrets:[m
+         - name: ghcr-secret[m
+[1mdiff --git a/kubernetes/service.yaml b/kubernetes/service.yaml[m
+[1mindex af0b391..e0d39be 100644[m
+[1m--- a/kubernetes/service.yaml[m
+[1m+++ b/kubernetes/service.yaml[m
+[36m@@ -91,16 +91,16 @@[m [mkind: Deployment[m
+ metadata:[m
+   name: resume-matcher-ghcr[m
+   labels:[m
+[31m-    app: resume-matcher-ghcr-ghcr[m
+[32m+[m[32m    app: resume-matcher-ghcr-ghcr-ghcr[m
+ spec:[m
+   replicas: 2[m
+   selector:[m
+     matchLabels:[m
+[31m-      app: resume-matcher-ghcr-ghcr[m
+[32m+[m[32m      app: resume-matcher-ghcr-ghcr-ghcr[m
+   template:[m
+     metadata:[m
+       labels:[m
+[31m-        app: resume-matcher-ghcr-ghcr[m
+[32m+[m[32m        app: resume-matcher-ghcr-ghcr-ghcr[m
+     spec:[m
+       imagePullSecrets:[m
+         - name: ghcr-secret[m
+[36m@@ -177,7 +177,7 @@[m [mmetadata:[m
+   namespace: default[m
+ spec:[m
+   selector:[m
+[31m-    app: resume-matcher-ghcr-ghcr[m
+[32m+[m[32m    app: resume-matcher-ghcr-ghcr-ghcr[m
+   ports:[m
+     - name: http[m
+       protocol: TCP[m
+[36m@@ -201,7 +201,7 @@[m [mmetadata:[m
+ spec:[m
+   selector:[m
+     matchLabels:[m
+[31m-      app: resume-matcher-ghcr-ghcr[m
+[32m+[m[32m      app: resume-matcher-ghcr-ghcr-ghcr[m
+   namespaceSelector:[m
+     matchNames:[m
+       - default[m
+[1mdiff --git a/kubernetes/servicemonitor.yaml b/kubernetes/servicemonitor.yaml[m
+[1mindex 8b66661..92df163 100644[m
+[1m--- a/kubernetes/servicemonitor.yaml[m
+[1m+++ b/kubernetes/servicemonitor.yaml[m
+[36m@@ -5,7 +5,7 @@[m [mmetadata:[m
+ spec:[m
+   selector:[m
+     matchLabels:[m
+[31m-      app: resume-matcher-ghcr[m
+[32m+[m[32m      app: resume-matcher-ghcr-ghcr[m
+   endpoints:[m
+     - port: http[m
+       path: /metrics[m
+[1mdiff --git a/kustomize/base/resume-matcher-ghcr.yaml b/kustomize/base/resume-matcher-ghcr.yaml[m
+[1mindex 5f5a06f..39ea690 100644[m
+[1m--- a/kustomize/base/resume-matcher-ghcr.yaml[m
+[1m+++ b/kustomize/base/resume-matcher-ghcr.yaml[m
+[36m@@ -3,16 +3,16 @@[m [mkind: Deployment[m
+ metadata:[m
+   name: resume-matcher-ghcr[m
+   labels:[m
+[31m-    app: resume-matcher-ghcr-ghcr[m
+[32m+[m[32m    app: resume-matcher-ghcr-ghcr-ghcr[m
+ spec:[m
+   replicas: 2[m
+   selector:[m
+     matchLabels:[m
+[31m-      app: resume-matcher-ghcr-ghcr[m
+[32m+[m[32m      app: resume-matcher-ghcr-ghcr-ghcr[m
+   template:[m
+     metadata:[m
+       labels:[m
+[31m-        app: resume-matcher-ghcr-ghcr[m
+[32m+[m[32m        app: resume-matcher-ghcr-ghcr-ghcr[m
+     spec:[m
+       imagePullSecrets:[m
+         - name: ghcr-secret[m
+[1mdiff --git a/kustomize/base/service.yaml b/kustomize/base/service.yaml[m
+[1mindex 1829f48..a94f70f 100644[m
+[1m--- a/kustomize/base/service.yaml[m
+[1m+++ b/kustomize/base/service.yaml[m
+[36m@@ -28,10 +28,10 @@[m [mmetadata:[m
+   name: resume-matcher-service[m
+   namespace: default[m
+   labels:[m
+[31m-    app: resume-matcher-ghcr[m
+[32m+[m[32m    app: resume-matcher-ghcr-ghcr[m
+ spec:[m
+   selector:[m
+[31m-    app: resume-matcher-ghcr[m
+[32m+[m[32m    app: resume-matcher-ghcr-ghcr[m
+   ports:[m
+     - name: http[m
+       protocol: TCP[m
+[1mdiff --git a/kustomize/overlays/dev/kustomization.yaml b/kustomize/overlays/dev/kustomization.yaml[m
+[1mindex f6320a4..f62932d 100644[m
+[1m--- a/kustomize/overlays/dev/kustomization.yaml[m
+[1m+++ b/kustomize/overlays/dev/kustomization.yaml[m
+[36m@@ -16,7 +16,7 @@[m [mpatches:[m
+       - op: replace[m
+         path: /spec/selector[m
+         value:[m
+[31m-          app: resume-matcher-ghcr-ghcr[m
+[32m+[m[32m          app: resume-matcher-ghcr-ghcr-ghcr[m
+       - op: replace[m
+         path: /spec/ports[m
+         value:[m
+[1mdiff --git a/kustomize/overlays/dev/service-patch.yaml b/kustomize/overlays/dev/service-patch.yaml[m
+[1mindex d104579..529b1d9 100644[m
+[1m--- a/kustomize/overlays/dev/service-patch.yaml[m
+[1m+++ b/kustomize/overlays/dev/service-patch.yaml[m
+[36m@@ -4,7 +4,7 @@[m [mmetadata:[m
+   name: resume-matcher-service[m
+ spec:[m
+   selector:[m
+[31m-    app: resume-matcher-ghcr-ghcr[m
+[32m+[m[32m    app: resume-matcher-ghcr-ghcr-ghcr[m
+   type: ClusterIP[m
+   ports:[m
+     - name: http[m
+[1mdiff --git a/kustomize/overlays/prod/kustomization.yaml b/kustomize/overlays/prod/kustomization.yaml[m
+[1mindex fcf9421..10c09a3 100644[m
+[1m--- a/kustomize/overlays/prod/kustomization.yaml[m
+[1m+++ b/kustomize/overlays/prod/kustomization.yaml[m
+[36m@@ -16,7 +16,7 @@[m [mpatches:[m
+       - op: replace[m
+         path: /spec/selector[m
+         value:[m
+[31m-          app: resume-matcher-ghcr-ghcr[m
+[32m+[m[32m          app: resume-matcher-ghcr-ghcr-ghcr[m
+       - op: replace[m
+         path: /spec/ports[m
+         value:[m
+[1mdiff --git a/kustomize/overlays/prod/service-patch.yaml b/kustomize/overlays/prod/service-patch.yaml[m
+[1mindex 789557e..a091fb4 100644[m
+[1m--- a/kustomize/overlays/prod/service-patch.yaml[m
+[1m+++ b/kustomize/overlays/prod/service-patch.yaml[m
+[36m@@ -5,7 +5,7 @@[m [mmetadata:[m
+ spec:[m
+   type: LoadBalancer   # ✅ prod: external access via MetalLB[m
+   selector:[m
+[31m-    app: resume-matcher-ghcr-ghcr[m
+[32m+[m[32m    app: resume-matcher-ghcr-ghcr-ghcr[m
+   ports:[m
+     - name: http[m
+       port: 3000[m

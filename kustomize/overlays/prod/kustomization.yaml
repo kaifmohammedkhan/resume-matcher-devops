@@ -16,7 +16,7 @@ patches:
       - op: replace
         path: /spec/selector
         value:
-          app: resume-matcher-ghcr-ghcr
+          app: resume-matcher-ghcr
       - op: replace
         path: /spec/ports
         value:
