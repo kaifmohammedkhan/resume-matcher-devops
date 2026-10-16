@@ -2277,11 +2277,17 @@ jobs:
       - name: Verify Argo CD Deployment and Immutable Image
         if: success()
         env:
-          ARGOCD_SERVER: ${{ secrets.ARGOCD_SERVER }}
+          ARGOCD_SERVER: 127.0.0.1:8080
           ARGOCD_AUTH_TOKEN: ${{ secrets.ARGOCD_AUTH_TOKEN }}
         run: |
           set -euo pipefail
 
+          # Start port-forward in the background and ensure cleanup on exit
+          kubectl port-forward svc/argocd-server -n argocd 8080:443 &
+          PF_PID=$!
+          trap 'kill $PF_PID || true' EXIT
+          sleep 4
+          
           REPORT_DIR="reports/argocd"
           REPORT_PATH="$REPORT_DIR/argocd-deployment-report.html"
           EVIDENCE_PATH="$REPORT_DIR/argocd-deployment-evidence.json"
