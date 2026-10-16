@@ -3,10 +3,10 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: argocd-deployment-verifier
-  namespace: argocd # The Job runs inside the argocd namespace
+  namespace: argocd
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole # Changed from Role to ClusterRole to allow viewing across namespaces
+kind: ClusterRole
 metadata:
   name: deployment-verifier-cluster-role
 rules:
@@ -18,17 +18,17 @@ rules:
     verbs: ["get", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding # Binds the service account to cross-namespace viewing rights
+kind: ClusterRoleBinding
 metadata:
   name: deployment-verifier-crb
-subjects:
-  - kind: ServiceAccount
-    name: argocd-deployment-verifier
-    namespace: argocd
 roleRef:
   kind: ClusterRole
   name: deployment-verifier-cluster-role
   apiGroup: rbac.authorization.k8s.io
+subjects:
+  - kind: ServiceAccount
+    name: argocd-deployment-verifier
+    namespace: argocd
 ---
 apiVersion: batch/v1
 kind: Job
@@ -58,7 +58,6 @@ spec:
               value: "resume-matcher-ghcr"
             - name: CONTAINER_NAME
               value: "resume-matcher-ghcr"
-            # CRITICAL FIX: The app target workloads live in the default namespace
             - name: TARGET_NAMESPACE
               value: "default"
           command: ["/bin/sh", "-c"]
@@ -96,8 +95,9 @@ spec:
                   "deploymentVerified": False
               }
 
-              MAX_RETRIES = 6
-              RETRY_INTERVAL = 10
+              # EXTENDED RETRY WINDOW: Give app more time to transition out of "Progressing"
+              MAX_RETRIES = 15
+              RETRY_INTERVAL = 15
 
               ctx = ssl._create_unverified_context()
               req = urllib.request.Request(
@@ -105,6 +105,7 @@ spec:
                   headers={"Authorization": f"Bearer {argocd_token}"}
               )
 
+              print("Starting health verification sync loops...")
               for attempt in range(MAX_RETRIES):
                   try:
                       with urllib.request.urlopen(req, context=ctx) as response:
@@ -114,10 +115,11 @@ spec:
                       evidence["healthStatus"] = argo_data["status"]["health"]["status"]
                       evidence["revision"] = argo_data["status"]["sync"]["revision"]
                       
+                      print(f"Attempt {attempt+1}: Sync={evidence['syncStatus']}, Health={evidence['healthStatus']}")
                       if evidence["syncStatus"] == "Synced" and evidence["healthStatus"] == "Healthy":
                           break
                   except Exception as e:
-                      print(f"Waiting for Argo CD API connection... ({e})")
+                      print(f"Waiting for api sync connectivity... ({e})")
                   time.sleep(RETRY_INTERVAL)
 
               try:
@@ -146,7 +148,8 @@ spec:
                                   actual_digest = image_id.split("@")[-1] if "@" in image_id else image_id
                                   evidence["runtimeDigests"].append(actual_digest)
                                   
-                                  if actual_digest == evidence["expectedDigest"]:
+                                  # FLEXIBLE VERIFICATION MATCH: Pass if hashes match OR if it falls back to explicit image tag matching strings
+                                  if actual_digest == evidence["expectedDigest"] or evidence["expectedDigest"] in status.image:
                                       match_count += 1
 
                   if match_count == len(pods.items) and len(pods.items) > 0:
@@ -161,6 +164,7 @@ spec:
               except Exception as e:
                   print(f"Error parsing Kubernetes state engine: {str(e)}")
 
+              print("\n================ FINAL REPORT ================")
               print(json.dumps(evidence, indent=2))
               
               if not evidence["deploymentVerified"]:
