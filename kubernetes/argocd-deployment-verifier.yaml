@@ -3,13 +3,12 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: argocd-deployment-verifier
-  namespace: default
+  namespace: argocd # The Job runs inside the argocd namespace
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
+kind: ClusterRole # Changed from Role to ClusterRole to allow viewing across namespaces
 metadata:
-  name: deployment-verifier-role
-  namespace: default
+  name: deployment-verifier-cluster-role
 rules:
   - apiGroups: ["apps"]
     resources: ["deployments", "replicasets"]
@@ -19,26 +18,25 @@ rules:
     verbs: ["get", "list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
+kind: ClusterRoleBinding # Binds the service account to cross-namespace viewing rights
 metadata:
-  name: deployment-verifier-rb
-  namespace: default
+  name: deployment-verifier-crb
 subjects:
   - kind: ServiceAccount
     name: argocd-deployment-verifier
-    namespace: default
+    namespace: argocd
 roleRef:
-  kind: Role
-  name: deployment-verifier-role
+  kind: ClusterRole
+  name: deployment-verifier-cluster-role
   apiGroup: rbac.authorization.k8s.io
 ---
 apiVersion: batch/v1
 kind: Job
 metadata:
   name: argocd-deployment-verifier-job
-  namespace: default
+  namespace: argocd
 spec:
-  ttlSecondsAfterFinished: 600 # Automatically clean up the Job pod after 10 minutes
+  ttlSecondsAfterFinished: 600
   template:
     spec:
       serviceAccountName: argocd-deployment-verifier
@@ -47,7 +45,6 @@ spec:
         - name: verifier
           image: python:3.11-slim
           env:
-            # We fetch your internal read-only token from an Argo CD secret mapping
             - name: ARGOCD_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -61,6 +58,7 @@ spec:
               value: "resume-matcher-ghcr"
             - name: CONTAINER_NAME
               value: "resume-matcher-ghcr"
+            # CRITICAL FIX: The app target workloads live in the default namespace
             - name: TARGET_NAMESPACE
               value: "default"
           command: ["/bin/sh", "-c"]
@@ -74,7 +72,6 @@ spec:
               import time
               from kubernetes import client, config
 
-              # Initialize cluster configuration
               config.load_incluster_config()
               v1 = client.CoreV1Api()
               apps_v1 = client.AppsV1Api()
@@ -99,7 +96,6 @@ spec:
                   "deploymentVerified": False
               }
 
-              # Argo CD may take a brief moment to catch up to GitHub, give it a window to reconcile
               MAX_RETRIES = 6
               RETRY_INTERVAL = 10
 
@@ -130,7 +126,6 @@ spec:
                   evidence["desiredReplicas"] = dep.spec.replicas
                   evidence["readyReplicas"] = dep.status.ready_replicas if dep.status.ready_replicas else 0
 
-                  # Find the expected digest directly from your main deployment spec container mapping
                   expected_image = ""
                   for c in dep.spec.template.spec.containers:
                       if c.name == container_name:
@@ -157,7 +152,6 @@ spec:
                   if match_count == len(pods.items) and len(pods.items) > 0:
                       evidence["digestMatch"] = True
 
-                  # Evaluation metrics threshold match
                   if (evidence["syncStatus"] == "Synced" and 
                       evidence["healthStatus"] == "Healthy" and 
                       evidence["readyReplicas"] == evidence["desiredReplicas"] and 
@@ -167,7 +161,6 @@ spec:
               except Exception as e:
                   print(f"Error parsing Kubernetes state engine: {str(e)}")
 
-              # Print output payload for pod log capture structures
               print(json.dumps(evidence, indent=2))
               
               if not evidence["deploymentVerified"]:

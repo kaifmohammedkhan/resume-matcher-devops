@@ -30,7 +30,7 @@ kubectl create secret docker-registry ghcr-secret \
 # Create or update the Argo CD verifier token secret idempotently
 echo "Creating/updating Kubernetes secret 'argocd-verifier-token'..."
 kubectl create secret generic argocd-verifier-token \
-  --namespace=default \
+  --namespace=argocd \
   --from-literal=ARGOCD_AUTH_TOKEN="$ARGOCD_AUTH_TOKEN" \
   --dry-run=client -o yaml | kubectl apply -f -
 
