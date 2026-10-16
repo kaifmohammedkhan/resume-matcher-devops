@@ -35,6 +35,11 @@ kind: Job
 metadata:
   name: argocd-deployment-verifier-job
   namespace: argocd
+  annotations:
+    # Tells Argo CD to execute this automatically after the main sync finishes
+    argocd.argoproj.io/hook: PostSync
+    # Cleans up old invalid job objects automatically right before a new hook runs
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
 spec:
   ttlSecondsAfterFinished: 600
   template:
