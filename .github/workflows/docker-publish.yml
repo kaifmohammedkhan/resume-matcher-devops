@@ -958,7 +958,7 @@ jobs:
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
 
           # Path to your Kubernetes deployment manifest
-          MANIFEST_PATH="kubernetess/resume-matcher-ghcr.yaml"
+          MANIFEST_PATH="kubernetes/resume-matcher-ghcr.yaml"
 
           if [ ! -f "$MANIFEST_PATH" ]; then
             echo "ERROR: Manifest file not found at $MANIFEST_PATH"

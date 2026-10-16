@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-cm
+  namespace: argocd
+data:
+  # Registers the pipeline-verifier user and enables API key token generation
+  accounts.pipeline-verifier: apiKey
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: argocd-rbac-cm
+  namespace: argocd
+data:
+  # Grants the pipeline-verifier account read-only access to view application states
+  policy.csv: |
+    p, role:pipeline-verifier, applications, get, *, allow
+    g, pipeline-verifier, role:pipeline-verifier

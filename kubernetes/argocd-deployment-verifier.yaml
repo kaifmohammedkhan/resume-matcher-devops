@@ -1,0 +1,177 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: argocd-deployment-verifier
+  namespace: default
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: deployment-verifier-role
+  namespace: default
+rules:
+  - apiGroups: ["apps"]
+    resources: ["deployments", "replicasets"]
+    verbs: ["get", "list"]
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: deployment-verifier-rb
+  namespace: default
+subjects:
+  - kind: ServiceAccount
+    name: argocd-deployment-verifier
+    namespace: default
+roleRef:
+  kind: Role
+  name: deployment-verifier-role
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: argocd-deployment-verifier-job
+  namespace: default
+spec:
+  ttlSecondsAfterFinished: 600 # Automatically clean up the Job pod after 10 minutes
+  template:
+    spec:
+      serviceAccountName: argocd-deployment-verifier
+      restartPolicy: Never
+      containers:
+        - name: verifier
+          image: python:3.11-slim
+          env:
+            # We fetch your internal read-only token from an Argo CD secret mapping
+            - name: ARGOCD_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: argocd-verifier-token
+                  key: ARGOCD_AUTH_TOKEN
+            - name: ARGOCD_SERVER
+              value: "argocd-server.argocd.svc.cluster.local:443"
+            - name: APP_NAME
+              value: "resume-matcher"
+            - name: DEPLOYMENT_NAME
+              value: "resume-matcher-ghcr"
+            - name: CONTAINER_NAME
+              value: "resume-matcher-ghcr"
+            - name: TARGET_NAMESPACE
+              value: "default"
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              cat << 'EOF' > verify.py
+              import os
+              import json
+              import urllib.request
+              import ssl
+              import time
+              from kubernetes import client, config
+
+              # Initialize cluster configuration
+              config.load_incluster_config()
+              v1 = client.CoreV1Api()
+              apps_v1 = client.AppsV1Api()
+
+              app_name = os.getenv("APP_NAME")
+              dep_name = os.getenv("DEPLOYMENT_NAME")
+              container_name = os.getenv("CONTAINER_NAME")
+              namespace = os.getenv("TARGET_NAMESPACE")
+              argocd_token = os.getenv("ARGOCD_TOKEN")
+              argocd_server = os.getenv("ARGOCD_SERVER")
+
+              evidence = {
+                  "application": app_name,
+                  "syncStatus": "Unknown",
+                  "healthStatus": "Unknown",
+                  "revision": "Unknown",
+                  "expectedDigest": "Unknown",
+                  "runtimeDigests": [],
+                  "digestMatch": False,
+                  "readyReplicas": 0,
+                  "desiredReplicas": 0,
+                  "deploymentVerified": False
+              }
+
+              # Argo CD may take a brief moment to catch up to GitHub, give it a window to reconcile
+              MAX_RETRIES = 6
+              RETRY_INTERVAL = 10
+
+              ctx = ssl._create_unverified_context()
+              req = urllib.request.Request(
+                  f"https://{argocd_server}/api/v1/applications/{app_name}",
+                  headers={"Authorization": f"Bearer {argocd_token}"}
+              )
+
+              for attempt in range(MAX_RETRIES):
+                  try:
+                      with urllib.request.urlopen(req, context=ctx) as response:
+                          argo_data = json.loads(response.read().decode())
+                      
+                      evidence["syncStatus"] = argo_data["status"]["sync"]["status"]
+                      evidence["healthStatus"] = argo_data["status"]["health"]["status"]
+                      evidence["revision"] = argo_data["status"]["sync"]["revision"]
+                      
+                      if evidence["syncStatus"] == "Synced" and evidence["healthStatus"] == "Healthy":
+                          break
+                  except Exception as e:
+                      print(f"Waiting for Argo CD API connection... ({e})")
+                  time.sleep(RETRY_INTERVAL)
+
+              try:
+                  # --- CHECK B: Validate Deployment Manifest Scale ---
+                  dep = apps_v1.read_namespaced_deployment(name=dep_name, namespace=namespace)
+                  evidence["desiredReplicas"] = dep.spec.replicas
+                  evidence["readyReplicas"] = dep.status.ready_replicas if dep.status.ready_replicas else 0
+
+                  # Find the expected digest directly from your main deployment spec container mapping
+                  expected_image = ""
+                  for c in dep.spec.template.spec.containers:
+                      if c.name == container_name:
+                          expected_image = c.image
+                          break
+                  
+                  evidence["expectedDigest"] = expected_image.split("@")[-1] if "@" in expected_image else expected_image
+
+                  # --- CHECK C: Runtime Image Identity ---
+                  pods = v1.list_namespaced_pod(namespace=namespace, label_selector=f"app={dep_name}")
+                  match_count = 0
+                  
+                  for pod in pods.items:
+                      if pod.status.container_statuses:
+                          for status in pod.status.container_statuses:
+                              if status.name == container_name:
+                                  image_id = status.image_id
+                                  actual_digest = image_id.split("@")[-1] if "@" in image_id else image_id
+                                  evidence["runtimeDigests"].append(actual_digest)
+                                  
+                                  if actual_digest == evidence["expectedDigest"]:
+                                      match_count += 1
+
+                  if match_count == len(pods.items) and len(pods.items) > 0:
+                      evidence["digestMatch"] = True
+
+                  # Evaluation metrics threshold match
+                  if (evidence["syncStatus"] == "Synced" and 
+                      evidence["healthStatus"] == "Healthy" and 
+                      evidence["readyReplicas"] == evidence["desiredReplicas"] and 
+                      evidence["digestMatch"]):
+                      evidence["deploymentVerified"] = True
+
+              except Exception as e:
+                  print(f"Error parsing Kubernetes state engine: {str(e)}")
+
+              # Print output payload for pod log capture structures
+              print(json.dumps(evidence, indent=2))
+              
+              if not evidence["deploymentVerified"]:
+                  exit(1)
+              EOF
+              pip install --no-cache-dir kubernetes
+              python verify.py
