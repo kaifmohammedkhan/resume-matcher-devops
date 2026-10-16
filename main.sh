@@ -43,9 +43,14 @@ else
     git commit -m "DevSecOps GithubActions Docker Build"
 fi
 
-# 7. Sync with remote first (pull rebase) and push safely using force-with-lease
+# 7. Sync with remote first using standard merge semantics, then push safely
 echo "🚀 Syncing and pushing to remote..."
-git pull --rebase origin main || true
+git pull --no-rebase origin main --no-edit || {
+    echo "❌ Sync failed: Remote changes conflict with your local build commit."
+    echo "💡 Run 'git pull origin main' manually to fix conflicts, or use force push if you want to overwrite."
+    exit 1
+}
+
 git push -u origin main --force-with-lease
 
 echo "✅ All steps completed successfully and pipeline triggered!"
