@@ -34,11 +34,11 @@ kubectl create secret generic argocd-verifier-token \
   --from-literal=ARGOCD_AUTH_TOKEN="$ARGOCD_AUTH_TOKEN" \
   --dry-run=client -o yaml | kubectl apply -f -
 
-# Create or update the GitHub verification token secret idempotently from the .env file
+# Create or update the GitHub verification token secret idempotently using the isolated literal value
 echo "Creating/updating Kubernetes secret 'github-verifier-token'..."
 kubectl create secret generic github-verifier-token \
   --namespace=argocd \
-  --from-env-file=.env \
+  --from-literal=ARGO_GITHUB="$ARGO_GITHUB" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 echo "=============================================="
