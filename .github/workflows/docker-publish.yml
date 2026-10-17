@@ -958,7 +958,7 @@ jobs:
           git config --global user.email "github-actions[bot]@://github.com"
 
           # Path to your Kubernetes deployment manifest
-          MANIFEST_PATH="kubernetess/resume-matcher-ghcr.yaml"
+          MANIFEST_PATH="kubernetes/resume-matcher-ghcr.yaml"
 
           if [ ! -f "$MANIFEST_PATH" ]; then
             echo "ERROR: Manifest file not found at $MANIFEST_PATH"
@@ -970,7 +970,7 @@ jobs:
 
           # ─── UPDATE VERIFIER JOB MANIFEST WITH THE REAL COMMIT SHA ───
           # Path to your Argo CD Verifier Job file
-          VERIFIER_PATH="kubernetess/argocd-deployment-verifier-job.yaml"
+          VERIFIER_PATH="kubernetes/argocd-deployment-verifier-job.yaml"
           
           if [ -f "$VERIFIER_PATH" ]; then
             echo "Injecting target Commit SHA (${{ github.sha }}) into Verifier config..."
