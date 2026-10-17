@@ -1385,7 +1385,7 @@ jobs:
 
           # Commit and push changes back to main branch
           git commit -m "ci(argocd): update image digest to ${IMAGE_DIGEST} & inject commit verification hash [skip ci]"
-          git pull --rebase origin main
+          git pull --rebase --autostash origin main
           git push origin main
 
           echo "=============================================="
