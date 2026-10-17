@@ -943,57 +943,6 @@ jobs:
           persist-credentials: true   # Updated from false to true for git authentication
 
       # ==========================================================
-      # UPDATE KUBERNETES MANIFEST WITH IMAGE DIGEST & COMMIT SHA
-      # ==========================================================
-
-      - name: Update Kubernetes Manifest with Image Digest
-        if: success()
-        run: |
-          set -e
-
-          echo "Updating deployment manifest with digest: $IMAGE_DIGEST"
-
-          # Configure Git identity
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@://github.com"
-
-          # Path to your Kubernetes deployment manifest
-          MANIFEST_PATH="kubernetes/resume-matcher-ghcr.yaml"
-
-          if [ ! -f "$MANIFEST_PATH" ]; then
-            echo "ERROR: Manifest file not found at $MANIFEST_PATH"
-            exit 1
-          fi
-
-          # Replace old tag or digest with the new immutable sha256 digest
-          sed -i "s|image: ghcr.io/kaifmohammedkhan/resume-matcher-devops[:@].*|image: ghcr.io/kaifmohammedkhan/resume-matcher-devops@$IMAGE_DIGEST|g" "$MANIFEST_PATH"
-
-          # ─── UPDATE VERIFIER JOB MANIFEST WITH THE REAL COMMIT SHA ───
-          # Path to your Argo CD Verifier Job file
-          VERIFIER_PATH="kubernetes/argocd-deployment-verifier-job.yaml"
-          
-          if [ -f "$VERIFIER_PATH" ]; then
-            echo "Injecting target Commit SHA (${{ github.sha }}) into Verifier config..."
-            sed -i "s|COMMIT_SHA_PLACEHOLDER|${{ github.sha }}|g" "$VERIFIER_PATH"
-            git add "$VERIFIER_PATH"
-          else
-            echo "WARNING: Verifier manifest not found at $VERIFIER_PATH. Dynamic status updates might fail."
-          fi
-
-          # Check if changes were made across both manifests
-          if git diff --cached --quiet; then
-            echo "No changes detected in manifests."
-            exit 0
-          fi
-
-          # Commit and push changes back to main branch
-          git commit -m "ci(argocd): update image digest to ${IMAGE_DIGEST} & inject commit verification hash [skip ci]"
-          git push origin main
-
-          echo "=============================================="
-          echo "GIT MANIFESTS UPDATED & PUSHED SUCCESSFULLY"
-          echo "=============================================="
-      # ==========================================================
       # DOWNLOAD STAGE 1 BUILD REPORT
       # ==========================================================
 
@@ -1387,6 +1336,63 @@ jobs:
           echo "=============================================="
 
           ls -lh reports/docker/
+
+
+      # ==========================================================
+      # UPDATE KUBERNETES MANIFEST WITH IMAGE DIGEST & COMMIT SHA
+      # ==========================================================
+
+      - name: Update Kubernetes Manifest with Image Digest
+        if: success()
+        run: |
+          set -e
+
+          echo "Updating deployment manifest with digest: $IMAGE_DIGEST"
+
+          # Configure Git identity
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+          # Path to your Kubernetes deployment manifest
+          MANIFEST_PATH="kubernetes/resume-matcher-ghcr.yaml"
+
+          if [ ! -f "$MANIFEST_PATH" ]; then
+            echo "ERROR: Manifest file not found at $MANIFEST_PATH"
+            exit 1
+          fi
+
+          # Replace old tag or digest with the new immutable sha256 digest
+          sed -i "s|image: ghcr.io/kaifmohammedkhan/resume-matcher-devops[:@].*|image: ghcr.io/kaifmohammedkhan/resume-matcher-devops@$IMAGE_DIGEST|g" "$MANIFEST_PATH"
+          git add "$MANIFEST_PATH"
+
+          # ─── UPDATE VERIFIER JOB MANIFEST WITH THE REAL COMMIT SHA ───
+          # Path to your Argo CD Verifier Job file
+          VERIFIER_PATH="kubernetes/argocd-deployment-verifier-job.yaml"
+          
+          if [ -f "$VERIFIER_PATH" ]; then
+            echo "Injecting target Commit SHA (${{ github.sha }}) into Verifier config..."
+            sed -i "s|COMMIT_SHA_PLACEHOLDER|${{ github.sha }}|g" "$VERIFIER_PATH"
+            git add "$VERIFIER_PATH"
+          else
+            echo "WARNING: Verifier manifest not found at $VERIFIER_PATH. Dynamic status updates might fail."
+          fi
+
+          # Check if changes were made across both manifests
+          if git diff --cached --quiet; then
+            echo "No changes detected in manifests."
+            exit 0
+          fi
+
+          # Commit and push changes back to main branch
+          git commit -m "ci(argocd): update image digest to ${IMAGE_DIGEST} & inject commit verification hash [skip ci]"
+          git pull --rebase origin main
+          git push origin main
+
+          echo "=============================================="
+          echo "GIT MANIFESTS UPDATED & PUSHED SUCCESSFULLY"
+          echo "=============================================="
+
+
 
 
       # ==========================================================
