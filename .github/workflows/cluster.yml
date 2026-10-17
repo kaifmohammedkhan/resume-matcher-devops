@@ -72,7 +72,8 @@ jobs:
             exit 1
           fi
 
-          zrok2 enable "${ZROK_TOKEN}"
+          # Added --headless flag to bypass /dev/tty check in CI/CD
+          zrok2 enable "${ZROK_TOKEN}" --headless
 
           echo "zrok2 account successfully enabled."
 
@@ -82,10 +83,11 @@ jobs:
           set -euo pipefail
 
           echo "============================================================"
-          echo "             STARTING ZROK2 SSH TUNNEL"
+          echo "            STARTING ZROK2 SSH TUNNEL"
           echo "============================================================"
 
-          script -q -c "zrok2 share private --backend-mode tcpTunnel localhost:22" /dev/null > /tmp/zrok2-share.log 2>&1 &
+          # Added --headless flag here as well
+          script -q -c "zrok2 share private --backend-mode tcpTunnel localhost:22 --headless" /dev/null > /tmp/zrok2-share.log 2>&1 &
 
           ZROK_PID=$!
 
@@ -95,7 +97,7 @@ jobs:
 
           echo
           echo "============================================================"
-          echo "             ZROK2 TUNNEL INFORMATION"
+          echo "            ZROK2 TUNNEL INFORMATION"
           echo "============================================================"
 
           cat /tmp/zrok2-share.log
