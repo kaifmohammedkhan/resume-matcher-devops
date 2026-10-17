@@ -9,9 +9,9 @@ else
   exit 1
 fi
 
-# Validate required variables
-if [ -z "$USERNAME" ] || [ -z "$GITHUB_TOKEN" ] || [ -z "$ARGOCD_AUTH_TOKEN" ]; then
-  echo "Error: USERNAME, GITHUB_TOKEN, and ARGOCD_AUTH_TOKEN must be defined in the .env file."
+# Validate required variables (added ARGO_GITHUB validation since it is in your .env)
+if [ -z "$USERNAME" ] || [ -z "$GITHUB_TOKEN" ] || [ -z "$ARGOCD_AUTH_TOKEN" ] || [ -z "$ARGO_GITHUB" ]; then
+  echo "Error: USERNAME, GITHUB_TOKEN, ARGOCD_AUTH_TOKEN, and ARGO_GITHUB must be defined in the .env file."
   exit 1
 fi
 
@@ -32,6 +32,13 @@ echo "Creating/updating Kubernetes secret 'argocd-verifier-token'..."
 kubectl create secret generic argocd-verifier-token \
   --namespace=argocd \
   --from-literal=ARGOCD_AUTH_TOKEN="$ARGOCD_AUTH_TOKEN" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# Create or update the GitHub verification token secret idempotently from the .env file
+echo "Creating/updating Kubernetes secret 'github-verifier-token'..."
+kubectl create secret generic github-verifier-token \
+  --namespace=argocd \
+  --from-env-file=.env \
   --dry-run=client -o yaml | kubectl apply -f -
 
 echo "=============================================="

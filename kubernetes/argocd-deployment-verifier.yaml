@@ -1,60 +1,17 @@
----
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: argocd-deployment-verifier
-  namespace: argocd
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRole
-metadata:
-  name: deployment-verifier-cluster-role
-rules:
-  - apiGroups: ["apps"]
-    resources: ["deployments", "replicasets"]
-    verbs: ["get", "list"]
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["get", "list"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: ClusterRoleBinding
-metadata:
-  name: deployment-verifier-crb
-roleRef:
-  kind: ClusterRole
-  name: deployment-verifier-cluster-role
-  apiGroup: rbac.authorization.k8s.io
-subjects:
-  - kind: ServiceAccount
-    name: argocd-deployment-verifier
-    namespace: argocd
----
-apiVersion: batch/v1
-kind: Job
-metadata:
-  name: argocd-deployment-verifier-job
-  namespace: argocd
-  annotations:
-    # Tells Argo CD to execute this automatically after the main sync finishes
-    argocd.argoproj.io/hook: PostSync
-    # Cleans up old invalid job objects automatically right before a new hook runs
-    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
-spec:
-  ttlSecondsAfterFinished: 600
-  template:
-    spec:
-      serviceAccountName: argocd-deployment-verifier
-      restartPolicy: Never
-      containers:
-        - name: verifier
-          image: python:3.11-slim
           env:
             - name: ARGOCD_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: argocd-verifier-token
                   key: ARGOCD_AUTH_TOKEN
+            # ADD THESE TWO VARIABLES FOR GITHUB STATUS CHANNELS
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: github-verifier-token
+                  key: ARGO_GITHUB
+            - name: COMMIT_SHA
+              value: "COMMIT_SHA_PLACEHOLDER" # Replaced dynamically by GHA
             - name: ARGOCD_SERVER
               value: "argocd-server.argocd.svc.cluster.local:443"
             - name: APP_NAME
@@ -86,6 +43,8 @@ spec:
               namespace = os.getenv("TARGET_NAMESPACE")
               argocd_token = os.getenv("ARGOCD_TOKEN")
               argocd_server = os.getenv("ARGOCD_SERVER")
+              github_token = os.getenv("GITHUB_TOKEN")
+              commit_sha = os.getenv("COMMIT_SHA")
 
               evidence = {
                   "application": app_name,
@@ -100,7 +59,6 @@ spec:
                   "deploymentVerified": False
               }
 
-              # EXTENDED RETRY WINDOW: Give app more time to transition out of "Progressing"
               MAX_RETRIES = 15
               RETRY_INTERVAL = 15
 
@@ -128,7 +86,6 @@ spec:
                   time.sleep(RETRY_INTERVAL)
 
               try:
-                  # --- CHECK B: Validate Deployment Manifest Scale ---
                   dep = apps_v1.read_namespaced_deployment(name=dep_name, namespace=namespace)
                   evidence["desiredReplicas"] = dep.spec.replicas
                   evidence["readyReplicas"] = dep.status.ready_replicas if dep.status.ready_replicas else 0
@@ -141,7 +98,6 @@ spec:
                   
                   evidence["expectedDigest"] = expected_image.split("@")[-1] if "@" in expected_image else expected_image
 
-                  # --- CHECK C: Runtime Image Identity ---
                   pods = v1.list_namespaced_pod(namespace=namespace, label_selector=f"app={dep_name}")
                   match_count = 0
                   
@@ -153,7 +109,6 @@ spec:
                                   actual_digest = image_id.split("@")[-1] if "@" in image_id else image_id
                                   evidence["runtimeDigests"].append(actual_digest)
                                   
-                                  # FLEXIBLE VERIFICATION MATCH: Pass if hashes match OR if it falls back to explicit image tag matching strings
                                   if actual_digest == evidence["expectedDigest"] or evidence["expectedDigest"] in status.image:
                                       match_count += 1
 
@@ -171,6 +126,40 @@ spec:
 
               print("\n================ FINAL REPORT ================")
               print(json.dumps(evidence, indent=2))
+
+              # --- NEW FUNCTIONALITY: POST STATUS BACK TO GITHUB ---
+              if github_token and commit_sha and commit_sha != "COMMIT_SHA_PLACEHOLDER":
+                  state = "success" if evidence["deploymentVerified"] else "failure"
+                  description = f"Pods: {evidence['readyReplicas']}/{evidence['desiredReplicas']} healthy. Sync: {evidence['syncStatus']}."
+                  
+                  # Target repository hardcoded dynamically or configured via vars
+                  github_url = f"https://github.com{commit_sha}"
+                  
+                  status_payload = {
+                      "state": state,
+                      "description": description[:140], # GitHub limits descriptions to 140 chars
+                      "context": "ArgoCD/In-Cluster-Verifier"
+                  }
+                  
+                  print(f"Sending commit status '{state}' back to GitHub...")
+                  try:
+                      github_req = urllib.request.Request(
+                          github_url,
+                          data=json.dumps(status_payload).encode('utf-8'),
+                          headers={
+                              "Authorization": f"Bearer {github_token}",
+                              "Accept": "application/vnd.github+json",
+                              "Content-Type": "application/json"
+                          },
+                          method="POST"
+                      )
+                      # Utilizing the pre-existing unverified ssl context to prevent local proxy validation errors
+                      with urllib.request.urlopen(github_req, context=ctx) as gh_res:
+                          print("GitHub status successfully updated.")
+                  except Exception as gh_err:
+                      print(f"Failed to post status update to GitHub: {gh_err}")
+              else:
+                  print("Skipping status update: GITHUB_TOKEN or VALID COMMIT_SHA missing.")
               
               if not evidence["deploymentVerified"]:
                   exit(1)
