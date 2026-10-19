@@ -12,29 +12,45 @@ else
     STASHED=false
 fi
 
-# 2. Ensure you're on the main branch (forces creation/switch safely)
+# 2. Ensure you're on the main branch
 echo "🌿 Switching to 'main' branch..."
 git checkout -B main || git switch -C main
 
-# 3. Merge pre-main into main (strict branch merge semantics)
-echo "🔀 Merging 'pre-main' into 'main'..."
-git fetch origin pre-main || true
-git merge pre-main || {
-    echo "❌ Merge conflicts detected. Please resolve them manually."
-    exit 1
+# 3. Pull and sync with remote FIRST (prevents post-commit diverge conflicts)
+echo "📥 Syncing with origin/main..."
+git fetch origin main
+git merge origin/main --no-edit || {
+    echo "⚠️ Conflict detected during pull. Auto-resolving YAML manifest..."
+    git checkout --ours kubernetes/resume-matcher-ghcr.yaml || true
+    git add kubernetes/resume-matcher-ghcr.yaml
+    git commit -m "chore: auto-resolved pull conflict" || true
 }
 
-# 4. Bring your stashed changes back onto the main branch
+# 4. Merge pre-main into main
+echo "🔀 Merging 'pre-main' into 'main'..."
+git fetch origin pre-main || true
+git merge pre-main --no-edit || {
+    echo "⚠️ Conflict detected merging pre-main. Auto-resolving..."
+    git checkout --ours kubernetes/resume-matcher-ghcr.yaml || true
+    git add kubernetes/resume-matcher-ghcr.yaml
+    git commit -m "chore: auto-resolved pre-main conflict" || true
+}
+
+# 5. Bring your stashed changes back onto the main branch
 if [[ "$STASHED" = true ]]; then
     echo "📥 Bringing your local changes back..."
-    git stash pop --quiet || echo "⚠️ Stash pop had conflicts, please resolve them."
+    git stash pop --quiet || {
+        echo "⚠️ Stash pop had conflicts. Auto-resolving..."
+        git checkout --ours kubernetes/resume-matcher-ghcr.yaml || true
+        git add kubernetes/resume-matcher-ghcr.yaml
+    }
 fi
 
-# 5. Stage all changes
+# 6. Stage all changes
 echo "📦 Staging changes..."
 git add .
 
-# 6. Commit changes (forces an empty commit if no files changed to guarantee pipeline trigger)
+# 7. Commit changes (forces an empty commit if no files changed to guarantee pipeline trigger)
 echo "💾 Committing changes..."
 if git diff-index --quiet HEAD --; then
     echo "ℹ️ No code changes detected. Forcing empty commit to trigger pipeline..."
@@ -43,14 +59,8 @@ else
     git commit -m "DevSecOps GithubActions Docker Build"
 fi
 
-# 7. Sync with remote first using standard merge semantics, then push safely
-echo "🚀 Syncing and pushing to remote..."
-git pull --no-rebase origin main --no-edit || {
-    echo "❌ Sync failed: Remote changes conflict with your local build commit."
-    echo "💡 Run 'git pull origin main' manually to fix conflicts, or use force push if you want to overwrite."
-    exit 1
-}
-
+# 8. Push safely to remote (sync is already done, so this is a clean fast-forward/force-with-lease)
+echo "🚀 Pushing to remote..."
 git push -u origin main --force-with-lease
 
 echo "✅ All steps completed successfully and pipeline triggered!"

@@ -19,7 +19,11 @@ git checkout -B pre-main || git switch -C pre-main
 # 3. Bring your stashed changes back onto the branch
 if [[ "$STASHED" = true ]]; then
     echo "📥 Applying your local changes back..."
-    git stash pop --quiet || echo "⚠️ Stash pop had conflicts, please resolve them."
+    git stash pop --quiet || {
+        echo "⚠️ Stash pop had conflicts. Auto-resolving..."
+        git checkout --ours . || true
+        git add .
+    }
 fi
 
 # 4. Stage any current file changes
