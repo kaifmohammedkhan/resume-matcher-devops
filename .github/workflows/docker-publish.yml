@@ -6,6 +6,12 @@ on:
       - main
   workflow_dispatch:
 
+# Serialize production manifest promotion so concurrent main runs cannot
+# race while updating and pushing the GitOps manifest.
+concurrency:
+  group: resume-matcher-main-deployment
+  cancel-in-progress: false
+
 jobs:
 
   # ============================================================
@@ -1339,61 +1345,75 @@ jobs:
 
 
       # ==========================================================
-      # UPDATE KUBERNETES MANIFEST WITH IMAGE DIGEST & COMMIT SHA
+      # PROMOTE VERIFIED IMMUTABLE IMAGE TO GITOPS MANIFEST (ARGO CD)
       # ==========================================================
+      # This is intentionally AFTER all signature, SBOM, attestation,
+      # and evidence verification steps. The digest was loaded from
+      # the Stage 1 artifact and is now available in this job via
+      # GITHUB_ENV. No manifest change is pushed before the security gate.
 
-      - name: Update Kubernetes Manifest with Image Digest
+      - name: Update Kubernetes Manifest with Verified Image Digest
         if: success()
         run: |
-          set -e
+          set -euo pipefail
 
-          echo "Updating deployment manifest with digest: $IMAGE_DIGEST"
+          if [ -z "${IMAGE_DIGEST:-}" ]; then
+            echo "ERROR: IMAGE_DIGEST is empty or unavailable."
+            exit 1
+          fi
 
-          # Configure Git identity
-          git config --global user.name "github-actions[bot]"
-          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          case "$IMAGE_DIGEST" in
+            sha256:*) ;;
+            *)
+              echo "ERROR: Invalid immutable image digest: $IMAGE_DIGEST"
+              exit 1
+              ;;
+          esac
 
-          # Path to your Kubernetes deployment manifest
-          MANIFEST_PATH="kubernetes/resume-matcher-ghcr.yaml"
+          echo "Promoting verified immutable image digest: $IMAGE_DIGEST"
+
+          # Configure Git identity locally for this repository only.
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          MANIFEST_PATH="kubernetess/resume-matcher-ghcr.yaml"
+          IMAGE_REPOSITORY="ghcr.io/kaifmohammedkhan/resume-matcher-devops"
 
           if [ ! -f "$MANIFEST_PATH" ]; then
             echo "ERROR: Manifest file not found at $MANIFEST_PATH"
             exit 1
           fi
 
-          # Replace old tag or digest with the new immutable sha256 digest
-          sed -i "s|image: ghcr.io/kaifmohammedkhan/resume-matcher-devops[:@].*|image: ghcr.io/kaifmohammedkhan/resume-matcher-devops@$IMAGE_DIGEST|g" "$MANIFEST_PATH"
-          git add "$MANIFEST_PATH"
+          # Replace only the application image reference and pin it to the
+          # exact immutable digest that passed the security verification gate.
+          sed -i "s|image: $IMAGE_REPOSITORY[:@].*|image: $IMAGE_REPOSITORY@$IMAGE_DIGEST|g" "$MANIFEST_PATH"
 
-          # ─── UPDATE VERIFIER JOB MANIFEST WITH THE REAL COMMIT SHA ───
-          # Path to your Argo CD Verifier Job file
-          VERIFIER_PATH="kubernetes/argocd-deployment-verifier-job.yaml"
-          
-          if [ -f "$VERIFIER_PATH" ]; then
-            echo "Injecting target Commit SHA (${{ github.sha }}) into Verifier config..."
-            sed -i "s|COMMIT_SHA_PLACEHOLDER|${{ github.sha }}|g" "$VERIFIER_PATH"
-            git add "$VERIFIER_PATH"
-          else
-            echo "WARNING: Verifier manifest not found at $VERIFIER_PATH. Dynamic status updates might fail."
+          # Fail closed if the expected image reference was not updated.
+          EXPECTED_IMAGE="image: $IMAGE_REPOSITORY@$IMAGE_DIGEST"
+          if ! grep -Fq "$EXPECTED_IMAGE" "$MANIFEST_PATH"; then
+            echo "ERROR: Kubernetes manifest does not contain the expected immutable image reference."
+            echo "Expected: $EXPECTED_IMAGE"
+            exit 1
           fi
 
-          # Check if changes were made across both manifests
-          if git diff --cached --quiet; then
-            echo "No changes detected in manifests."
+          # Show the exact manifest change for auditability.
+          git diff -- "$MANIFEST_PATH"
+
+          if git diff --quiet -- "$MANIFEST_PATH"; then
+            echo "No manifest changes detected; GitOps manifest already references this digest."
             exit 0
           fi
 
-          # Commit and push changes back to main branch
-          git commit -m "ci(argocd): update image digest to ${IMAGE_DIGEST} & inject commit verification hash [skip ci]"
-          git pull --rebase --autostash origin main
+          git add "$MANIFEST_PATH"
+          git commit -m "ci(argocd): update resume-matcher image digest to ${IMAGE_DIGEST} [skip ci]"
           git push origin main
 
           echo "=============================================="
-          echo "GIT MANIFESTS UPDATED & PUSHED SUCCESSFULLY"
+          echo "VERIFIED GITOPS MANIFEST UPDATED & PUSHED"
           echo "=============================================="
-
-
-
+          echo "Manifest : $MANIFEST_PATH"
+          echo "Image    : $EXPECTED_IMAGE"
+          echo "=============================================="
 
       # ==========================================================
       # CREATE RAW SECURITY EVIDENCE ZIP
