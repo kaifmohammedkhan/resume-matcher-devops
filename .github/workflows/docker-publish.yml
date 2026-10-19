@@ -1376,7 +1376,7 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
-          MANIFEST_PATH="kubernetes/resume-matcher-ghcr.yaml"
+          MANIFEST_PATH="kubernetes/resume-matcher-ghcr.yaml kubernetes/service.yaml"
           IMAGE_REPOSITORY="ghcr.io/kaifmohammedkhan/resume-matcher-devops"
 
           if [ ! -f "$MANIFEST_PATH" ]; then
