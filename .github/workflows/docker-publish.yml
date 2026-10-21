@@ -1378,7 +1378,6 @@ jobs:
 
           MANIFEST_PATH=(
             "kubernetes/resume-matcher-ghcr.yaml"
-            "kubernetes/service.yaml"
           )
           IMAGE_REPOSITORY="ghcr.io/kaifmohammedkhan/resume-matcher-devops"
 
