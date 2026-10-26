@@ -69,65 +69,39 @@ jobs:
         run: |
           set -euo pipefail
 
-          ZROK_VERSION="v2.0.8"
+          ZROK_VERSION="2.0.8"
 
           echo "============================================================"
-          echo "              INSTALLING ZROK2 ${ZROK_VERSION}"
+          echo "              INSTALLING ZROK2 v${ZROK_VERSION}"
           echo "============================================================"
-
-          RELEASE_API="https://github.com{ZROK_VERSION}"
-
-          # Note: If rate limits cause failure here, consider using your token or static releases
-          curl -fsSL \
-            -H "Accept: application/vnd.github+json" \
-            "${RELEASE_API}" \
-            -o /tmp/zrok-release.json
-
-          ASSET_URL="$(
-            jq -r '
-              .assets[]
-              | select(
-                  (.name | test("linux.*amd64|amd64.*linux"; "i"))
-                  and
-                  (.name | test("\\.(tar\\.gz|tgz|zip)$"; "i"))
-                )
-              | .browser_download_url
-            ' /tmp/zrok-release.json |
-            head -n 1
-          )"
-
-          if [ -z "${ASSET_URL}" ] || [ "${ASSET_URL}" = "null" ]; then
-            exit 1
-          fi
 
           rm -rf /tmp/zrok2-install
           mkdir -p /tmp/zrok2-install
           cd /tmp/zrok2-install
 
-          curl -fL --retry 5 --retry-delay 3 -o zrok2-package "${ASSET_URL}"
+          echo "Downloading static release binary asset..."
+          # Direct download path bypasses GitHub API lookups and rate limits entirely
+          curl -fL --retry 5 --retry-delay 5 \
+            -o zrok2.tar.gz \
+            "https://github.com{ZROK_VERSION}/zrok2_${ZROK_VERSION}_linux_amd64.tar.gz"
 
-          case "${ASSET_URL}" in
-            *.tar.gz|*.tgz)
-              tar -xzf zrok2-package
-              ;;
-            *.zip)
-              sudo apt-get update && sudo apt-get install -y unzip
-              unzip -o zrok2-package
-              ;;
-            *)
-              exit 1
-              ;;
-          esac
+          echo "Extracting binary..."
+          tar -xzf zrok2.tar.gz
 
           ZROK_BINARY="$(find . -type f -name 'zrok2' -print -quit)"
           if [ -z "${ZROK_BINARY}" ]; then
+            echo "ERROR: Executable zrok2 binary not found in archive."
             exit 1
           fi
 
           sudo install -o root -g root -m 0755 "${ZROK_BINARY}" /usr/local/bin/zrok2
           sudo ln -sf /usr/local/bin/zrok2 /usr/local/bin/zrok
 
+          cd ~
+          rm -rf /tmp/zrok2-install
           hash -r
+          
+          echo "Verification:"
           zrok2 version
 
       - name: Purge Stale Ghost Environments First
