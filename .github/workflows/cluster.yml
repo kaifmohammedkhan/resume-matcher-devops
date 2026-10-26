@@ -82,6 +82,9 @@ jobs:
           }
           trap cleanup EXIT INT TERM
 
+          echo "Setting zrok2 API endpoint to https://api-v1.zrok.io..."
+          script -q -c "zrok2 config set apiEndpoint https://api-v1.zrok.io" /dev/null
+
           echo "Enabling zrok2..."
           script -q -c "zrok2 enable ${ZROK_TOKEN}" /dev/null
           echo "zrok2 account successfully enabled."
