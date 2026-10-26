@@ -46,7 +46,7 @@ jobs:
           echo "SSH listening ports:"
           sudo ss -tlnp | grep ':22 ' || true
 
-      - name: Install zrok v2 CLI
+      - name: Install zrok CLI
         shell: bash
         run: |
           set -euo pipefail
@@ -57,8 +57,8 @@ jobs:
           echo "                    ZROK VERSION"
           echo "============================================================"
 
-          command -v zrok2 || command -v zrok
-          zrok2 version || zrok version
+          command -v zrok
+          zrok version
 
       - name: Purge Stale Ghost Environments First
         shell: bash
@@ -76,17 +76,17 @@ jobs:
           echo "      PRE-START CLEANUP: PURGING STALE GHOST ENVIRONMENTS"
           echo "============================================================"
           
-          # Configure endpoint and temporarily enable local authentication context to run the list/delete query
-          script -q -c "zrok2 config set apiEndpoint https://api-v1.zrok.io" /dev/null || script -q -c "zrok config set apiEndpoint https://api-v1.zrok.io" /dev/null
-          script -q -c "zrok2 enable ${ZROK_TOKEN}" /dev/null || script -q -c "zrok enable ${ZROK_TOKEN}" /dev/null
+          # Set endpoint and authorize to pull the account context
+          script -q -c "zrok config set apiEndpoint https://api-v1.zrok.io" /dev/null
+          script -q -c "zrok enable ${ZROK_TOKEN}" /dev/null
 
           echo "Scanning and deleting matched runner profiles..."
-          zrok2 list environments --json | \
+          zrok list environments --json | \
           jq -r '.[] | select(.description | test("DESKTOP-PQUITOR\\\\DELL@DESKTOP-PQUITOR|runner@")) | .token' | \
-          xargs -I {} zrok2 delete environment {} || true
+          xargs -I {} zrok delete environment {} || true
           
-          # Clean local state file so the next step can run fresh
-          script -q -c "zrok2 disable" /dev/null || script -q -c "zrok disable" /dev/null || true
+          # Tear down local state so the next step triggers a fresh registration
+          script -q -c "zrok disable" /dev/null
           echo "Pre-cleanup finished successfully."
 
       - name: Enable and Run zrok SSH Tunnel with Auto-Cleanup
@@ -101,28 +101,28 @@ jobs:
             exit 1
           fi
 
-          # Post-run cleanup trap: ensures this specific environment closes gracefully at exit
+          # Post-run graceful close
           cleanup() {
             echo
             echo "============================================================"
             echo "          DISABLING CURRENT ZROK ENVIRONMENT ON EXIT"
             echo "============================================================"
-            script -q -c "zrok2 disable" /dev/null || script -q -c "zrok disable" /dev/null || true
+            script -q -c "zrok disable" /dev/null || true
           }
           trap cleanup EXIT INT TERM
 
           echo "Setting zrok API endpoint..."
-          script -q -c "zrok2 config set apiEndpoint https://api-v1.zrok.io" /dev/null || script -q -c "zrok config set apiEndpoint https://api-v1.zrok.io" /dev/null
+          script -q -c "zrok config set apiEndpoint https://api-v1.zrok.io" /dev/null
 
           echo "Enabling fresh zrok instance..."
-          script -q -c "zrok2 enable ${ZROK_TOKEN}" /dev/null || script -q -c "zrok enable ${ZROK_TOKEN}" /dev/null
+          script -q -c "zrok enable ${ZROK_TOKEN}" /dev/null
           echo "zrok account successfully enabled."
 
           echo "============================================================"
           echo "            STARTING ZROK SSH TUNNEL"
           echo "============================================================"
 
-          script -q -c "zrok2 share private --backend-mode tcpTunnel localhost:22" /dev/null > /tmp/zrok-share.log 2>&1 &
+          script -q -c "zrok share private --backend-mode tcpTunnel localhost:22" /dev/null > /tmp/zrok-share.log 2>&1 &
           ZROK_PID=$!
 
           echo "zrok process started with PID: ${ZROK_PID}"
