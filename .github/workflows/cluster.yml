@@ -40,6 +40,7 @@ jobs:
             's/^#\?PasswordAuthentication .*/PasswordAuthentication yes/' \
             /etc/ssh/sshd_config
 
+          # Patching missing runtime directory context for Ubuntu OpenSSH setups
           sudo mkdir -p /etc/ssh/sshd_config.d /run/sshd
 
           sudo tee /etc/ssh/sshd_config.d/99-zrok-debug.conf > /dev/null <<'EOF'
@@ -64,45 +65,30 @@ jobs:
           echo "SSH listening ports:"
           sudo ss -tlnp | grep ':22 ' || true
 
-      - name: Install zrok2 from Official GitHub Release
+      - name: Install zrok2 CLI via Package Manager
         shell: bash
         run: |
           set -euo pipefail
 
-          ZROK_VERSION="2.0.8"
-
           echo "============================================================"
-          echo "              INSTALLING ZROK2 v${ZROK_VERSION}"
+          echo "              INSTALLING OFFICIAL ZROK PACKAGE"
           echo "============================================================"
 
-          rm -rf /tmp/zrok2-install
-          mkdir -p /tmp/zrok2-install
-          cd /tmp/zrok2-install
+          # The installer core script expects 'zrok' to map package dependencies correctly
+          curl -sSf https://get.openziti.io/install.bash | sudo bash -s zrok
 
-          echo "Downloading static release binary asset..."
-          # Direct download path bypasses GitHub API lookups and rate limits entirely
-          curl -fL --retry 5 --retry-delay 5 \
-            -o zrok2.tar.gz \
-            "https://github.com{ZROK_VERSION}/zrok2_${ZROK_VERSION}_linux_amd64.tar.gz"
+          # Force bash to register new binary paths
+          hash -r
 
-          echo "Extracting binary..."
-          tar -xzf zrok2.tar.gz
-
-          ZROK_BINARY="$(find . -type f -name 'zrok2' -print -quit)"
-          if [ -z "${ZROK_BINARY}" ]; then
-            echo "ERROR: Executable zrok2 binary not found in archive."
-            exit 1
+          # Create system wide structural alias for zrok2 compatibility layer
+          if command -v zrok >/dev/null 2>&1; then
+            sudo ln -sf $(which zrok) /usr/local/bin/zrok2
           fi
 
-          sudo install -o root -g root -m 0755 "${ZROK_BINARY}" /usr/local/bin/zrok2
-          sudo ln -sf /usr/local/bin/zrok2 /usr/local/bin/zrok
-
-          cd ~
-          rm -rf /tmp/zrok2-install
           hash -r
-          
+
           echo "Verification:"
-          zrok2 version
+          zrok2 version || zrok version
 
       - name: Purge Stale Ghost Environments First
         shell: bash
@@ -120,16 +106,16 @@ jobs:
           echo "      PRE-START CLEANUP: PURGING STALE GHOST ENVIRONMENTS"
           echo "============================================================"
 
-          zrok2 config set apiEndpoint "https://zrok.io"
-          zrok2 enable "${ZROK2_ENABLE_TOKEN}"
+          zrok2 config set apiEndpoint "https://zrok.io" || zrok config set apiEndpoint "https://zrok.io"
+          zrok2 enable "${ZROK2_ENABLE_TOKEN}" || zrok enable "${ZROK2_ENABLE_TOKEN}"
 
           echo "Scanning and deleting matched runner profiles..."
-          zrok2 list environments --json | \
+          (zrok2 list environments --json || zrok list environments --json) | \
           jq -r '.[] | select(.description | test("DESKTOP-PQUITOR\\\\DELL@DESKTOP-PQUITOR|runner@")) | .token' | \
-          xargs -I {} zrok2 delete environment {} || true
+          xargs -I {} sh -c 'zrok2 delete environment {} || zrok delete environment {}' || true
 
           # Wipe local token state so the next configuration step runs fresh
-          zrok2 disable || true
+          zrok2 disable || zrok disable || true
           echo "Pre-cleanup finished successfully."
 
       - name: Configure zrok2
@@ -150,9 +136,9 @@ jobs:
           echo "                  CONFIGURING ZROK2"
           echo "============================================================"
 
-          zrok2 config set apiEndpoint "${ZROK2_API_ENDPOINT}"
-          zrok2 enable "${ZROK2_ENABLE_TOKEN}"
-          zrok2 status || true
+          zrok2 config set apiEndpoint "${ZROK2_API_ENDPOINT}" || zrok config set apiEndpoint "${ZROK2_API_ENDPOINT}"
+          zrok2 enable "${ZROK2_ENABLE_TOKEN}" || zrok enable "${ZROK2_ENABLE_TOKEN}"
+          zrok2 status || zrok status || true
 
       - name: Validate SSH Locally
         shell: bash
@@ -194,4 +180,6 @@ jobs:
 
           if command -v zrok2 >/dev/null 2>&1; then
             zrok2 disable || true
+          elif command -v zrok >/dev/null 2>&1; then
+            zrok disable || true
           fi
