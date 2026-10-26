@@ -21,7 +21,7 @@ jobs:
           set -euo pipefail
 
           sudo apt-get update
-          sudo apt-get install -y openssh-server jq wget
+          sudo apt-get install -y openssh-server jq
 
           echo "root:debugpassword123" | sudo chpasswd
 
@@ -55,11 +55,11 @@ jobs:
           mkdir -p ~/zrok_staging
           cd ~/zrok_staging
           
-          # Force wget to track secure SSL redirects explicitly to capture the physical binary asset
-          wget --no-check-certificate --trust-server-names https://github.com
+          # Use curl with explicit location tracking and output target flags
+          curl -sSfL -o zrok.tar.gz "https://github.com"
           
           echo "Extracting binary..."
-          tar -xf zrok_0.4.42_linux_amd64.tar.gz
+          tar -xf zrok.tar.gz
 
           echo "Registering zrok binary globally..."
           sudo install -o root -g root ./zrok /usr/local/bin/zrok
