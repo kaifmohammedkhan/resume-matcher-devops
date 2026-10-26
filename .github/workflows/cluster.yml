@@ -52,7 +52,7 @@ jobs:
           set -euo pipefail
 
           # Passing 'zrok' to the core OpenZiti install script maps dependencies accurately
-          curl -sSf https://get.openziti.io/install.bash | sudo bash -s zrok
+          curl -sSf https://openziti.io | sudo bash -s zrok
           sudo apt-get install -y zrok
           
           hash -r
@@ -72,8 +72,6 @@ jobs:
         shell: bash
         env:
           ZROK_TOKEN: ${{ secrets.ZROK_TOKEN }}
-          ZROK_API_ENDPOINT: https://zrok.io
-          ZROK2_API_ENDPOINT: https://zrok.io
         run: |
           set -euo pipefail
 
@@ -85,6 +83,9 @@ jobs:
           echo "============================================================"
           echo "      PRE-START CLEANUP: PURGING STALE GHOST ENVIRONMENTS"
           echo "============================================================"
+
+          # Seed the correct API target endpoint into the active runtime profile configuration
+          zrok2 config set apiEndpoint https://api-v1.zrok.io
 
           # Authorize the target account context to sweep matching ghosts
           zrok2 enable "${ZROK_TOKEN}"
@@ -109,6 +110,9 @@ jobs:
             echo "ERROR: ZROK_TOKEN secret is empty or unavailable."
             exit 1
           fi
+
+          # Re-apply the API configuration target for the clean workspace profile configuration context
+          zrok2 config set apiEndpoint https://api-v1.zrok.io
 
           zrok2 enable "${ZROK_TOKEN}"
 
