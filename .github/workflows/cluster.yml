@@ -51,14 +51,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "Downloading static release archive..."
-          # Download using an absolute target into a clean specific staging directory
+          echo "Downloading static release binary from OpenZiti distribution core..."
           mkdir -p ~/zrok_staging
           cd ~/zrok_staging
           
-          # Fetch the verified archive format asset directly
-          curl -sSfL "https://github.com" | tar --extract --file -
-          
+          # Fetch official linux binary mirror package directly
+          wget -q https://openziti.io
+          tar -xf zrok-v0.4.42-linux-amd64.tar.gz
+
           echo "Registering zrok binary globally..."
           sudo install -o root -g root ./zrok /usr/local/bin/zrok
           
