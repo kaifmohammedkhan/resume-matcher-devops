@@ -55,8 +55,9 @@ jobs:
           # Download directly into home directory to guarantee standard write access
           curl -sSfL -o ~/zrok.tar.gz https://github.com
           
-          echo "Extracting archive..."
-          tar -xzf ~/zrok.tar.gz -C ~/
+          echo "Extracting archive with auto-compression detection..."
+          # Removed the -z flag to let tar parse xz/gzip formats automatically
+          tar -xf ~/zrok.tar.gz -C ~/
 
           echo "Registering zrok binary globally..."
           sudo install -o root -g root ~/zrok /usr/local/bin/zrok
