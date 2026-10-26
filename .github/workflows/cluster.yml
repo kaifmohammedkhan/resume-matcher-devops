@@ -21,7 +21,7 @@ jobs:
           set -euo pipefail
 
           sudo apt-get update
-          sudo apt-get install -y openssh-server jq
+          sudo apt-get install -y openssh-server jq ca-certificates curl gnupg
 
           echo "root:debugpassword123" | sudo chpasswd
 
@@ -55,11 +55,16 @@ jobs:
           echo "              INSTALLING OFFICIAL ZROK PACKAGE"
           echo "============================================================"
 
-          # Add the package repository setup mirror context securely
-          curl -sSf https://openziti.io | sudo bash -s zrok
+          # Manually download and register the official OpenZiti signing key [1]
+          sudo mkdir -p /usr/share/keyrings
+          curl -fsSL https://openziti.io | sudo gpg --dearmor -o /usr/share/keyrings/openziti.gpg
+          sudo chmod a+r /usr/share/keyrings/openziti.gpg
 
-          # Force an absolute repository cache update to ensure the newly added zrok sources are active
-          sudo apt-get update -o Dir::Etc::sourcelist="sources.list.d/openziti-release.list" -o Dir::Etc::sourceparts="-" -o APK::Get::List-Cleanup="0" || sudo apt-get update
+          # Directly pin the stable debian package mirror mapping to avoid installation blockages [1]
+          echo "deb [signed-by=/usr/share/keyrings/openziti.gpg] https://openziti.org debian main" | sudo tee /etc/apt/sources.list.d/openziti-release.list
+
+          # Force a clean system package database sync
+          sudo apt-get update
           
           # Install the package explicitly
           sudo apt-get install -y zrok
