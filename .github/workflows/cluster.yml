@@ -21,7 +21,7 @@ jobs:
           set -euo pipefail
 
           sudo apt-get update
-          sudo apt-get install -y openssh-server jq
+          sudo apt-get install -y openssh-server jq wget
 
           echo "root:debugpassword123" | sudo chpasswd
 
@@ -46,8 +46,37 @@ jobs:
           echo "SSH listening ports:"
           sudo ss -tlnp | grep ':22 ' || true
 
-      - name: Setup zrok Environment Path Globally
-        uses: openziti/zrok-action@v1
+      - name: Install zrok CLI via Direct Binary
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "Downloading static release binary..."
+          mkdir -p ~/zrok_staging
+          cd ~/zrok_staging
+          
+          # Download using wget to get follow-redirect structures cleanly
+          wget -q https://github.com
+          
+          echo "Extracting binary..."
+          tar -xf zrok_0.4.42_linux_amd64.tar.gz
+
+          echo "Registering zrok binary globally..."
+          sudo install -o root -g root ./zrok /usr/local/bin/zrok
+          
+          # Create symlink alias to safeguard zrok2 commands in subsequent steps
+          sudo ln -sf /usr/local/bin/zrok /usr/local/bin/zrok2
+          
+          # Clean up staging paths safely
+          cd ~
+          rm -rf ~/zrok_staging
+          
+          hash -r
+
+          echo "============================================================"
+          echo "                    ZROK INSTALLED"
+          echo "============================================================"
+          zrok version
 
       - name: Purge Stale Ghost Environments First
         shell: bash
@@ -65,8 +94,6 @@ jobs:
           echo "      PRE-START CLEANUP: PURGING STALE GHOST ENVIRONMENTS"
           echo "============================================================"
           
-          # Enforce path aliasing for v1 compatibility layer
-          sudo ln -sf $(which zrok) /usr/local/bin/zrok2 || true
           hash -r
 
           # Configure v1 endpoint and activate current context
