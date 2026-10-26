@@ -30,7 +30,7 @@ jobs:
           sudo sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication yes/' /etc/ssh/sshd_config
 
           # Override modern Ubuntu sshd_config.d restrictions
-          # and ensure sshd privilege-separation runtime directory exists.
+          # and ensure sshd runtime directory exists.
           sudo mkdir -p /etc/ssh/sshd_config.d /run/sshd
 
           echo "PasswordAuthentication yes" | \
@@ -67,88 +67,91 @@ jobs:
 
           hash -r
 
-          # Keep zrok2 command name used by this workflow.
+          # Keep the zrok2 command name used by this workflow.
           sudo ln -sf "$(command -v zrok)" /usr/local/bin/zrok2
 
           hash -r
 
           echo
           echo "============================================================"
-          echo "                    ZROK VERSION"
+          echo "                    ZROK2 VERSION"
           echo "============================================================"
 
           command -v zrok2
           zrok2 version
 
-          echo
-          echo "============================================================"
-          echo "                 CONFIGURING API ENDPOINT"
-          echo "============================================================"
-
-          # IMPORTANT:
-          # zrok.io is the service/UI endpoint, not the API endpoint
-          # expected by this CLI.
-          zrok2 config set apiEndpoint https://api-v1.zrok.io/
-
-          echo
-          echo "Configured zrok API endpoint:"
-          zrok2 config get apiEndpoint || true
-
-      - name: Purge Stale Ghost Environments First
+      - name: Configure zrok API Endpoint
         shell: bash
-        env:
-          ZROK_TOKEN: ${{ secrets.ZROK_TOKEN }}
         run: |
           set -euo pipefail
 
-          if [ -z "${ZROK_TOKEN}" ]; then
-            echo "ERROR: ZROK_TOKEN secret is empty or unavailable."
-            exit 1
-          fi
+          echo "============================================================"
+          echo "                 CONFIGURING ZROK API"
+          echo "============================================================"
 
-          echo "============================================================"
-          echo "      PRE-START CLEANUP: PURGING STALE GHOST ENVIRONMENTS"
-          echo "============================================================"
+          # IMPORTANT:
+          # https://zrok.io is not the API endpoint used by this CLI.
+          # Use the v1 API endpoint explicitly.
+          zrok2 config set apiEndpoint https://api-v1.zrok.io/
 
           echo
-          echo "Enabling zrok account against:"
+          echo "Configured API endpoint:"
+          zrok2 config get apiEndpoint
+
+      - name: Inspect zrok2 CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          echo "============================================================"
+          echo "                    ZROK2 CLI HELP"
+          echo "============================================================"
+
+          zrok2 --help
+
+          echo
+          echo "============================================================"
+          echo "                    ZROK2 LS HELP"
+          echo "============================================================"
+
+          zrok2 ls --help || true
+
+          echo
+          echo "============================================================"
+          echo "                 ZROK2 SHARE HELP"
+          echo "============================================================"
+
+          zrok2 share --help || true
+
+          echo
+          echo "============================================================"
+          echo "                 ZROK2 CONFIGURATION"
+          echo "============================================================"
+
           zrok2 config get apiEndpoint || true
 
-          zrok2 enable "${ZROK_TOKEN}"
+      - name: Pre-Start Cleanup
+        shell: bash
+        run: |
+          set -euo pipefail
 
-          echo
-          echo "Scanning and deleting matched runner environments..."
+          echo "============================================================"
+          echo "      PRE-START CLEANUP: LOCAL RUNNER STATE"
+          echo "============================================================"
 
-          if zrok2 list environments --json > /tmp/zrok-environments.json 2>/tmp/zrok-list-error.log; then
+          # Do NOT run `zrok2 enable` here.
+          #
+          # On GitHub Actions, enable can attempt to access /dev/tty.
+          # Account enablement is performed exactly once in the next step.
+          #
+          # Do NOT run:
+          #   zrok2 list environments
+          #
+          # That command does not exist in the installed CLI.
 
-            cat /tmp/zrok-environments.json
-
-            jq -r '
-              .[]
-              | select(
-                  (.description // "")
-                  | test("DESKTOP-PQUITOR\\\\DELL@DESKTOP-PQUITOR|runner@")
-                )
-              | .token
-            ' /tmp/zrok-environments.json |
-            while IFS= read -r environment_token; do
-              if [ -n "${environment_token}" ]; then
-                echo "Deleting stale environment: ${environment_token}"
-                zrok2 delete environment "${environment_token}" || true
-              fi
-            done
-
-          else
-            echo "WARNING: Unable to list environments."
-            cat /tmp/zrok-list-error.log || true
-            echo "Continuing because cleanup is best-effort."
-          fi
-
-          # Wipe local token state so the next enable is completely fresh.
-          zrok2 disable || true
-
-          echo
-          echo "Pre-cleanup finished successfully."
+          echo "No remote environment enumeration performed."
+          echo "No zrok account enablement performed."
+          echo "Cleanup stage completed."
 
       - name: Enable zrok2
         shell: bash
@@ -167,7 +170,7 @@ jobs:
           echo "============================================================"
 
           echo "API endpoint:"
-          zrok2 config get apiEndpoint || true
+          zrok2 config get apiEndpoint
 
           zrok2 enable "${ZROK_TOKEN}"
 
@@ -208,6 +211,9 @@ jobs:
 
           if ! kill -0 "${ZROK_PID}" 2>/dev/null; then
             echo "ERROR: zrok2 tunnel process terminated."
+            echo
+            echo "Full zrok2 log:"
+            cat /tmp/zrok2-share.log
             exit 1
           fi
 
