@@ -21,7 +21,7 @@ jobs:
           set -euo pipefail
 
           sudo apt-get update
-          sudo apt-get install -y openssh-server jq unzip
+          sudo apt-get install -y openssh-server jq
 
           echo "root:debugpassword123" | sudo chpasswd
 
@@ -52,20 +52,22 @@ jobs:
           set -euo pipefail
 
           echo "Downloading static release archive..."
-          # Using the official zip archive target to bypass gzip stream bugs entirely
-          wget -q --show-progress -O ~/zrok.zip https://github.com
+          # Download using an absolute target into a clean specific staging directory
+          mkdir -p ~/zrok_staging
+          cd ~/zrok_staging
           
-          echo "Extracting binary..."
-          unzip -q ~/zrok.zip -d ~/zrok_extracted
-
+          # Fetch the verified archive format asset directly
+          curl -sSfL "https://github.com" | tar --extract --file -
+          
           echo "Registering zrok binary globally..."
-          sudo install -o root -g root ~/zrok_extracted/zrok /usr/local/bin/zrok
+          sudo install -o root -g root ./zrok /usr/local/bin/zrok
           
           # Create symlink alias to safeguard zrok2 commands in subsequent steps
           sudo ln -sf /usr/local/bin/zrok /usr/local/bin/zrok2
           
-          # Clean up workspace paths
-          rm -rf ~/zrok.zip ~/zrok_extracted
+          # Clean up staging paths safely
+          cd ~
+          rm -rf ~/zrok_staging
           
           hash -r
 
