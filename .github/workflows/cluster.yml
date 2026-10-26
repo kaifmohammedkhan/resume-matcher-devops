@@ -52,17 +52,20 @@ jobs:
           set -euo pipefail
 
           echo "Downloading static production release binary..."
-          cd $(mktemp -d)
+          # Download directly into home directory to guarantee standard write access
+          curl -sSfL -o ~/zrok.tar.gz https://github.com
           
-          # Download directly from GitHub's static asset storage bypassing API rate limits
-          curl -sSfLO https://github.com
-          tar -xz -f zrok_0.4.42_linux_amd64.tar.gz
+          echo "Extracting archive..."
+          tar -xzf ~/zrok.tar.gz -C ~/
 
           echo "Registering zrok binary globally..."
-          sudo install -o root -g root ./zrok /usr/local/bin/zrok
+          sudo install -o root -g root ~/zrok /usr/local/bin/zrok
           
           # Create symlink alias to safeguard zrok2 commands in subsequent steps
           sudo ln -sf /usr/local/bin/zrok /usr/local/bin/zrok2
+          
+          # Clean up downloaded archive files
+          rm -f ~/zrok.tar.gz ~/zrok
           
           hash -r
 
