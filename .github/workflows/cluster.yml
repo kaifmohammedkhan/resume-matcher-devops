@@ -27,13 +27,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y openssh-server
 
-          # Use a GitHub Actions secret for the SSH password.
-          if [ -z "${SSH_DEBUG_PASSWORD:-}" ]; then
-            echo "ERROR: SSH_DEBUG_PASSWORD secret is required."
-            exit 1
-          fi
-
+          # Generate a temporary random password for this runner.
+          SSH_DEBUG_PASSWORD="$(openssl rand -hex 24)"
+          echo "::add-mask::${SSH_DEBUG_PASSWORD}"
           echo "root:${SSH_DEBUG_PASSWORD}" | sudo chpasswd
+          unset SSH_DEBUG_PASSWORD
 
           sudo mkdir -p /etc/ssh/sshd_config.d /run/sshd
 
@@ -51,8 +49,8 @@ jobs:
 
           sudo systemctl --no-pager status ssh || true
           sudo ss -tlnp | grep ':22 ' || true
-        env:
-          SSH_DEBUG_PASSWORD: ${{ secrets.SSH_DEBUG_PASSWORD }}
+
+          echo "SSH server configured successfully."
 
       - name: Install zrok CLI
         shell: bash
@@ -72,7 +70,19 @@ jobs:
 
           command -v zrok
           zrok version
+
+          echo
+          echo "============================================================"
+          echo "                    ENABLE HELP"
+          echo "============================================================"
+
           zrok enable --help
+
+          echo
+          echo "============================================================"
+          echo "                    SHARE HELP"
+          echo "============================================================"
+
           zrok share private --help
 
       - name: Configure zrok API Endpoint
@@ -94,10 +104,8 @@ jobs:
           echo "                  PRE-START CLEANUP"
           echo "============================================================"
 
-          # Do not enable/disable the account here.
-          # Do not run the unsupported "list environments" command.
-          # This avoids interactive TTY operations before enablement.
-
+          # Avoid interactive enable/disable operations and unsupported
+          # environment-list commands during cleanup.
           echo "No remote cleanup attempted."
           echo "Proceeding to headless account enablement."
 
@@ -130,8 +138,29 @@ jobs:
           echo "                STARTING PRIVATE SSH SHARE"
           echo "============================================================"
 
-          # Use the supported TCP tunnel backend and disable the TUI.
-          # Keep the foreground process alive and capture its output.
+          # Confirm that this installed CLI advertises the requested
+          # backend before attempting to launch the share.
+          SHARE_HELP="$(zrok share private --help 2>&1)" || {
+            echo "ERROR: Unable to retrieve private share help."
+            printf '%s\n' "${SHARE_HELP}"
+            exit 1
+          }
+
+          if ! printf '%s\n' "${SHARE_HELP}" | grep -q -- '--headless'; then
+            echo "ERROR: This zrok CLI does not advertise --headless for share."
+            printf '%s\n' "${SHARE_HELP}"
+            exit 1
+          fi
+
+          if ! printf '%s\n' "${SHARE_HELP}" | grep -q 'tcpTunnel'; then
+            echo "ERROR: This zrok CLI does not advertise tcpTunnel."
+            echo "Inspect the share help above and use a supported backend."
+            printf '%s\n' "${SHARE_HELP}"
+            exit 1
+          fi
+
+          rm -f /tmp/zrok-share.log
+
           zrok share private \
             --headless \
             --backend-mode tcpTunnel \
@@ -150,16 +179,12 @@ jobs:
 
           echo "zrok share PID: ${ZROK_PID}"
 
-          # Wait up to 60 seconds for a successful share startup.
+          # Allow up to 60 seconds for share initialization.
           for attempt in $(seq 1 30); do
             if ! kill -0 "${ZROK_PID}" 2>/dev/null; then
               echo "ERROR: zrok share process exited."
               cat /tmp/zrok-share.log
               exit 1
-            fi
-
-            if grep -Eqi 'started|access private|tcpTunnel' /tmp/zrok-share.log; then
-              break
             fi
 
             sleep 2
@@ -179,7 +204,7 @@ jobs:
           echo "Share process is running."
           echo "Runner will remain active for up to six hours."
 
-          # Keep the runner alive, but fail if the tunnel dies.
+          # Keep the runner alive while the share process remains alive.
           for ((second = 0; second < 21600; second++)); do
             if ! kill -0 "${ZROK_PID}" 2>/dev/null; then
               echo "ERROR: zrok tunnel terminated unexpectedly."
