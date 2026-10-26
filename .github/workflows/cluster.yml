@@ -55,8 +55,8 @@ jobs:
           mkdir -p ~/zrok_staging
           cd ~/zrok_staging
           
-          # Download using wget to get follow-redirect structures cleanly
-          wget -q https://github.com
+          # Force wget to track secure SSL redirects explicitly to capture the physical binary asset
+          wget --no-check-certificate --trust-server-names https://github.com
           
           echo "Extracting binary..."
           tar -xf zrok_0.4.42_linux_amd64.tar.gz
