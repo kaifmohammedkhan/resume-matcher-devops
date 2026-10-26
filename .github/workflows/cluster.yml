@@ -29,10 +29,15 @@ jobs:
           sudo sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin yes/' /etc/ssh/sshd_config
           sudo sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication yes/' /etc/ssh/sshd_config
 
-          # Override any modern Ubuntu sshd_config.d restrictions & fix privilege separation path
+          # Override modern Ubuntu sshd_config.d restrictions
+          # and ensure sshd privilege-separation runtime directory exists.
           sudo mkdir -p /etc/ssh/sshd_config.d /run/sshd
-          echo "PasswordAuthentication yes" | sudo tee /etc/ssh/sshd_config.d/99-auth.conf
-          echo "PermitRootLogin yes" | sudo tee -a /etc/ssh/sshd_config.d/99-auth.conf
+
+          echo "PasswordAuthentication yes" | \
+            sudo tee /etc/ssh/sshd_config.d/99-auth.conf
+
+          echo "PermitRootLogin yes" | \
+            sudo tee -a /etc/ssh/sshd_config.d/99-auth.conf
 
           sudo systemctl restart ssh
 
@@ -51,29 +56,48 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Passing 'zrok' to the core OpenZiti install script maps dependencies accurately
-          curl -sSf https://get.openziti.io/install.bash | sudo bash -s zrok
-          sudo apt-get install -y zrok
-          
-          hash -r
-
-          # Create seamless system structural alias link for zrok2 syntax continuity
-          sudo ln -sf $(which zrok) /usr/local/bin/zrok2 || true
-          hash -r
-
           echo "============================================================"
-          echo "                    ZROK2 VERSION"
+          echo "                    INSTALLING ZROK"
+          echo "============================================================"
+
+          curl -sSf https://get.openziti.io/install.bash | \
+            sudo bash -s zrok
+
+          sudo apt-get install -y zrok
+
+          hash -r
+
+          # Keep zrok2 command name used by this workflow.
+          sudo ln -sf "$(command -v zrok)" /usr/local/bin/zrok2
+
+          hash -r
+
+          echo
+          echo "============================================================"
+          echo "                    ZROK VERSION"
           echo "============================================================"
 
           command -v zrok2
           zrok2 version
 
+          echo
+          echo "============================================================"
+          echo "                 CONFIGURING API ENDPOINT"
+          echo "============================================================"
+
+          # IMPORTANT:
+          # zrok.io is the service/UI endpoint, not the API endpoint
+          # expected by this CLI.
+          zrok2 config set apiEndpoint https://api-v1.zrok.io/
+
+          echo
+          echo "Configured zrok API endpoint:"
+          zrok2 config get apiEndpoint || true
+
       - name: Purge Stale Ghost Environments First
         shell: bash
         env:
           ZROK_TOKEN: ${{ secrets.ZROK_TOKEN }}
-          ZROK_API_ENDPOINT: https://zrok.io
-          ZROK2_API_ENDPOINT: https://zrok.io
         run: |
           set -euo pipefail
 
@@ -86,16 +110,44 @@ jobs:
           echo "      PRE-START CLEANUP: PURGING STALE GHOST ENVIRONMENTS"
           echo "============================================================"
 
-          # Authorize the target account context to sweep matching ghosts
+          echo
+          echo "Enabling zrok account against:"
+          zrok2 config get apiEndpoint || true
+
           zrok2 enable "${ZROK_TOKEN}"
 
-          echo "Scanning and deleting matched runner profiles..."
-          zrok2 list environments --json | \
-          jq -r '.[] | select(.description | test("DESKTOP-PQUITOR\\\\DELL@DESKTOP-PQUITOR|runner@")) | .token' | \
-          xargs -I {} zrok2 delete environment {} || true
+          echo
+          echo "Scanning and deleting matched runner environments..."
 
-          # Wipe local token state so the next configuration step runs completely fresh
+          if zrok2 list environments --json > /tmp/zrok-environments.json 2>/tmp/zrok-list-error.log; then
+
+            cat /tmp/zrok-environments.json
+
+            jq -r '
+              .[]
+              | select(
+                  (.description // "")
+                  | test("DESKTOP-PQUITOR\\\\DELL@DESKTOP-PQUITOR|runner@")
+                )
+              | .token
+            ' /tmp/zrok-environments.json |
+            while IFS= read -r environment_token; do
+              if [ -n "${environment_token}" ]; then
+                echo "Deleting stale environment: ${environment_token}"
+                zrok2 delete environment "${environment_token}" || true
+              fi
+            done
+
+          else
+            echo "WARNING: Unable to list environments."
+            cat /tmp/zrok-list-error.log || true
+            echo "Continuing because cleanup is best-effort."
+          fi
+
+          # Wipe local token state so the next enable is completely fresh.
           zrok2 disable || true
+
+          echo
           echo "Pre-cleanup finished successfully."
 
       - name: Enable zrok2
@@ -110,8 +162,16 @@ jobs:
             exit 1
           fi
 
+          echo "============================================================"
+          echo "                    ENABLING ZROK2"
+          echo "============================================================"
+
+          echo "API endpoint:"
+          zrok2 config get apiEndpoint || true
+
           zrok2 enable "${ZROK_TOKEN}"
 
+          echo
           echo "zrok2 account successfully enabled."
 
       - name: Start zrok2 SSH Tunnel
@@ -123,7 +183,12 @@ jobs:
           echo "             STARTING ZROK2 SSH TUNNEL"
           echo "============================================================"
 
-          script -q -c "zrok2 share private --backend-mode tcpTunnel localhost:22" /dev/null > /tmp/zrok2-share.log 2>&1 &
+          rm -f /tmp/zrok2-share.log
+
+          script -q -c \
+            "zrok2 share private --backend-mode tcpTunnel localhost:22" \
+            /dev/null \
+            > /tmp/zrok2-share.log 2>&1 &
 
           ZROK_PID=$!
 
@@ -147,6 +212,7 @@ jobs:
           fi
 
           echo "zrok2 tunnel is active."
+          echo
           echo "Keeping runner alive for the full 6-hour limit..."
           echo "============================================================"
 
