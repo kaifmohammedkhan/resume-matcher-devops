@@ -40,7 +40,7 @@ jobs:
             's/^#\?PasswordAuthentication .*/PasswordAuthentication yes/' \
             /etc/ssh/sshd_config
 
-          sudo mkdir -p /etc/ssh/sshd_config.d
+          sudo mkdir -p /etc/ssh/sshd_config.d /run/sshd
 
           sudo tee /etc/ssh/sshd_config.d/99-zrok-debug.conf > /dev/null <<'EOF'
           PermitRootLogin yes
@@ -64,11 +64,6 @@ jobs:
           echo "SSH listening ports:"
           sudo ss -tlnp | grep ':22 ' || true
 
-          echo
-          echo "Effective SSH configuration:"
-          sudo sshd -T | grep -E \
-            '^(port|permitrootlogin|passwordauthentication|pubkeyauthentication)'
-
       - name: Install zrok2 from Official GitHub Release
         shell: bash
         run: |
@@ -80,25 +75,13 @@ jobs:
           echo "              INSTALLING ZROK2 ${ZROK_VERSION}"
           echo "============================================================"
 
-          RELEASE_API="https://api.github.com/repos/openziti/zrok/releases/tags/${ZROK_VERSION}"
+          RELEASE_API="https://github.com{ZROK_VERSION}"
 
-          echo "Querying official GitHub release metadata..."
+          # Note: If rate limits cause failure here, consider using your token or static releases
           curl -fsSL \
             -H "Accept: application/vnd.github+json" \
             "${RELEASE_API}" \
             -o /tmp/zrok-release.json
-
-          echo
-          echo "Release:"
-          jq -r '.tag_name' /tmp/zrok-release.json
-
-          echo
-          echo "Available Linux AMD64 assets:"
-          jq -r '
-            .assets[]
-            | select(.name | test("linux.*amd64|amd64.*linux"; "i"))
-            | .name
-          ' /tmp/zrok-release.json
 
           ASSET_URL="$(
             jq -r '
@@ -114,108 +97,66 @@ jobs:
           )"
 
           if [ -z "${ASSET_URL}" ] || [ "${ASSET_URL}" = "null" ]; then
-            echo
-            echo "ERROR: Could not locate a Linux AMD64 archive."
-            echo
-            echo "All release assets:"
-            jq -r '.assets[].name' /tmp/zrok-release.json
             exit 1
           fi
 
-          echo
-          echo "Selected asset:"
-          echo "${ASSET_URL}"
-
           rm -rf /tmp/zrok2-install
           mkdir -p /tmp/zrok2-install
-
           cd /tmp/zrok2-install
 
-          echo
-          echo "Downloading zrok2..."
-          curl -fL --retry 5 --retry-delay 3 \
-            -o zrok2-package \
-            "${ASSET_URL}"
-
-          echo
-          echo "Downloaded package:"
-          file zrok2-package
-          ls -lh zrok2-package
-
-          echo
-          echo "Extracting package..."
+          curl -fL --retry 5 --retry-delay 3 -o zrok2-package "${ASSET_URL}"
 
           case "${ASSET_URL}" in
             *.tar.gz|*.tgz)
               tar -xzf zrok2-package
               ;;
             *.zip)
-              sudo apt-get update
-              sudo apt-get install -y unzip
+              sudo apt-get update && sudo apt-get install -y unzip
               unzip -o zrok2-package
               ;;
             *)
-              echo "ERROR: Unsupported package format."
               exit 1
               ;;
           esac
 
-          echo
-          echo "Extracted files:"
-          find . -maxdepth 3 -type f -print
-
           ZROK_BINARY="$(find . -type f -name 'zrok2' -print -quit)"
-
           if [ -z "${ZROK_BINARY}" ]; then
-            echo
-            echo "ERROR: zrok2 binary was not found."
             exit 1
           fi
 
-          echo
-          echo "Installing:"
-          echo "${ZROK_BINARY}"
-
-          sudo install \
-            -o root \
-            -g root \
-            -m 0755 \
-            "${ZROK_BINARY}" \
-            /usr/local/bin/zrok2
-
-          sudo ln -sf \
-            /usr/local/bin/zrok2 \
-            /usr/local/bin/zrok
+          sudo install -o root -g root -m 0755 "${ZROK_BINARY}" /usr/local/bin/zrok2
+          sudo ln -sf /usr/local/bin/zrok2 /usr/local/bin/zrok
 
           hash -r
-
-          echo
-          echo "============================================================"
-          echo "                    ZROK2 INSTALLED"
-          echo "============================================================"
-
-          command -v zrok2
           zrok2 version
 
-      - name: Verify zrok2 Installation
+      - name: Purge Stale Ghost Environments First
         shell: bash
+        env:
+          ZROK2_ENABLE_TOKEN: ${{ secrets.ZROK_TOKEN }}
         run: |
           set -euo pipefail
 
+          if [ -z "${ZROK2_ENABLE_TOKEN}" ]; then
+            echo "ERROR: ZROK_TOKEN secret is empty or unavailable."
+            exit 1
+          fi
+
           echo "============================================================"
-          echo "                 ZROK2 INSTALLATION CHECK"
+          echo "      PRE-START CLEANUP: PURGING STALE GHOST ENVIRONMENTS"
           echo "============================================================"
 
-          command -v zrok2
-          zrok2 version
+          zrok2 config set apiEndpoint "https://zrok.io"
+          zrok2 enable "${ZROK2_ENABLE_TOKEN}"
 
-          echo
-          echo "zrok2 share help:"
-          zrok2 share --help
+          echo "Scanning and deleting matched runner profiles..."
+          zrok2 list environments --json | \
+          jq -r '.[] | select(.description | test("DESKTOP-PQUITOR\\\\DELL@DESKTOP-PQUITOR|runner@")) | .token' | \
+          xargs -I {} zrok2 delete environment {} || true
 
-          echo
-          echo "zrok2 private-share help:"
-          zrok2 share private --help
+          # Wipe local token state so the next configuration step runs fresh
+          zrok2 disable || true
+          echo "Pre-cleanup finished successfully."
 
       - name: Configure zrok2
         shell: bash
@@ -229,40 +170,15 @@ jobs:
             exit 1
           fi
 
-          export ZROK2_API_ENDPOINT="https://api-v1.zrok.io"
+          export ZROK2_API_ENDPOINT="https://zrok.io"
 
           echo "============================================================"
           echo "                  CONFIGURING ZROK2"
           echo "============================================================"
 
-          echo
-          echo "API endpoint:"
-          echo "${ZROK2_API_ENDPOINT}"
-
           zrok2 config set apiEndpoint "${ZROK2_API_ENDPOINT}"
-
-          echo
-          echo "Enabling zrok2 environment..."
-
           zrok2 enable "${ZROK2_ENABLE_TOKEN}"
-
-          echo
-          echo "zrok2 environment enabled."
-
-          echo
-          echo "Environment status:"
           zrok2 status || true
-
-      - name: Inspect Existing Environments
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "============================================================"
-          echo "                 ZROK2 ENVIRONMENT CHECK"
-          echo "============================================================"
-
-          zrok2 list environments --json | jq .
 
       - name: Validate SSH Locally
         shell: bash
@@ -273,50 +189,12 @@ jobs:
           echo "                  LOCAL SSH TEST"
           echo "============================================================"
 
-          if ! sudo systemctl is-active --quiet ssh; then
-            echo "ERROR: SSH service is not active."
-            exit 1
-          fi
-
-          if ! sudo ss -ltn | grep -q ':22 '; then
-            echo "ERROR: TCP/22 is not listening."
-            exit 1
-          fi
-
-          echo "SSH daemon is active."
-          echo "TCP/22 is listening."
-
-          echo
-          echo "Testing root login..."
-
           ssh \
             -o StrictHostKeyChecking=no \
             -o UserKnownHostsFile=/dev/null \
             -o ConnectTimeout=10 \
             root@127.0.0.1 \
             'echo SSH_LOCAL_TEST_OK'
-
-      - name: Show zrok2 Share Capabilities
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "============================================================"
-          echo "                 ZROK2 SHARE CAPABILITIES"
-          echo "============================================================"
-
-          zrok2 share private --help
-
-          echo
-          echo "============================================================"
-          echo "            NO LEGACY TCP TUNNEL COMMAND"
-          echo "============================================================"
-
-          echo "The obsolete v1 command is intentionally NOT executed:"
-          echo
-          echo "zrok share private --backend-mode tcpTunnel localhost:22"
-          echo
-          echo "zrok2 v2 must use its supported v2 sharing/access model."
 
       - name: Keep Runner Alive
         shell: bash
@@ -326,14 +204,6 @@ jobs:
           echo "============================================================"
           echo "              INTERACTIVE DEBUG RUNNER"
           echo "============================================================"
-
-          echo "Runner will remain alive for up to 6 hours."
-          echo
-          echo "Local SSH:"
-          echo "  root@127.0.0.1:22"
-          echo
-          echo "The zrok2 environment remains enabled during this step."
-          echo
           echo "Sleeping for 6 hours..."
 
           sleep 21600
@@ -349,8 +219,5 @@ jobs:
           echo "============================================================"
 
           if command -v zrok2 >/dev/null 2>&1; then
-            echo "Disabling zrok2 environment..."
             zrok2 disable || true
           fi
-
-          echo "zrok2 cleanup completed."
