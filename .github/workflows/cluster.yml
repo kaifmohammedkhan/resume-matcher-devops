@@ -46,21 +46,21 @@ jobs:
           echo "SSH listening ports:"
           sudo ss -tlnp | grep ':22 ' || true
 
-      - name: Install zrok2 CLI
+      - name: Install zrok v1 CLI
         shell: bash
         run: |
           set -euo pipefail
 
-          curl -sSf https://get.openziti.io/install.bash | sudo bash -s zrok2
+          curl -sSf https://get.openziti.io/install.bash | sudo bash -s zrok
 
           echo "============================================================"
-          echo "                    ZROK2 VERSION"
+          echo "                    ZROK VERSION"
           echo "============================================================"
 
-          command -v zrok2
-          zrok2 version
+          command -v zrok
+          zrok version
 
-      - name: Enable and Run zrok2 SSH Tunnel with Auto-Cleanup
+      - name: Enable and Run zrok SSH Tunnel with Auto-Cleanup
         shell: bash
         env:
           ZROK_TOKEN: ${{ secrets.ZROK_TOKEN }}
@@ -76,41 +76,41 @@ jobs:
           cleanup() {
             echo
             echo "============================================================"
-            echo "          DISABLING ZROK2 ENVIRONMENT & CLEANING UP"
+            echo "          DISABLING ZROK ENVIRONMENT & CLEANING UP"
             echo "============================================================"
-            script -q -c "zrok2 disable" /dev/null || true
+            script -q -c "zrok disable" /dev/null || true
           }
           trap cleanup EXIT INT TERM
 
-          echo "Setting zrok2 API endpoint to https://api-v1.zrok.io..."
-          script -q -c "zrok2 config set apiEndpoint https://api-v1.zrok.io" /dev/null
+          echo "Setting zrok API endpoint to https://api-v1.zrok.io..."
+          script -q -c "zrok config set apiEndpoint https://api-v1.zrok.io" /dev/null
 
-          echo "Enabling zrok2..."
-          script -q -c "zrok2 enable ${ZROK_TOKEN}" /dev/null
-          echo "zrok2 account successfully enabled."
+          echo "Enabling zrok..."
+          script -q -c "zrok enable ${ZROK_TOKEN}" /dev/null
+          echo "zrok account successfully enabled."
 
           echo "============================================================"
-          echo "            STARTING ZROK2 SSH TUNNEL"
+          echo "            STARTING ZROK SSH TUNNEL"
           echo "============================================================"
 
-          script -q -c "zrok2 share private --backend-mode tcpTunnel localhost:22" /dev/null > /tmp/zrok2-share.log 2>&1 &
+          script -q -c "zrok share private --backend-mode tcpTunnel localhost:22" /dev/null > /tmp/zrok-share.log 2>&1 &
           ZROK_PID=$!
 
-          echo "zrok2 process started with PID: ${ZROK_PID}"
+          echo "zrok process started with PID: ${ZROK_PID}"
           sleep 10
 
           echo "============================================================"
-          echo "            ZROK2 TUNNEL INFORMATION"
+          echo "            ZROK TUNNEL INFORMATION"
           echo "============================================================"
-          cat /tmp/zrok2-share.log
+          cat /tmp/zrok-share.log
           echo "============================================================"
 
           if ! kill -0 "${ZROK_PID}" 2>/dev/null; then
-            echo "ERROR: zrok2 tunnel process terminated."
+            echo "ERROR: zrok tunnel process terminated."
             exit 1
           fi
 
-          echo "zrok2 tunnel is active."
+          echo "zrok tunnel is active."
           echo "Keeping runner alive for the full 6-hour limit (or until cancellation)..."
           echo "============================================================"
 
