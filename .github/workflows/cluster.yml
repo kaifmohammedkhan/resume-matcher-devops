@@ -21,7 +21,7 @@ jobs:
           set -euo pipefail
 
           sudo apt-get update
-          sudo apt-get install -y openssh-server jq
+          sudo apt-get install -y openssh-server jq unzip
 
           echo "root:debugpassword123" | sudo chpasswd
 
@@ -46,27 +46,26 @@ jobs:
           echo "SSH listening ports:"
           sudo ss -tlnp | grep ':22 ' || true
 
-      - name: Install zrok CLI
+      - name: Install zrok CLI via Direct Binary
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "Downloading static production release binary..."
-          # Download directly into home directory to guarantee standard write access
-          curl -sSfL -o ~/zrok.tar.gz https://github.com
+          echo "Downloading static release archive..."
+          # Using the official zip archive target to bypass gzip stream bugs entirely
+          wget -q --show-progress -O ~/zrok.zip https://github.com
           
-          echo "Extracting archive with auto-compression detection..."
-          # Removed the -z flag to let tar parse xz/gzip formats automatically
-          tar -xf ~/zrok.tar.gz -C ~/
+          echo "Extracting binary..."
+          unzip -q ~/zrok.zip -d ~/zrok_extracted
 
           echo "Registering zrok binary globally..."
-          sudo install -o root -g root ~/zrok /usr/local/bin/zrok
+          sudo install -o root -g root ~/zrok_extracted/zrok /usr/local/bin/zrok
           
           # Create symlink alias to safeguard zrok2 commands in subsequent steps
           sudo ln -sf /usr/local/bin/zrok /usr/local/bin/zrok2
           
-          # Clean up downloaded archive files
-          rm -f ~/zrok.tar.gz ~/zrok
+          # Clean up workspace paths
+          rm -rf ~/zrok.zip ~/zrok_extracted
           
           hash -r
 
