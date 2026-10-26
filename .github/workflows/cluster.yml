@@ -21,7 +21,7 @@ jobs:
           set -euo pipefail
 
           sudo apt-get update
-          sudo apt-get install -y openssh-server jq ca-certificates curl gnupg
+          sudo apt-get install -y openssh-server jq
 
           echo "root:debugpassword123" | sudo chpasswd
 
@@ -51,22 +51,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "============================================================"
-          echo "              INSTALLING OFFICIAL ZROK PACKAGE"
-          echo "============================================================"
-
-          # Manually download and register the official OpenZiti signing key [1]
-          sudo mkdir -p /usr/share/keyrings
-          curl -fsSL https://openziti.io | sudo gpg --dearmor -o /usr/share/keyrings/openziti.gpg
-          sudo chmod a+r /usr/share/keyrings/openziti.gpg
-
-          # Directly pin the stable debian package mirror mapping to avoid installation blockages [1]
-          echo "deb [signed-by=/usr/share/keyrings/openziti.gpg] https://openziti.org debian main" | sudo tee /etc/apt/sources.list.d/openziti-release.list
-
-          # Force a clean system package database sync
-          sudo apt-get update
-          
-          # Install the package explicitly
+          # Passing 'zrok' to the core OpenZiti install script maps dependencies accurately
+          curl -sSf https://get.openziti.io/install.bash | sudo bash -s zrok
           sudo apt-get install -y zrok
           
           hash -r
@@ -86,6 +72,8 @@ jobs:
         shell: bash
         env:
           ZROK_TOKEN: ${{ secrets.ZROK_TOKEN }}
+          ZROK_API_ENDPOINT: https://zrok.io
+          ZROK2_API_ENDPOINT: https://zrok.io
         run: |
           set -euo pipefail
 
@@ -97,9 +85,6 @@ jobs:
           echo "============================================================"
           echo "      PRE-START CLEANUP: PURGING STALE GHOST ENVIRONMENTS"
           echo "============================================================"
-
-          # Seed the correct API target endpoint into the active runtime profile configuration
-          zrok2 config set apiEndpoint https://zrok.io
 
           # Authorize the target account context to sweep matching ghosts
           zrok2 enable "${ZROK_TOKEN}"
@@ -124,9 +109,6 @@ jobs:
             echo "ERROR: ZROK_TOKEN secret is empty or unavailable."
             exit 1
           fi
-
-          # Re-apply the API configuration target for the clean workspace profile configuration context
-          zrok2 config set apiEndpoint https://zrok.io
 
           zrok2 enable "${ZROK_TOKEN}"
 
