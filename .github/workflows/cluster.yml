@@ -54,11 +54,9 @@ jobs:
           curl -sSf https://openziti.io | sudo bash -s zrok
 
           echo "============================================================"
-          echo "                    ZROK VERSION"
+          echo "                    ZROK INSTALLED"
           echo "============================================================"
-
           command -v zrok
-          zrok version
 
       - name: Purge Stale Ghost Environments First
         shell: bash
@@ -76,7 +74,7 @@ jobs:
           echo "      PRE-START CLEANUP: PURGING STALE GHOST ENVIRONMENTS"
           echo "============================================================"
           
-          # Set endpoint and authorize to pull the account context
+          # Configure endpoint and activate token context to query current account info
           script -q -c "zrok config set apiEndpoint https://api-v1.zrok.io" /dev/null
           script -q -c "zrok enable ${ZROK_TOKEN}" /dev/null
 
@@ -85,7 +83,7 @@ jobs:
           jq -r '.[] | select(.description | test("DESKTOP-PQUITOR\\\\DELL@DESKTOP-PQUITOR|runner@")) | .token' | \
           xargs -I {} zrok delete environment {} || true
           
-          # Tear down local state so the next step triggers a fresh registration
+          # Drop local authentication state so the subsequent setup block builds a completely clean workspace
           script -q -c "zrok disable" /dev/null
           echo "Pre-cleanup finished successfully."
 
