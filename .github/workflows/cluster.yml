@@ -72,18 +72,18 @@ jobs:
             exit 1
           fi
 
-          # Cleanup trap: automatically disable/deregister current environment on exit, error, or cancellation
+          # Cleanup trap: automatically disable/deregister current environment using pty wrapper
           cleanup() {
             echo
             echo "============================================================"
             echo "          DISABLING ZROK2 ENVIRONMENT & CLEANING UP"
             echo "============================================================"
-            zrok2 disable || true
+            script -q -c "zrok2 disable" /dev/null || true
           }
           trap cleanup EXIT INT TERM
 
           echo "Enabling zrok2..."
-          zrok2 enable "${ZROK_TOKEN}"
+          script -q -c "zrok2 enable ${ZROK_TOKEN}" /dev/null
           echo "zrok2 account successfully enabled."
 
           echo "============================================================"
