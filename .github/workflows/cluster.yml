@@ -27,7 +27,6 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y openssh-server
 
-          # Generate a unique temporary SSH password.
           SSH_DEBUG_PASSWORD="$(openssl rand -hex 24)"
           echo "::add-mask::${SSH_DEBUG_PASSWORD}"
           echo "root:${SSH_DEBUG_PASSWORD}" | sudo chpasswd
@@ -68,21 +67,8 @@ jobs:
           echo "                    ZROK VERSION"
           echo "============================================================"
 
-          command -v zrok
           zrok version
-
-          echo
-          echo "============================================================"
-          echo "                    ENABLE HELP"
-          echo "============================================================"
-
           zrok enable --help
-
-          echo
-          echo "============================================================"
-          echo "                    SHARE HELP"
-          echo "============================================================"
-
           zrok share private --help
 
       - name: Configure zrok API Endpoint
@@ -90,9 +76,10 @@ jobs:
         run: |
           set -euo pipefail
 
+          # Retain the API endpoint used in the previous attempts.
           zrok config set apiEndpoint https://api-v1.zrok.io/
 
-          echo "Configured API endpoint:"
+          echo "Configured endpoint:"
           zrok config get apiEndpoint
 
       - name: Pre-Start Cleanup
@@ -104,30 +91,26 @@ jobs:
           echo "                  PRE-START CLEANUP"
           echo "============================================================"
 
-          # Avoid interactive enable/disable operations.
-          # Remote environment deletion is intentionally skipped:
-          # the previously attempted "list environments" command
-          # is not supported by this CLI.
+          # Do not run interactive enable/disable operations here.
+          # Do not assume the remote environment-listing syntax.
+          # Remote cleanup must be done through the zrok console
+          # or a supported, authenticated management interface.
 
-          echo "No remote cleanup attempted."
-          echo "Proceeding to account authentication."
+          echo "No remote environments deleted."
+          echo "Proceeding to account authorization."
 
       - name: Enable zrok Environment
+        id: enable_zrok
         shell: bash
         env:
           ZROK_TOKEN: ${{ secrets.ZROK_TOKEN }}
         run: |
           set -euo pipefail
 
-          if [ -z "${ZROK_TOKEN:-}" ]; then
+          if [ -z "${ZROK_TOKEN:-}" ] ||
+             [ -z "$(printf '%s' "${ZROK_TOKEN:-}" | tr -d '[:space:]')" ]; then
             echo "::error::ZROK_TOKEN is missing or empty."
-            echo "Configure the ZROK_TOKEN repository Actions secret."
-            exit 1
-          fi
-
-          # Check for whitespace-only values without printing the token.
-          if [ -z "$(printf '%s' "${ZROK_TOKEN}" | tr -d '[:space:]')" ]; then
-            echo "::error::ZROK_TOKEN contains only whitespace."
+            echo "Configure the account enable token in GitHub Actions secrets."
             exit 1
           fi
 
@@ -138,25 +121,26 @@ jobs:
           echo "API endpoint:"
           zrok config get apiEndpoint
 
-          # Do not enable shell tracing here: the token must remain secret.
-          if zrok enable --headless "${ZROK_TOKEN}"; then
-            echo "zrok environment enabled successfully."
-          else
-            result=$?
+          # Never enable shell tracing or print the token.
+          set +e
+          zrok enable --headless "${ZROK_TOKEN}"
+          ZROK_EXIT_CODE=$?
+          set -e
 
+          if [ "${ZROK_EXIT_CODE}" -ne 0 ]; then
             echo
-            echo "::error::zrok environment enablement failed."
-            echo "Check the following without printing the token:"
-            echo "1. ZROK_TOKEN is the correct zrok account enable token."
-            echo "2. The token is current and has not been revoked."
-            echo "3. The token belongs to the account on the configured API service."
-            echo "4. The API endpoint is the intended service for this token."
-            echo
-            echo "HTTP 401 enableUnauthorized indicates that the service"
-            echo "rejected authorization. Changing SSH settings will not fix it."
-
-            exit "${result}"
+            echo "::error::zrok enable failed with exit code ${ZROK_EXIT_CODE}."
+            echo "If the service returned HTTP 401 enableUnauthorized:"
+            echo "1. Verify ZROK_TOKEN is the account enable token."
+            echo "2. Verify the token belongs to the configured zrok service."
+            echo "3. Inspect the zrok console for existing environments."
+            echo "4. If the account has reached its environment limit,"
+            echo "   remove an obsolete environment through the console."
+            echo "5. If necessary, obtain a fresh account enable token."
+            exit "${ZROK_EXIT_CODE}"
           fi
+
+          echo "zrok environment enabled successfully."
 
       - name: Start zrok SSH Tunnel
         shell: bash
@@ -167,15 +151,14 @@ jobs:
           echo "                STARTING PRIVATE SSH SHARE"
           echo "============================================================"
 
-          # Validate options against the installed CLI.
-          if ! SHARE_HELP="$(zrok share private --help 2>&1)"; then
+          SHARE_HELP="$(zrok share private --help 2>&1)" || {
             echo "::error::Unable to retrieve private share help."
             printf '%s\n' "${SHARE_HELP}"
             exit 1
-          fi
+          }
 
           if ! printf '%s\n' "${SHARE_HELP}" | grep -q -- '--headless'; then
-            echo "::error::Installed CLI does not advertise --headless for share."
+            echo "::error::Installed CLI does not advertise --headless."
             printf '%s\n' "${SHARE_HELP}"
             exit 1
           fi
@@ -206,10 +189,10 @@ jobs:
 
           echo "zrok share PID: ${ZROK_PID}"
 
-          # Wait for initialization while checking for early failure.
+          # Give the share time to initialize and detect early failure.
           for attempt in $(seq 1 30); do
             if ! kill -0 "${ZROK_PID}" 2>/dev/null; then
-              echo "::error::zrok share process exited during startup."
+              echo "::error::zrok share exited during startup."
               cat /tmp/zrok-share.log
               exit 1
             fi
@@ -228,10 +211,9 @@ jobs:
             exit 1
           fi
 
-          echo "Share process is still running."
-          echo "Keeping the runner alive for up to six hours."
+          echo "Share process remains active."
+          echo "Monitoring for up to six hours."
 
-          # Monitor the share for the full permitted duration.
           for ((second = 0; second < 21600; second++)); do
             if ! kill -0 "${ZROK_PID}" 2>/dev/null; then
               echo "::error::zrok tunnel terminated unexpectedly."
