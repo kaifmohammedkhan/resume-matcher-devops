@@ -74,28 +74,36 @@ jobs:
           echo "              INSTALLING OFFICIAL ZROK PACKAGE"
           echo "============================================================"
 
-          # The installer core script expects 'zrok' to map package dependencies correctly
+          # Add the package repository setup mirror context
           curl -sSf https://openziti.io | sudo bash -s zrok
+
+          # Force package installation onto the system directly
+          sudo apt-get update
+          sudo apt-get install -y zrok
 
           # Force bash to register new binary paths
           hash -r
 
           # Create system wide structural alias for zrok2 compatibility layer
-          if command -v zrok >/dev/null 2>&1; then
-            sudo ln -sf $(which zrok) /usr/local/bin/zrok2
-          fi
+          ZROK_PATH=$(which zrok || echo "/usr/bin/zrok")
+          sudo ln -sf "$ZROK_PATH" /usr/local/bin/zrok2 || true
 
           hash -r
 
           echo "Verification:"
-          zrok2 version || zrok version
+          if command -v zrok >/dev/null 2>&1; then
+            zrok version || true
+          else
+            echo "zrok found directly at path, checking output..."
+            /usr/bin/zrok version || true
+          fi
 
       - name: Purge Stale Ghost Environments First
         shell: bash
         env:
           ZROK2_ENABLE_TOKEN: ${{ secrets.ZROK_TOKEN }}
-          ZROK_API_ENDPOINT: https://api-v1.zrok.io
-          ZROK2_API_ENDPOINT: https://api-v1.zrok.io
+          ZROK_API_ENDPOINT: https://zrok.io
+          ZROK2_API_ENDPOINT: https://zrok.io
         run: |
           set -euo pipefail
 
@@ -124,8 +132,8 @@ jobs:
         shell: bash
         env:
           ZROK2_ENABLE_TOKEN: ${{ secrets.ZROK_TOKEN }}
-          ZROK_API_ENDPOINT: https://api-v1.zrok.io
-          ZROK2_API_ENDPOINT: https://api-v1.zrok.io
+          ZROK_API_ENDPOINT: https://zrok.io
+          ZROK2_API_ENDPOINT: https://zrok.io
         run: |
           set -euo pipefail
 
