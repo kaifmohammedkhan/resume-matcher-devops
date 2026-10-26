@@ -1,3 +1,4 @@
+
 name: Interactive Zrok Debug (6 Hours Max)
 
 on:
@@ -5,6 +6,9 @@ on:
     branches:
       - pre-main
   workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   debug:
@@ -21,24 +25,24 @@ jobs:
           set -euo pipefail
 
           sudo apt-get update
-          sudo apt-get install -y openssh-server jq
+          sudo apt-get install -y openssh-server
 
-          echo "root:debugpassword123" | sudo chpasswd
+          # Use a GitHub Actions secret for the SSH password.
+          if [ -z "${SSH_DEBUG_PASSWORD:-}" ]; then
+            echo "ERROR: SSH_DEBUG_PASSWORD secret is required."
+            exit 1
+          fi
 
-          # Enable root login and password authentication
-          sudo sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin yes/' /etc/ssh/sshd_config
-          sudo sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+          echo "root:${SSH_DEBUG_PASSWORD}" | sudo chpasswd
 
-          # Override modern Ubuntu sshd_config.d restrictions
-          # and ensure sshd runtime directory exists.
           sudo mkdir -p /etc/ssh/sshd_config.d /run/sshd
 
-          echo "PasswordAuthentication yes" | \
-            sudo tee /etc/ssh/sshd_config.d/99-auth.conf
+          sudo tee /etc/ssh/sshd_config.d/99-auth.conf >/dev/null <<'EOF'
+          PermitRootLogin yes
+          PasswordAuthentication yes
+          EOF
 
-          echo "PermitRootLogin yes" | \
-            sudo tee -a /etc/ssh/sshd_config.d/99-auth.conf
-
+          sudo sshd -t
           sudo systemctl restart ssh
 
           echo "============================================================"
@@ -46,89 +50,40 @@ jobs:
           echo "============================================================"
 
           sudo systemctl --no-pager status ssh || true
-
-          echo
-          echo "SSH listening ports:"
           sudo ss -tlnp | grep ':22 ' || true
+        env:
+          SSH_DEBUG_PASSWORD: ${{ secrets.SSH_DEBUG_PASSWORD }}
 
-      - name: Install zrok2 CLI
+      - name: Install zrok CLI
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "============================================================"
-          echo "                    INSTALLING ZROK"
-          echo "============================================================"
-
-          curl -sSf https://get.openziti.io/install.bash | \
-            sudo bash -s zrok
+          curl -sSf https://get.openziti.io/install.bash \
+            | sudo bash -s zrok
 
           sudo apt-get install -y zrok
 
           hash -r
 
-          # Keep the zrok2 command name used by this workflow.
-          sudo ln -sf "$(command -v zrok)" /usr/local/bin/zrok2
-
-          hash -r
-
-          echo
           echo "============================================================"
-          echo "                    ZROK2 VERSION"
+          echo "                    ZROK VERSION"
           echo "============================================================"
 
-          command -v zrok2
-          zrok2 version
+          command -v zrok
+          zrok version
+          zrok enable --help
+          zrok share private --help
 
       - name: Configure zrok API Endpoint
         shell: bash
         run: |
           set -euo pipefail
 
-          echo "============================================================"
-          echo "                 CONFIGURING ZROK API"
-          echo "============================================================"
+          zrok config set apiEndpoint https://api-v1.zrok.io/
 
-          # IMPORTANT:
-          # https://zrok.io is not the API endpoint used by this CLI.
-          # Use the v1 API endpoint explicitly.
-          zrok2 config set apiEndpoint https://api-v1.zrok.io/
-
-          echo
           echo "Configured API endpoint:"
-          zrok2 config get apiEndpoint
-
-      - name: Inspect zrok2 CLI
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          echo "============================================================"
-          echo "                    ZROK2 CLI HELP"
-          echo "============================================================"
-
-          zrok2 --help
-
-          echo
-          echo "============================================================"
-          echo "                    ZROK2 LS HELP"
-          echo "============================================================"
-
-          zrok2 ls --help || true
-
-          echo
-          echo "============================================================"
-          echo "                 ZROK2 SHARE HELP"
-          echo "============================================================"
-
-          zrok2 share --help || true
-
-          echo
-          echo "============================================================"
-          echo "                 ZROK2 CONFIGURATION"
-          echo "============================================================"
-
-          zrok2 config get apiEndpoint || true
+          zrok config get apiEndpoint
 
       - name: Pre-Start Cleanup
         shell: bash
@@ -136,24 +91,17 @@ jobs:
           set -euo pipefail
 
           echo "============================================================"
-          echo "      PRE-START CLEANUP: LOCAL RUNNER STATE"
+          echo "                  PRE-START CLEANUP"
           echo "============================================================"
 
-          # Do NOT run `zrok2 enable` here.
-          #
-          # On GitHub Actions, enable can attempt to access /dev/tty.
-          # Account enablement is performed exactly once in the next step.
-          #
-          # Do NOT run:
-          #   zrok2 list environments
-          #
-          # That command does not exist in the installed CLI.
+          # Do not enable/disable the account here.
+          # Do not run the unsupported "list environments" command.
+          # This avoids interactive TTY operations before enablement.
 
-          echo "No remote environment enumeration performed."
-          echo "No zrok account enablement performed."
-          echo "Cleanup stage completed."
+          echo "No remote cleanup attempted."
+          echo "Proceeding to headless account enablement."
 
-      - name: Enable zrok2
+      - name: Enable zrok Environment
         shell: bash
         env:
           ZROK_TOKEN: ${{ secrets.ZROK_TOKEN }}
@@ -161,65 +109,83 @@ jobs:
           set -euo pipefail
 
           if [ -z "${ZROK_TOKEN}" ]; then
-            echo "ERROR: ZROK_TOKEN secret is empty or unavailable."
+            echo "ERROR: ZROK_TOKEN secret is missing."
             exit 1
           fi
 
           echo "============================================================"
-          echo "                    ENABLING ZROK2"
+          echo "              ENABLING ZROK HEADLESS"
           echo "============================================================"
 
-          echo "API endpoint:"
-          zrok2 config get apiEndpoint
+          zrok enable --headless "${ZROK_TOKEN}"
 
-          zrok2 enable "${ZROK_TOKEN}"
+          echo "zrok environment enabled successfully."
 
-          echo
-          echo "zrok2 account successfully enabled."
-
-      - name: Start zrok2 SSH Tunnel
+      - name: Start zrok SSH Tunnel
         shell: bash
         run: |
           set -euo pipefail
 
           echo "============================================================"
-          echo "             STARTING ZROK2 SSH TUNNEL"
+          echo "                STARTING PRIVATE SSH SHARE"
           echo "============================================================"
 
-          rm -f /tmp/zrok2-share.log
-
-          script -q -c \
-            "zrok2 share private --backend-mode tcpTunnel localhost:22" \
-            /dev/null \
-            > /tmp/zrok2-share.log 2>&1 &
+          # Use the supported TCP tunnel backend and disable the TUI.
+          # Keep the foreground process alive and capture its output.
+          zrok share private \
+            --headless \
+            --backend-mode tcpTunnel \
+            127.0.0.1:22 \
+            > /tmp/zrok-share.log 2>&1 &
 
           ZROK_PID=$!
 
-          echo "zrok2 process started with PID: ${ZROK_PID}"
+          cleanup() {
+            echo "Stopping zrok share..."
+            kill "${ZROK_PID}" 2>/dev/null || true
+            wait "${ZROK_PID}" 2>/dev/null || true
+          }
 
-          sleep 10
+          trap cleanup EXIT INT TERM
 
-          echo
+          echo "zrok share PID: ${ZROK_PID}"
+
+          # Wait up to 60 seconds for a successful share startup.
+          for attempt in $(seq 1 30); do
+            if ! kill -0 "${ZROK_PID}" 2>/dev/null; then
+              echo "ERROR: zrok share process exited."
+              cat /tmp/zrok-share.log
+              exit 1
+            fi
+
+            if grep -Eqi 'started|access private|tcpTunnel' /tmp/zrok-share.log; then
+              break
+            fi
+
+            sleep 2
+          done
+
           echo "============================================================"
-          echo "             ZROK2 TUNNEL INFORMATION"
+          echo "                    ZROK SHARE LOG"
           echo "============================================================"
 
-          cat /tmp/zrok2-share.log
-
-          echo
-          echo "============================================================"
+          cat /tmp/zrok-share.log
 
           if ! kill -0 "${ZROK_PID}" 2>/dev/null; then
-            echo "ERROR: zrok2 tunnel process terminated."
-            echo
-            echo "Full zrok2 log:"
-            cat /tmp/zrok2-share.log
+            echo "ERROR: zrok share terminated during startup."
             exit 1
           fi
 
-          echo "zrok2 tunnel is active."
-          echo
-          echo "Keeping runner alive for the full 6-hour limit..."
-          echo "============================================================"
+          echo "Share process is running."
+          echo "Runner will remain active for up to six hours."
 
-          sleep 21600
+          # Keep the runner alive, but fail if the tunnel dies.
+          for ((second = 0; second < 21600; second++)); do
+            if ! kill -0 "${ZROK_PID}" 2>/dev/null; then
+              echo "ERROR: zrok tunnel terminated unexpectedly."
+              cat /tmp/zrok-share.log
+              exit 1
+            fi
+
+            sleep 1
+          done
