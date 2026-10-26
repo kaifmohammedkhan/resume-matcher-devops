@@ -51,34 +51,25 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "Resolving asset paths dynamically from official repository releases..."
+          echo "Downloading static production release binary..."
           cd $(mktemp -d)
           
-          # Fetch the exact browser download url for the 64-bit linux asset from the GitHub API
-          DOWNLOAD_URL=$(curl -sSf https://github.com | \
-            jq -r '.assets[] | select(.name | test("linux.*amd64")) | .browser_download_url')
-          
-          echo "Downloading asset via target URL: ${DOWNLOAD_URL}"
-          curl -sSfL "${DOWNLOAD_URL}" | tar -xz -f -
-          
-          # Find whatever binary file was extracted (zrok or zrok2) and place it cleanly into global scope
-          BINARY_NAME=$(find . -maxdepth 1 -type f -executable -name "zrok*" | head -n 1)
-          
-          if [ -z "${BINARY_NAME}" ]; then
-            echo "ERROR: No executable binary found in the extracted archive."
-            exit 1
-          fi
+          # Download directly from GitHub's static asset storage bypassing API rate limits
+          curl -sSfLO https://github.com
+          tar -xz -f zrok_0.4.42_linux_amd64.tar.gz
 
-          echo "Registering extracted binary: ${BINARY_NAME}"
-          sudo install -o root -g root "${BINARY_NAME}" /usr/local/bin/zrok2
-          sudo ln -sf /usr/local/bin/zrok2 /usr/local/bin/zrok
+          echo "Registering zrok binary globally..."
+          sudo install -o root -g root ./zrok /usr/local/bin/zrok
+          
+          # Create symlink alias to safeguard zrok2 commands in subsequent steps
+          sudo ln -sf /usr/local/bin/zrok /usr/local/bin/zrok2
           
           hash -r
 
           echo "============================================================"
           echo "                    ZROK INSTALLED"
           echo "============================================================"
-          zrok2 version || zrok version
+          zrok version
 
       - name: Purge Stale Ghost Environments First
         shell: bash
@@ -98,17 +89,17 @@ jobs:
           
           hash -r
 
-          # Configure endpoint and activate token context to query current account info
-          script -q -c "zrok2 config set apiEndpoint https://zrok.io" /dev/null || script -q -c "zrok config set apiEndpoint https://zrok.io" /dev/null
-          script -q -c "zrok2 enable ${ZROK_TOKEN}" /dev/null || script -q -c "zrok enable ${ZROK_TOKEN}" /dev/null
+          # Configure v1 endpoint and activate current context
+          script -q -c "zrok config set apiEndpoint https://zrok.io" /dev/null
+          script -q -c "zrok enable ${ZROK_TOKEN}" /dev/null
 
           echo "Scanning and deleting matched runner profiles..."
-          (zrok2 list environments --json || zrok list environments --json) | \
+          zrok list environments --json | \
           jq -r '.[] | select(.description | test("DESKTOP-PQUITOR\\\\DELL@DESKTOP-PQUITOR|runner@")) | .token' | \
-          xargs -I {} sh -c 'zrok2 delete environment {} || zrok delete environment {}' || true
+          xargs -I {} sh -c 'zrok delete environment {}' || true
           
           # Drop local authentication state so the subsequent setup block builds a completely clean workspace
-          script -q -c "zrok2 disable" /dev/null || script -q -c "zrok disable" /dev/null || true
+          script -q -c "zrok disable" /dev/null
           echo "Pre-cleanup finished successfully."
 
       - name: Enable and Run zrok SSH Tunnel with Auto-Cleanup
@@ -129,24 +120,23 @@ jobs:
             echo "============================================================"
             echo "          DISABLING CURRENT ZROK ENVIRONMENT ON EXIT"
             echo "============================================================"
-            script -q -c "zrok2 disable" /dev/null || script -q -c "zrok disable" /dev/null || true
+            script -q -c "zrok disable" /dev/null || true
           }
           trap cleanup EXIT INT TERM
 
           hash -r
 
           echo "Setting zrok API endpoint..."
-          script -q -c "zrok2 config set apiEndpoint https://zrok.io" /dev/null || script -q -c "zrok config set apiEndpoint https://zrok.io" /dev/null
+          script -q -c "zrok config set apiEndpoint https://zrok.io" /dev/null
 
           echo "Enabling fresh zrok instance..."
-          script -q -c "zrok2 enable ${ZROK_TOKEN}" /dev/null || script -q -c "zrok enable ${ZROK_TOKEN}" /dev/null
+          script -q -c "zrok enable ${ZROK_TOKEN}" /dev/null
           echo "zrok account successfully enabled."
 
           echo "============================================================"
           echo "            STARTING ZROK SSH TUNNEL"
           echo "============================================================"
 
-          script -q -c "zrok2 share private --backend-mode tcpTunnel localhost:22" /dev/null > /tmp/zrok-share.log 2>&1 & || \
           script -q -c "zrok share private --backend-mode tcpTunnel localhost:22" /dev/null > /tmp/zrok-share.log 2>&1 &
           ZROK_PID=$!
 
