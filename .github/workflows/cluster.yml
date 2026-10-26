@@ -51,8 +51,17 @@ jobs:
         run: |
           set -euo pipefail
 
-          # Passing 'zrok' to the core OpenZiti install script maps dependencies accurately
+          echo "============================================================"
+          echo "              INSTALLING OFFICIAL ZROK PACKAGE"
+          echo "============================================================"
+
+          # Add the package repository setup mirror context securely
           curl -sSf https://openziti.io | sudo bash -s zrok
+
+          # Force an absolute repository cache update to ensure the newly added zrok sources are active
+          sudo apt-get update -o Dir::Etc::sourcelist="sources.list.d/openziti-release.list" -o Dir::Etc::sourceparts="-" -o APK::Get::List-Cleanup="0" || sudo apt-get update
+          
+          # Install the package explicitly
           sudo apt-get install -y zrok
           
           hash -r
@@ -85,7 +94,7 @@ jobs:
           echo "============================================================"
 
           # Seed the correct API target endpoint into the active runtime profile configuration
-          zrok2 config set apiEndpoint https://api-v1.zrok.io
+          zrok2 config set apiEndpoint https://zrok.io
 
           # Authorize the target account context to sweep matching ghosts
           zrok2 enable "${ZROK_TOKEN}"
@@ -112,7 +121,7 @@ jobs:
           fi
 
           # Re-apply the API configuration target for the clean workspace profile configuration context
-          zrok2 config set apiEndpoint https://api-v1.zrok.io
+          zrok2 config set apiEndpoint https://zrok.io
 
           zrok2 enable "${ZROK_TOKEN}"
 
