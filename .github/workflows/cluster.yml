@@ -60,7 +60,7 @@ jobs:
           command -v zrok2
           zrok2 version
 
-      - name: Enable, Clean Past Clutter, and Run zrok2 SSH Tunnel
+      - name: Enable and Run zrok2 SSH Tunnel with Auto-Cleanup
         shell: bash
         env:
           ZROK_TOKEN: ${{ secrets.ZROK_TOKEN }}
@@ -82,23 +82,9 @@ jobs:
           }
           trap cleanup EXIT INT TERM
 
-          echo "Enabling zrok2 for this runner..."
+          echo "Enabling zrok2..."
           zrok2 enable "${ZROK_TOKEN}"
           echo "zrok2 account successfully enabled."
-
-          # Purge past/stale environments lingering from previous abandoned runs
-          echo "============================================================"
-          echo "       PURGING PAST STALE ZROK ENVIRONMENTS & CLUTTER"
-          echo "============================================================"
-          zrok2 list environments || true
-          
-          # Automatically delete idle or older stale environments found on the account
-          for env_id in $(zrok2 list environments 2>/dev/null | awk 'NR>2 {print $1}'); do
-            if [ -n "${env_id}" ]; then
-              echo "Removing stale environment: ${env_id}"
-              zrok2 delete environment "${env_id}" --force || true
-            fi
-          done || true
 
           echo "============================================================"
           echo "            STARTING ZROK2 SSH TUNNEL"
