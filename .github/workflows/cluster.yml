@@ -1,8 +1,11 @@
 name: Interactive Zrok Debug
 
 on:
+  push:
+    branches:
+      - pre-main
   workflow_dispatch:
-
+  
 jobs:
   debug:
     runs-on: ubuntu-latest
