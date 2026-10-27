@@ -84,13 +84,15 @@ spec:
   type: NodePort
 ---
 # -------------------------
-# Resume Matcher Service (Exposes File 1's Deployment)
+# Resume Matcher Service
 # -------------------------
 apiVersion: v1
 kind: Service
 metadata:
   name: resume-matcher-service
   namespace: default
+  labels:
+    app: resume-matcher-ghcr   # 👈 CRITICAL: ServiceMonitor looks for this label on the Service object
 spec:
   selector:
     app: resume-matcher-ghcr
@@ -100,10 +102,6 @@ spec:
       port: 3000
       targetPort: 3000
       nodePort: 30080
-    - name: metrics
-      protocol: TCP
-      port: 51113
-      targetPort: 51113
   type: NodePort
 ---
 # -------------------------
@@ -117,11 +115,11 @@ metadata:
 spec:
   selector:
     matchLabels:
-      app: resume-matcher-ghcr
+      app: resume-matcher-ghcr   # Matches the Service label above
   namespaceSelector:
     matchNames:
       - default
   endpoints:
-    - port: metrics
+    - port: http                # Scrapes port 3000 where your Express app actually exposes /metrics
       path: /metrics
       interval: 30s
