@@ -2,13 +2,15 @@ apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
 metadata:
   name: resume-matcher-monitor
-  namespace: monitoring # Recommended: put it where Prometheus lives, OR keep it in 'default' if cross-namespace selector is enabled
+  namespace: monitoring     # Keep the ServiceMonitor in the monitoring namespace
   labels:
-    release: monitoring # ⚠️ CRITICAL: Must match your kube-prometheus-stack release name (e.g., 'monitoring' or 'prometheus-stack')
+    release: monitoring     # Required for Prometheus to discover it
 spec:
   selector:
     matchLabels:
-      app: resume-matcher-ghcr # Must match your Service's labels
+      app: resume-matcher-ghcr
+  namespaceSelector:
+    any: true               # 👈 CRITICAL: This forces Prometheus to look across ALL namespaces (default, monitoring, etc.)
   endpoints:
     - port: http
       path: /metrics
