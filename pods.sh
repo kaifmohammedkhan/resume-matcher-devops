@@ -21,4 +21,4 @@ echo "Press Ctrl+C to stop forwarding."
 echo ""
 
 # Execute port-forward
-kubectl port-forward deployment/resume-matcher-ghcr 3000:3000
+kubectl port-forward deployment/resume-matcher-ghcr 8081:3000

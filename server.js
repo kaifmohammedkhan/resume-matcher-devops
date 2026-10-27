@@ -80,11 +80,35 @@ if (process.env.NODE_ENV !== 'test') {
 }
 
 // ============================================================
-// Prometheus Metrics
+// Prometheus Metrics & Custom Instrumentation
 // ============================================================
 
 const collectDefaultMetrics = client.collectDefaultMetrics;
 collectDefaultMetrics({ prefix: 'resume_matcher_' });
+
+// Custom Metric: HTTP Request Duration Histogram
+const httpRequestDurationSeconds = new client.Histogram({
+  name: 'resume_matcher_http_request_duration_seconds',
+  help: 'Duration of HTTP requests in seconds',
+  labelNames: ['method', 'route', 'code'],
+  buckets: [0.05, 0.1, 0.3, 0.5, 1, 1.5, 2, 5],
+});
+
+// Middleware to track request latencies (excluding /metrics and /health)
+app.use((req, res, next) => {
+  if (req.path === '/metrics' || req.path === '/health') {
+    return next();
+  }
+  const end = httpRequestDurationSeconds.startTimer();
+  res.on('finish', () => {
+    end({
+      method: req.method,
+      route: req.route ? req.route.path : req.path,
+      code: res.statusCode,
+    });
+  });
+  next();
+});
 
 app.get('/metrics', async (req, res) => {
   res.set('Content-Type', client.register.contentType);
