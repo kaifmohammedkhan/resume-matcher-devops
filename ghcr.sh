@@ -9,9 +9,9 @@ else
   exit 1
 fi
 
-# Validate required variables (added ARGO_GITHUB validation since it is in your .env)
-if [ -z "$USERNAME" ] || [ -z "$GITHUB_TOKEN" ] || [ -z "$ARGOCD_AUTH_TOKEN" ] || [ -z "$ARGO_GITHUB" ]; then
-  echo "Error: USERNAME, GITHUB_TOKEN, ARGOCD_AUTH_TOKEN, and ARGO_GITHUB must be defined in the .env file."
+# Validate required variables (including the newly added EMAIL_USER and EMAIL_PASS)
+if [ -z "$USERNAME" ] || [ -z "$GITHUB_TOKEN" ] || [ -z "$ARGOCD_AUTH_TOKEN" ] || [ -z "$ARGO_GITHUB" ] || [ -z "$EMAIL_USER" ] || [ -z "$EMAIL_PASS" ]; then
+  echo "Error: USERNAME, GITHUB_TOKEN, ARGOCD_AUTH_TOKEN, ARGO_GITHUB, EMAIL_USER, and EMAIL_PASS must be defined in the .env file."
   exit 1
 fi
 
@@ -39,6 +39,14 @@ echo "Creating/updating Kubernetes secret 'github-verifier-token'..."
 kubectl create secret generic github-verifier-token \
   --namespace=argocd \
   --from-literal=ARGO_GITHUB="$ARGO_GITHUB" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# Create or update the Alertmanager SMTP credentials secret idempotently in the monitoring namespace
+echo "Creating/updating Kubernetes secret 'alertmanager-smtp-credentials'..."
+kubectl create secret generic alertmanager-smtp-credentials \
+  --namespace=monitoring \
+  --from-literal=smtp-username="$EMAIL_USER" \
+  --from-literal=smtp-password="$EMAIL_PASS" \
   --dry-run=client -o yaml | kubectl apply -f -
 
 echo "=============================================="
