@@ -1,0 +1,40 @@
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: resume-matcher-rules
+  namespace: default
+  labels:
+    release: monitoring  # <-- Changed from prometheus-stack to monitoring
+spec:
+  groups:
+  - name: resume-matcher-service-alerts
+    rules:
+      # 1. Target Down Alert
+      - alert: ResumeMatcherTargetDown
+        expr: up{job="resume-matcher-service"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Resume Matcher target is down"
+          description: "Prometheus target {{ $labels.instance }} (Pod: {{ $labels.pod }}) has been unreachable or down for more than 2 minutes."
+
+      # 2. High Latency Alert (95th percentile > 500ms)
+      - alert: ResumeMatcherHighLatency
+        expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job="resume-matcher-service"}[5m])) by (le)) > 0.5
+        for: 3m
+        labels:
+          severity: warning
+        annotations:
+          summary: "High 95th percentile latency on Resume Matcher"
+          description: "The 95th percentile HTTP response latency for Resume Matcher has exceeded 500ms (Current value: {{ $value }}s)."
+
+      # 3. Scrape Failure Alert
+      - alert: ResumeMatcherScrapeFailure
+        expr: scrape_samples_scraped{job="resume-matcher-service"} == 0
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Resume Matcher zero sample scrape failure"
+          description: "Prometheus connected to {{ $labels.instance }} but scraped zero metrics samples continuously for 2 minutes."
