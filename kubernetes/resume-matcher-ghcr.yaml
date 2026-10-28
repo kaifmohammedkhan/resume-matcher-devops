@@ -5,7 +5,7 @@ metadata:
   labels:
     app: resume-matcher-ghcr
 spec:
-  replicas: 2
+  replicas: 3
   selector:
     matchLabels:
       app: resume-matcher-ghcr
