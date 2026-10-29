@@ -4,7 +4,7 @@ metadata:
   name: resume-matcher-rules
   namespace: default
   labels:
-    release: monitoring  # <-- Changed from prometheus-stack to monitoring
+    release: monitoring  # Matches your Prometheus instance selector
 spec:
   groups:
   - name: resume-matcher-service-alerts
@@ -38,3 +38,13 @@ spec:
         annotations:
           summary: "Resume Matcher zero sample scrape failure"
           description: "Prometheus connected to {{ $labels.instance }} but scraped zero metrics samples continuously for 2 minutes."
+
+      # 4. Zero Replicas Alert (NEW)
+      - alert: ResumeMatcherZeroReplicas
+        expr: kube_deployment_status_replicas_available{deployment="resume-matcher"} == 0
+        for: 0m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Resume Matcher deployment has 0 available replicas"
+          description: "The deployment resume-matcher has been scaled down to 0 replicas, meaning no pods are currently running."
