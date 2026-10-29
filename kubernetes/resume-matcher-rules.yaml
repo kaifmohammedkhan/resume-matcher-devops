@@ -4,7 +4,7 @@ metadata:
   name: resume-matcher-rules
   namespace: default
   labels:
-    release: monitoring  # Matches your Prometheus instance selector
+    release: monitoring
 spec:
   groups:
   - name: resume-matcher-service-alerts
@@ -17,9 +17,9 @@ spec:
           severity: critical
         annotations:
           summary: "Resume Matcher target is down"
-          description: "Prometheus target {{ $labels.instance }} (Pod: {{ $labels.pod }}) has been unreachable or down for more than 2 minutes."
+          description: "Prometheus target {{ $labels.instance }} has been unreachable for more than 2 minutes."
 
-      # 2. High Latency Alert (95th percentile > 500ms)
+      # 2. High Latency Alert
       - alert: ResumeMatcherHighLatency
         expr: histogram_quantile(0.95, sum(rate(http_request_duration_seconds_bucket{job="resume-matcher-service"}[5m])) by (le)) > 0.5
         for: 3m
@@ -27,7 +27,7 @@ spec:
           severity: warning
         annotations:
           summary: "High 95th percentile latency on Resume Matcher"
-          description: "The 95th percentile HTTP response latency for Resume Matcher has exceeded 500ms (Current value: {{ $value }}s)."
+          description: "The 95th percentile HTTP response latency has exceeded 500ms."
 
       # 3. Scrape Failure Alert
       - alert: ResumeMatcherScrapeFailure
@@ -37,14 +37,14 @@ spec:
           severity: warning
         annotations:
           summary: "Resume Matcher zero sample scrape failure"
-          description: "Prometheus connected to {{ $labels.instance }} but scraped zero metrics samples continuously for 2 minutes."
+          description: "Prometheus scraped zero metrics samples continuously for 2 minutes."
 
-      # 4. Zero Replicas Alert (NEW)
+      # 4. Zero Replicas Alert (Corrected name)
       - alert: ResumeMatcherZeroReplicas
-        expr: kube_deployment_status_replicas_available{deployment="resume-matcher"} == 0
+        expr: kube_deployment_status_replicas_available{deployment="resume-matcher-ghcr"} == 0
         for: 0m
         labels:
           severity: warning
         annotations:
           summary: "Resume Matcher deployment has 0 available replicas"
-          description: "The deployment resume-matcher has been scaled down to 0 replicas, meaning no pods are currently running."
+          description: "The deployment resume-matcher-ghcr has been scaled down to 0 replicas."
