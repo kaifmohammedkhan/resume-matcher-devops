@@ -2,7 +2,7 @@ apiVersion: monitoring.coreos.com/v1alpha1
 kind: AlertmanagerConfig
 metadata:
   name: resume-matcher-email-config
-  namespace: default
+  namespace: monitoring   # Must be in 'monitoring' to access the secret
   labels:
     release: monitoring
 spec:
@@ -21,9 +21,9 @@ spec:
     - to: 'kaifkhanmohammed718@gmail.com'
       from: 'kaifkhanmohammed718@gmail.com'
       smarthost: 'smtp.gmail.com:587'
-      authUsername: 'kaifkhanmohammed718@gmail.com'   # <-- Plain string (your email address)
+      authUsername: 'kaifkhanmohammed718@gmail.com'
       authPassword:
         name: alertmanager-smtp-credentials
-        key: smtp-password                 # <-- Secret object reference for password
+        key: smtp-password
       requireTLS: true
       sendResolved: true
