@@ -1,15 +1,17 @@
 #!/usr/bin/env bash
 set -e
 
-# Load environment variables from .env file
+# Load environment variables from .env file securely
 if [ -f .env ]; then
-  export $(grep -v '^#' .env | xargs)
+  set -a
+  source .env
+  set +a
 else
   echo "Error: .env file not found."
   exit 1
 fi
 
-# Validate required variables (including the newly added EMAIL_USER and EMAIL_PASS)
+# Validate required variables (including EMAIL_USER and EMAIL_PASS)
 if [ -z "$USERNAME" ] || [ -z "$GITHUB_TOKEN" ] || [ -z "$ARGOCD_AUTH_TOKEN" ] || [ -z "$ARGO_GITHUB" ] || [ -z "$EMAIL_USER" ] || [ -z "$EMAIL_PASS" ]; then
   echo "Error: USERNAME, GITHUB_TOKEN, ARGOCD_AUTH_TOKEN, ARGO_GITHUB, EMAIL_USER, and EMAIL_PASS must be defined in the .env file."
   exit 1
