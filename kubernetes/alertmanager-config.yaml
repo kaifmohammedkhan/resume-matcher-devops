@@ -21,11 +21,9 @@ spec:
     - to: 'kaifkhanmohammed718@gmail.com'
       from: 'kaifkhanmohammed718@gmail.com'
       smarthost: 'smtp.gmail.com:587'
-      authUsername:
-        name: alertmanager-smtp-credentials
-        key: smtp-username
+      authUsername: 'kaifkhanmohammed718@gmail.com'   # <-- Plain string (your email address)
       authPassword:
         name: alertmanager-smtp-credentials
-        key: smtp-password
+        key: smtp-password                 # <-- Secret object reference for password
       requireTLS: true
       sendResolved: true
