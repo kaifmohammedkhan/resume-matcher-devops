@@ -51,9 +51,9 @@ kubectl create secret generic alertmanager-smtp-credentials \
   --from-literal=smtp-password="$EMAIL_PASS" \
   --dry-run=client -o yaml | kubectl apply -f -
 
-# Create or update the Alertmanager YAML configuration secret idempotently in the monitoring namespace
-echo "Creating/updating Kubernetes secret 'resume-matcher-alertmanager-secret'..."
-kubectl create secret generic resume-matcher-alertmanager-secret \
+# Create or update the Prometheus Operator Alertmanager configuration secret idempotently in the monitoring namespace
+echo "Creating/updating Kubernetes secret 'alertmanager-monitoring-kube-prometheus-alertmanager'..."
+kubectl create secret generic alertmanager-monitoring-kube-prometheus-alertmanager \
   --namespace=monitoring \
   --from-literal=alertmanager.yaml="$(cat <<EOF
 global:
@@ -113,6 +113,10 @@ templates:
 EOF
 )" \
   --dry-run=client -o yaml | kubectl apply -f -
+
+# Force Alertmanager to restart and reload the new configuration
+echo "Restarting Alertmanager to apply configuration changes..."
+kubectl rollout restart statefulset/alertmanager-monitoring-kube-prometheus-alertmanager -n monitoring
 
 echo "=============================================="
 echo "ALL KUBERNETES SECRETS CONFIGURATION COMPLETED"
