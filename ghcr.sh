@@ -89,9 +89,7 @@ receivers:
     from: "$EMAIL_USER"
     smarthost: "smtp.gmail.com:587"
     auth_username: "$EMAIL_USER"
-    auth_password:
-      name: alertmanager-smtp-credentials
-      key: smtp-password
+    auth_password: "$EMAIL_PASS"
     require_tls: true
     send_resolved: true
 route:
