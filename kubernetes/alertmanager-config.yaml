@@ -16,14 +16,14 @@ spec:
       - name: alertname
         value: ResumeMatcherZeroReplicas
   receivers:
-  - name: 'email-notifications'
-    emailConfigs:
-    - to: 'kaifkhanmohammed718@gmail.com'
-      from: 'kaifkhanmohammed718@gmail.com'
-      smarthost: 'smtp.gmail.com:587'
-      authUsername: 'kaifkhanmohammed718@gmail.com'
-      authPassword:
-        name: alertmanager-smtp-credentials
-        key: smtp-password
-      requireTLS: true
-      sendResolved: true
+    - name: 'email-notifications'
+      emailConfigs:
+      - to: 'kaifkhanmohammed718@gmail.com'
+        from: 'kaifkhanmohammed718@gmail.com'
+        smarthost: 'smtp.gmail.com:587'
+        authUsername: 'kaifkhanmohammed718@gmail.com'
+        authPassword:
+          name: alertmanager-smtp-credentials
+          key: smtp-password
+        requireTLS: true
+        sendResolved: true
