@@ -51,6 +51,71 @@ kubectl create secret generic alertmanager-smtp-credentials \
   --from-literal=smtp-password="$EMAIL_PASS" \
   --dry-run=client -o yaml | kubectl apply -f -
 
+# Create or update the Alertmanager YAML configuration secret idempotently in the monitoring namespace
+echo "Creating/updating Kubernetes secret 'resume-matcher-alertmanager-secret'..."
+kubectl create secret generic resume-matcher-alertmanager-secret \
+  --namespace=monitoring \
+  --from-literal=alertmanager.yaml="$(cat <<EOF
+global:
+  resolve_timeout: 5m
+inhibit_rules:
+- equal:
+  - namespace
+  - alertname
+  source_matchers:
+  - severity = critical
+  target_matchers:
+  - severity =~ warning|info
+- equal:
+  - namespace
+  - alertname
+  source_matchers:
+  - severity = warning
+  target_matchers:
+  - severity = info
+- equal:
+  - namespace
+  source_matchers:
+  - alertname = InfoInhibitor
+  target_matchers:
+  - severity = info
+- target_matchers:
+  - alertname = InfoInhibitor
+receivers:
+- name: "null"
+- name: "email-notifications"
+  email_configs:
+  - to: "$EMAIL_USER"
+    from: "$EMAIL_USER"
+    smarthost: "smtp.gmail.com:587"
+    auth_username: "$EMAIL_USER"
+    auth_password:
+      name: alertmanager-smtp-credentials
+      key: smtp-password
+    require_tls: true
+    send_resolved: true
+route:
+  group_by:
+  - namespace
+  group_interval: 5m
+  group_wait: 30s
+  receiver: "null"
+  repeat_interval: 12h
+  routes:
+  - matchers:
+    - alertname = "Watchdog"
+    receiver: "null"
+  - matchers:
+    - alertname = "ResumeMatcherZeroReplicas"
+    receiver: "email-notifications"
+    group_wait: 10s
+    repeat_interval: 1h
+templates:
+- /etc/alertmanager/config/*.tmpl
+EOF
+)" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
 echo "=============================================="
 echo "ALL KUBERNETES SECRETS CONFIGURATION COMPLETED"
 echo "=============================================="
