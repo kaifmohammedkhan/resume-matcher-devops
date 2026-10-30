@@ -10,3 +10,12 @@ spec:
   # Tells the operator to mount your script's SMTP secret into the pod
   secrets:
     - alertmanager-smtp-credentials
+
+  # 👇 Add these two blocks so the operator discovers your AlertmanagerConfig
+  alertmanagerConfigSelector:
+    matchLabels:
+      release: monitoring
+      
+  alertmanagerConfigNamespaceSelector:
+    matchLabels:
+      kubernetes.io/metadata.name: monitoring
