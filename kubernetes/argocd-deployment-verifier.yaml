@@ -77,7 +77,7 @@ spec:
                   "deploymentVerified": False
               }
 
-              MAX_RETRIES = 15
+              MAX_RETRIES = 2
               RETRY_INTERVAL = 15
 
               ctx = ssl._create_unverified_context()
@@ -89,7 +89,6 @@ spec:
               print("Starting health verification sync loops...", flush=True)
               for attempt in range(MAX_RETRIES):
                   try:
-                      # Added explicit 10 second timeout to prevent indefinite script hanging
                       with urllib.request.urlopen(req, context=ctx, timeout=10) as response:
                           argo_data = json.loads(response.read().decode())
 
@@ -147,13 +146,12 @@ spec:
               print("\n================ FINAL REPORT ================", flush=True)
               print(json.dumps(evidence, indent=2), flush=True)
 
-              # --- FIX FOR GITHUB STATUS CHANNELS REST API ---
               if github_token and commit_sha and commit_sha != "COMMIT_SHA_PLACEHOLDER":
                   state = "success" if evidence["deploymentVerified"] else "failure"
                   description = f"Pods: {evidence['readyReplicas']}/{evidence['desiredReplicas']} healthy. Sync: {evidence['syncStatus']}."
 
-                  # Correct REST API formatting structure
-                  github_url = f"https://github.com{repo_slug}/statuses/{commit_sha}"
+                  # Fixed GitHub REST API URL format
+                  github_url = f"https://api.github.com/repos{repo_slug}/statuses/{commit_sha}"
 
                   status_payload = {
                       "state": state,
