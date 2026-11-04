@@ -35,7 +35,7 @@ spec:
                   name: github-verifier-token
                   key: ARGO_GITHUB
             - name: COMMIT_SHA
-              value: "SOURCE_COMMIT_SHA_INJECTED_BY_GITHUB_ACTIONS"
+              value: "026657fc9b63d47a110991afdc4bfc79d778ed2b"
             - name: REPO_SLUG
               value: "kaifmohammedkhan/resume-matcher-devops"
             - name: ARGOCD_SERVER
