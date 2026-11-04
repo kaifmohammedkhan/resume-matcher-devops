@@ -4,6 +4,7 @@ metadata:
   name: argocd-deployment-verifier-job
   namespace: argocd
 spec:
+  ttlSecondsAfterFinished: 30
   template:
     spec:
       serviceAccountName: argocd-deployment-verifier
@@ -12,19 +13,22 @@ spec:
         - name: verifier
           image: python:3.11-slim
           env:
+            - name: PYTHONUNBUFFERED
+              value: "1"
             - name: ARGOCD_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: argocd-verifier-token
                   key: ARGOCD_AUTH_TOKEN
-            # ADD THESE TWO VARIABLES FOR GITHUB STATUS CHANNELS
             - name: GITHUB_TOKEN
               valueFrom:
                 secretKeyRef:
                   name: github-verifier-token
                   key: ARGO_GITHUB
             - name: COMMIT_SHA
-              value: "COMMIT_SHA_PLACEHOLDER" # Replaced dynamically by GHA
+              value: "COMMIT_SHA_PLACEHOLDER"
+            - name: REPO_SLUG
+              value: "YOUR_GITHUB_ORGANIZATION_OR_USER/resume-matcher"
             - name: ARGOCD_SERVER
               value: "argocd-server.argocd.svc.cluster.local:443"
             - name: APP_NAME
@@ -58,6 +62,7 @@ spec:
               argocd_server = os.getenv("ARGOCD_SERVER")
               github_token = os.getenv("GITHUB_TOKEN")
               commit_sha = os.getenv("COMMIT_SHA")
+              repo_slug = os.getenv("REPO_SLUG")
 
               evidence = {
                   "application": app_name,
@@ -81,21 +86,22 @@ spec:
                   headers={"Authorization": f"Bearer {argocd_token}"}
               )
 
-              print("Starting health verification sync loops...")
+              print("Starting health verification sync loops...", flush=True)
               for attempt in range(MAX_RETRIES):
                   try:
-                      with urllib.request.urlopen(req, context=ctx) as response:
+                      # Added explicit 10 second timeout to prevent indefinite script hanging
+                      with urllib.request.urlopen(req, context=ctx, timeout=10) as response:
                           argo_data = json.loads(response.read().decode())
 
                       evidence["syncStatus"] = argo_data["status"]["sync"]["status"]
                       evidence["healthStatus"] = argo_data["status"]["health"]["status"]
                       evidence["revision"] = argo_data["status"]["sync"]["revision"]
 
-                      print(f"Attempt {attempt+1}: Sync={evidence['syncStatus']}, Health={evidence['healthStatus']}")
+                      print(f"Attempt {attempt+1}: Sync={evidence['syncStatus']}, Health={evidence['healthStatus']}", flush=True)
                       if evidence["syncStatus"] == "Synced" and evidence["healthStatus"] == "Healthy":
                           break
                   except Exception as e:
-                      print(f"Waiting for api sync connectivity... ({e})")
+                      print(f"Waiting for api sync connectivity... ({e})", flush=True)
                   time.sleep(RETRY_INTERVAL)
 
               try:
@@ -131,30 +137,31 @@ spec:
                   if (evidence["syncStatus"] == "Synced" and
                       evidence["healthStatus"] == "Healthy" and
                       evidence["readyReplicas"] == evidence["desiredReplicas"] and
-                      evidence["digestMatch"]):
+                      evidence["digestMatch"] and 
+                      evidence["desiredReplicas"] > 0):
                       evidence["deploymentVerified"] = True
 
               except Exception as e:
-                  print(f"Error parsing Kubernetes state engine: {str(e)}")
+                  print(f"Error parsing Kubernetes state engine: {str(e)}", flush=True)
 
-              print("\n================ FINAL REPORT ================")
-              print(json.dumps(evidence, indent=2))
+              print("\n================ FINAL REPORT ================", flush=True)
+              print(json.dumps(evidence, indent=2), flush=True)
 
-              # --- NEW FUNCTIONALITY: POST STATUS BACK TO GITHUB ---
+              # --- FIX FOR GITHUB STATUS CHANNELS REST API ---
               if github_token and commit_sha and commit_sha != "COMMIT_SHA_PLACEHOLDER":
                   state = "success" if evidence["deploymentVerified"] else "failure"
                   description = f"Pods: {evidence['readyReplicas']}/{evidence['desiredReplicas']} healthy. Sync: {evidence['syncStatus']}."
 
-                  # Target repository hardcoded dynamically or configured via vars
-                  github_url = f"https://github.com{commit_sha}"
+                  # Correct REST API formatting structure
+                  github_url = f"https://github.com{repo_slug}/statuses/{commit_sha}"
 
                   status_payload = {
                       "state": state,
-                      "description": description[:140], # GitHub limits descriptions to 140 chars
+                      "description": description[:140],
                       "context": "ArgoCD/In-Cluster-Verifier"
                   }
 
-                  print(f"Sending commit status '{state}' back to GitHub...")
+                  print(f"Sending commit status '{state}' back to GitHub API...", flush=True)
                   try:
                       github_req = urllib.request.Request(
                           github_url,
@@ -166,13 +173,12 @@ spec:
                           },
                           method="POST"
                       )
-                      # Utilizing the pre-existing unverified ssl context to prevent local proxy validation errors
-                      with urllib.request.urlopen(github_req, context=ctx) as gh_res:
-                          print("GitHub status successfully updated.")
+                      with urllib.request.urlopen(github_req, context=ctx, timeout=10) as gh_res:
+                          print("GitHub status successfully updated.", flush=True)
                   except Exception as gh_err:
-                      print(f"Failed to post status update to GitHub: {gh_err}")
+                      print(f"Failed to post status update to GitHub: {gh_err}", flush=True)
               else:
-                  print("Skipping status update: GITHUB_TOKEN or VALID COMMIT_SHA missing.")
+                  print(f"Skipping status update: Missing variables. GITHUB_TOKEN status: {'Present' if github_token else 'Missing'}, COMMIT_SHA: {commit_sha}", flush=True)
 
               if not evidence["deploymentVerified"]:
                   exit(1)
