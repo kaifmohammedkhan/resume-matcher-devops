@@ -3,15 +3,24 @@ kind: Job
 metadata:
   name: argocd-deployment-verifier-job
   namespace: argocd
+  annotations:
+    argocd.argoproj.io/hook: PostSync
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation,HookSucceeded
 spec:
-  ttlSecondsAfterFinished: 30
+  backoffLimit: 0
+  activeDeadlineSeconds: 600
+  ttlSecondsAfterFinished: 300
   template:
+    metadata:
+      labels:
+        app: argocd-deployment-verifier
     spec:
       serviceAccountName: argocd-deployment-verifier
       restartPolicy: Never
       containers:
         - name: verifier
           image: python:3.11-slim
+          imagePullPolicy: IfNotPresent
           env:
             - name: PYTHONUNBUFFERED
               value: "1"
@@ -26,9 +35,9 @@ spec:
                   name: github-verifier-token
                   key: ARGO_GITHUB
             - name: COMMIT_SHA
-              value: "COMMIT_SHA_PLACEHOLDER"
+              value: "SOURCE_COMMIT_SHA_INJECTED_BY_GITHUB_ACTIONS"
             - name: REPO_SLUG
-              value: "YOUR_GITHUB_ORGANIZATION_OR_USER/resume-matcher"
+              value: "kaifmohammedkhan/resume-matcher-devops"
             - name: ARGOCD_SERVER
               value: "argocd-server.argocd.svc.cluster.local:443"
             - name: APP_NAME
@@ -39,147 +48,262 @@ spec:
               value: "resume-matcher-ghcr"
             - name: TARGET_NAMESPACE
               value: "default"
+            - name: REPORT_PATH
+              value: "reports/argocd/argocd-deployment-report.html"
+            # If Argo CD uses a private CA, mount its CA certificate and set
+            # this value to that mounted file path. Never disable TLS checks.
+            - name: ARGOCD_CA_CERT
+              value: ""
           command: ["/bin/sh", "-c"]
           args:
             - |
-              cat << 'EOF' > verify.py
-              import os
+              set -eu
+              cat <<'PYTHON' > /tmp/verify.py
+              import base64
+              import datetime
+              import html
               import json
-              import urllib.request
+              import os
               import ssl
+              import sys
               import time
+              import urllib.error
+              import urllib.parse
+              import urllib.request
+
               from kubernetes import client, config
 
-              config.load_incluster_config()
-              v1 = client.CoreV1Api()
-              apps_v1 = client.AppsV1Api()
+              def api_request(url, token, method="GET", payload=None, context=None):
+                  data = None if payload is None else json.dumps(payload).encode("utf-8")
+                  headers = {
+                      "Authorization": f"Bearer {token}",
+                      "Accept": "application/vnd.github+json",
+                      "X-GitHub-Api-Version": "2022-11-28",
+                      "User-Agent": "resume-matcher-argocd-verifier",
+                  }
+                  if data is not None:
+                      headers["Content-Type"] = "application/json"
+                  request = urllib.request.Request(url, data=data, headers=headers, method=method)
+                  with urllib.request.urlopen(request, context=context, timeout=30) as response:
+                      body = response.read()
+                      return json.loads(body.decode("utf-8")) if body else {}
 
-              app_name = os.getenv("APP_NAME")
-              dep_name = os.getenv("DEPLOYMENT_NAME")
-              container_name = os.getenv("CONTAINER_NAME")
-              namespace = os.getenv("TARGET_NAMESPACE")
-              argocd_token = os.getenv("ARGOCD_TOKEN")
-              argocd_server = os.getenv("ARGOCD_SERVER")
-              github_token = os.getenv("GITHUB_TOKEN")
-              commit_sha = os.getenv("COMMIT_SHA")
-              repo_slug = os.getenv("REPO_SLUG")
+              def esc(value):
+                  return html.escape(str(value if value is not None else ""))
+
+              app_name = os.environ["APP_NAME"]
+              deployment_name = os.environ["DEPLOYMENT_NAME"]
+              container_name = os.environ["CONTAINER_NAME"]
+              namespace = os.environ["TARGET_NAMESPACE"]
+              argocd_token = os.environ["ARGOCD_TOKEN"]
+              argocd_server = os.environ["ARGOCD_SERVER"].rstrip("/")
+              github_token = os.environ["GITHUB_TOKEN"]
+              commit_sha = os.environ["COMMIT_SHA"]
+              repo_slug = os.environ["REPO_SLUG"]
+              report_path = os.environ["REPORT_PATH"]
+
+              if not commit_sha or commit_sha == "SOURCE_COMMIT_SHA_INJECTED_BY_GITHUB_ACTIONS":
+                  raise SystemExit("COMMIT_SHA was not injected by the GitHub Actions GitOps promotion step")
+              if len(commit_sha) != 40 or any(c not in "0123456789abcdef" for c in commit_sha.lower()):
+                  raise SystemExit("COMMIT_SHA must be a full 40-character Git commit SHA")
+
+              ca_file = os.environ.get("ARGOCD_CA_CERT", "").strip()
+              argo_context = ssl.create_default_context(cafile=ca_file or None)
+              github_context = ssl.create_default_context()
 
               evidence = {
                   "application": app_name,
+                  "sourceCommit": commit_sha,
+                  "checkedAtUtc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                   "syncStatus": "Unknown",
                   "healthStatus": "Unknown",
-                  "revision": "Unknown",
+                  "argoRevision": "Unknown",
+                  "deployment": deployment_name,
+                  "namespace": namespace,
+                  "expectedImage": "Unknown",
                   "expectedDigest": "Unknown",
-                  "runtimeDigests": [],
-                  "digestMatch": False,
-                  "readyReplicas": 0,
                   "desiredReplicas": 0,
-                  "deploymentVerified": False
+                  "readyReplicas": 0,
+                  "podCount": 0,
+                  "readyTargetContainers": 0,
+                  "podImageReferences": [],
+                  "runtimeImageIDs": [],
+                  "digestPinnedOnAllPods": False,
+                  "deploymentVerified": False,
+                  "errors": [],
               }
 
-              MAX_RETRIES = 2
-              RETRY_INTERVAL = 15
-
-              ctx = ssl._create_unverified_context()
-              req = urllib.request.Request(
-                  f"https://{argocd_server}/api/v1/applications/{app_name}",
-                  headers={"Authorization": f"Bearer {argocd_token}"}
+              # Wait for Argo CD to report the application healthy and synced.
+              app_url = f"https://{argocd_server}/api/v1/applications/{urllib.parse.quote(app_name, safe='')}"
+              app_request = urllib.request.Request(
+                  app_url,
+                  headers={"Authorization": f"Bearer {argocd_token}", "Accept": "application/json"},
               )
-
-              print("Starting health verification sync loops...", flush=True)
-              for attempt in range(MAX_RETRIES):
+              for attempt in range(40):
                   try:
-                      with urllib.request.urlopen(req, context=ctx, timeout=10) as response:
-                          argo_data = json.loads(response.read().decode())
-
-                      evidence["syncStatus"] = argo_data["status"]["sync"]["status"]
-                      evidence["healthStatus"] = argo_data["status"]["health"]["status"]
-                      evidence["revision"] = argo_data["status"]["sync"]["revision"]
-
-                      print(f"Attempt {attempt+1}: Sync={evidence['syncStatus']}, Health={evidence['healthStatus']}", flush=True)
+                      with urllib.request.urlopen(app_request, context=argo_context, timeout=15) as response:
+                          argo_data = json.loads(response.read().decode("utf-8"))
+                      status = argo_data.get("status", {})
+                      evidence["syncStatus"] = status.get("sync", {}).get("status", "Unknown")
+                      evidence["healthStatus"] = status.get("health", {}).get("status", "Unknown")
+                      evidence["argoRevision"] = status.get("sync", {}).get("revision", "Unknown")
                       if evidence["syncStatus"] == "Synced" and evidence["healthStatus"] == "Healthy":
                           break
-                  except Exception as e:
-                      print(f"Waiting for api sync connectivity... ({e})", flush=True)
-                  time.sleep(RETRY_INTERVAL)
+                  except Exception as exc:
+                      evidence["errors"].append(f"Argo CD check attempt {attempt + 1}: {exc}")
+                  time.sleep(15)
 
+              # Read the actual Deployment and derive its pod selector; do not
+              # assume a hard-coded app label exists on the workload's Pods.
               try:
-                  dep = apps_v1.read_namespaced_deployment(name=dep_name, namespace=namespace)
-                  evidence["desiredReplicas"] = dep.spec.replicas
-                  evidence["readyReplicas"] = dep.status.ready_replicas if dep.status.ready_replicas else 0
+                  config.load_incluster_config()
+                  apps_api = client.AppsV1Api()
+                  core_api = client.CoreV1Api()
+                  deployment = apps_api.read_namespaced_deployment(deployment_name, namespace)
+                  evidence["desiredReplicas"] = deployment.spec.replicas or 0
+                  evidence["readyReplicas"] = deployment.status.ready_replicas or 0
 
-                  expected_image = ""
-                  for c in dep.spec.template.spec.containers:
-                      if c.name == container_name:
-                          expected_image = c.image
-                          break
+                  target = next(
+                      (item for item in deployment.spec.template.spec.containers if item.name == container_name),
+                      None,
+                  )
+                  if target is None:
+                      raise RuntimeError(f"Container {container_name} was not found in Deployment template")
 
-                  evidence["expectedDigest"] = expected_image.split("@")[-1] if "@" in expected_image else expected_image
+                  evidence["expectedImage"] = target.image
+                  if "@sha256:" not in target.image:
+                      raise RuntimeError("Deployment image is not pinned to an immutable sha256 digest")
+                  evidence["expectedDigest"] = target.image.rsplit("@", 1)[1]
 
-                  pods = v1.list_namespaced_pod(namespace=namespace, label_selector=f"app={dep_name}")
-                  match_count = 0
+                  selector = deployment.spec.selector.match_labels or {}
+                  if not selector:
+                      raise RuntimeError("Deployment selector.matchLabels is empty; cannot safely select Pods")
+                  label_selector = ",".join(f"{key}={value}" for key, value in sorted(selector.items()))
+                  pods = core_api.list_namespaced_pod(namespace, label_selector=label_selector).items
+                  evidence["podCount"] = len(pods)
 
-                  for pod in pods.items:
-                      if pod.status.container_statuses:
-                          for status in pod.status.container_statuses:
-                              if status.name == container_name:
-                                  image_id = status.image_id
-                                  actual_digest = image_id.split("@")[-1] if "@" in image_id else image_id
-                                  evidence["runtimeDigests"].append(actual_digest)
-
-                                  if actual_digest == evidence["expectedDigest"] or evidence["expectedDigest"] in status.image:
-                                      match_count += 1
-
-                  if match_count == len(pods.items) and len(pods.items) > 0:
-                      evidence["digestMatch"] = True
-
-                  if (evidence["syncStatus"] == "Synced" and
-                      evidence["healthStatus"] == "Healthy" and
-                      evidence["readyReplicas"] == evidence["desiredReplicas"] and
-                      evidence["digestMatch"] and 
-                      evidence["desiredReplicas"] > 0):
-                      evidence["deploymentVerified"] = True
-
-              except Exception as e:
-                  print(f"Error parsing Kubernetes state engine: {str(e)}", flush=True)
-
-              print("\n================ FINAL REPORT ================", flush=True)
-              print(json.dumps(evidence, indent=2), flush=True)
-
-              if github_token and commit_sha and commit_sha != "COMMIT_SHA_PLACEHOLDER":
-                  state = "success" if evidence["deploymentVerified"] else "failure"
-                  description = f"Pods: {evidence['readyReplicas']}/{evidence['desiredReplicas']} healthy. Sync: {evidence['syncStatus']}."
-
-                  # Fixed GitHub REST API URL format
-                  github_url = f"https://api.github.com/repos{repo_slug}/statuses/{commit_sha}"
-
-                  status_payload = {
-                      "state": state,
-                      "description": description[:140],
-                      "context": "ArgoCD/In-Cluster-Verifier"
-                  }
-
-                  print(f"Sending commit status '{state}' back to GitHub API...", flush=True)
-                  try:
-                      github_req = urllib.request.Request(
-                          github_url,
-                          data=json.dumps(status_payload).encode('utf-8'),
-                          headers={
-                              "Authorization": f"Bearer {github_token}",
-                              "Accept": "application/vnd.github+json",
-                              "Content-Type": "application/json"
-                          },
-                          method="POST"
+                  all_pods_pinned = bool(pods) and len(pods) >= evidence["desiredReplicas"]
+                  ready_target = 0
+                  for pod in pods:
+                      pod_spec = next(
+                          (item for item in pod.spec.containers if item.name == container_name), None
                       )
-                      with urllib.request.urlopen(github_req, context=ctx, timeout=10) as gh_res:
-                          print("GitHub status successfully updated.", flush=True)
-                  except Exception as gh_err:
-                      print(f"Failed to post status update to GitHub: {gh_err}", flush=True)
-              else:
-                  print(f"Skipping status update: Missing variables. GITHUB_TOKEN status: {'Present' if github_token else 'Missing'}, COMMIT_SHA: {commit_sha}", flush=True)
+                      if pod_spec is None:
+                          all_pods_pinned = False
+                          continue
+                      evidence["podImageReferences"].append(pod_spec.image)
+                      if pod_spec.image != target.image:
+                          all_pods_pinned = False
+
+                      statuses = pod.status.container_statuses or []
+                      container_status = next(
+                          (item for item in statuses if item.name == container_name), None
+                      )
+                      if container_status and container_status.image_id:
+                          evidence["runtimeImageIDs"].append(container_status.image_id)
+                      if container_status and container_status.ready and pod.status.phase == "Running":
+                          ready_target += 1
+                      else:
+                          all_pods_pinned = False
+
+                  evidence["readyTargetContainers"] = ready_target
+                  evidence["digestPinnedOnAllPods"] = all_pods_pinned
+                  evidence["deploymentVerified"] = bool(
+                      evidence["syncStatus"] == "Synced"
+                      and evidence["healthStatus"] == "Healthy"
+                      and evidence["desiredReplicas"] > 0
+                      and evidence["readyReplicas"] == evidence["desiredReplicas"]
+                      and ready_target == evidence["desiredReplicas"]
+                      and all_pods_pinned
+                  )
+              except Exception as exc:
+                  evidence["errors"].append(f"Kubernetes verification: {exc}")
+
+              # A multi-architecture index digest can resolve to a different
+              # platform-specific runtime imageID digest. Therefore verify that
+              # every Pod's declared image is pinned to the promoted index digest,
+              # and record runtime imageIDs separately instead of comparing them
+              # as if they must be identical.
+              status_label = "VERIFIED" if evidence["deploymentVerified"] else "FAILED"
+              status_color = "#22c55e" if evidence["deploymentVerified"] else "#ef4444"
+              rows = [
+                  ("Argo CD sync", evidence["syncStatus"]),
+                  ("Argo CD health", evidence["healthStatus"]),
+                  ("Argo CD revision", evidence["argoRevision"]),
+                  ("Deployment", evidence["deployment"]),
+                  ("Namespace", evidence["namespace"]),
+                  ("Expected image", evidence["expectedImage"]),
+                  ("Expected immutable digest", evidence["expectedDigest"]),
+                  ("Ready / desired replicas", f"{evidence['readyReplicas']} / {evidence['desiredReplicas']}"),
+                  ("Matching running Pods", f"{evidence['readyTargetContainers']} / {evidence['podCount']}"),
+                  ("All Pods use the pinned image reference", evidence["digestPinnedOnAllPods"]),
+                  ("Runtime image IDs", "<br>".join(esc(x) for x in evidence["runtimeImageIDs"]) or "Not available"),
+                  ("Source commit", evidence["sourceCommit"]),
+                  ("Checked at (UTC)", evidence["checkedAtUtc"]),
+              ]
+              table_rows = "".join(
+                  f"<tr><th>{esc(label)}</th><td>{value if label == 'Runtime image IDs' else esc(value)}</td></tr>"
+                  for label, value in rows
+              )
+              error_html = "".join(f"<li>{esc(item)}</li>" for item in evidence["errors"])
+              report = f'''<!doctype html>
+              <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+              <title>Argo CD Deployment Verification</title>
+              <style>
+              :root{{color-scheme:dark}}*{{box-sizing:border-box}}body{{margin:0;background:#080d18;color:#e5edf8;font:15px/1.6 Inter,Segoe UI,Arial,sans-serif;padding:32px}}
+              .wrap{{max-width:1100px;margin:auto}}.top{{background:linear-gradient(135deg,#111d32,#17243a);border:1px solid #263750;border-radius:18px;padding:28px;margin-bottom:20px}}
+              .eyebrow{{color:#8da8c9;text-transform:uppercase;letter-spacing:.16em;font-size:11px;font-weight:700}}h1{{margin:8px 0;font-size:28px}}.sub{{color:#9fb0c7;overflow-wrap:anywhere}}
+              .status{{display:inline-block;margin-top:14px;padding:7px 14px;border-radius:999px;background:{status_color}20;color:{status_color};font-weight:800;letter-spacing:.08em}}
+              .panel{{background:#101827;border:1px solid #263750;border-radius:16px;padding:22px;margin:18px 0}}h2{{font-size:17px;margin:0 0 14px}}
+              table{{width:100%;border-collapse:collapse}}th,td{{padding:12px;border-bottom:1px solid #263244;text-align:left;vertical-align:top;overflow-wrap:anywhere}}th{{width:31%;color:#9fb0c7;font-weight:600}}td{{color:#e5edf8}}
+              code{{color:#a5d8ff;overflow-wrap:anywhere}}li{{color:#fecaca;margin:6px 0}}.foot{{color:#71839d;font-size:12px;margin-top:22px}}
+              </style></head><body data-source-commit="{esc(commit_sha)}" data-verification-status="{status_label}"><main class="wrap">
+              <header class="top"><div class="eyebrow">Resume Matcher · GitOps evidence</div><h1>Argo CD Deployment Verification</h1>
+              <div class="sub">Application: {esc(app_name)} · Repository: {esc(repo_slug)}</div><span class="status">{status_label}</span></header>
+              <section class="panel"><h2>Deployment evidence</h2><table>{table_rows}</table></section>
+              <section class="panel"><h2>Verification errors</h2>{'<ul>'+error_html+'</ul>' if error_html else '<p>No verification errors recorded.</p>'}</section>
+              <p class="foot">Generated in-cluster by the Argo CD PostSync verifier. Runtime image IDs are recorded independently because multi-platform image indexes can resolve to platform-specific digests.</p>
+              </main></body></html>'''
+
+              # Publish the HTML report to the repository using the in-cluster
+              # GitHub token. The workflow polls this path and accepts only the
+              # report carrying this run's source commit SHA.
+              api_base = f"https://api.github.com/repos/{repo_slug}/contents/{report_path}"
+              encoded = base64.b64encode(report.encode("utf-8")).decode("ascii")
+              file_sha = None
+              try:
+                  existing = api_request(api_base + "?ref=main", github_token, context=github_context)
+                  file_sha = existing.get("sha")
+              except urllib.error.HTTPError as exc:
+                  if exc.code != 404:
+                      raise
+
+              payload = {
+                  "message": f"ci(argocd): publish deployment verification for {commit_sha} [skip ci]",
+                  "content": encoded,
+                  "branch": "main",
+              }
+              if file_sha:
+                  payload["sha"] = file_sha
+              api_request(api_base, github_token, method="PUT", payload=payload, context=github_context)
+              print(json.dumps(evidence, indent=2), flush=True)
+              print(f"Published HTML verification report to {repo_slug}/{report_path}", flush=True)
+
+              # Report publication is the primary handoff. Also publish a commit
+              # status for visibility in GitHub's commit checks UI.
+              status_url = f"https://api.github.com/repos/{repo_slug}/statuses/{commit_sha}"
+              status_payload = {
+                  "state": "success" if evidence["deploymentVerified"] else "failure",
+                  "description": f"Argo CD: {evidence['syncStatus']}/{evidence['healthStatus']}; replicas {evidence['readyReplicas']}/{evidence['desiredReplicas']}",
+                  "context": "ArgoCD/In-Cluster-Verifier",
+              }
+              try:
+                  api_request(status_url, github_token, method="POST", payload=status_payload, context=github_context)
+              except Exception as exc:
+                  print(f"WARNING: Could not publish GitHub commit status: {exc}", flush=True)
 
               if not evidence["deploymentVerified"]:
-                  exit(1)
-              EOF
-              pip install --no-cache-dir kubernetes
-              python verify.py
+                  sys.exit(1)
+              PYTHON
+              pip install --no-cache-dir kubernetes==32.0.1
+              python /tmp/verify.py
