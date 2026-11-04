@@ -1,3 +1,16 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: argocd-deployment-verifier-job
+  namespace: argocd
+spec:
+  template:
+    spec:
+      serviceAccountName: argocd-deployment-verifier
+      restartPolicy: Never
+      containers:
+        - name: verifier
+          image: python:3.11-slim
           env:
             - name: ARGOCD_TOKEN
               valueFrom:
@@ -73,11 +86,11 @@
                   try:
                       with urllib.request.urlopen(req, context=ctx) as response:
                           argo_data = json.loads(response.read().decode())
-                      
+
                       evidence["syncStatus"] = argo_data["status"]["sync"]["status"]
                       evidence["healthStatus"] = argo_data["status"]["health"]["status"]
                       evidence["revision"] = argo_data["status"]["sync"]["revision"]
-                      
+
                       print(f"Attempt {attempt+1}: Sync={evidence['syncStatus']}, Health={evidence['healthStatus']}")
                       if evidence["syncStatus"] == "Synced" and evidence["healthStatus"] == "Healthy":
                           break
@@ -95,12 +108,12 @@
                       if c.name == container_name:
                           expected_image = c.image
                           break
-                  
+
                   evidence["expectedDigest"] = expected_image.split("@")[-1] if "@" in expected_image else expected_image
 
                   pods = v1.list_namespaced_pod(namespace=namespace, label_selector=f"app={dep_name}")
                   match_count = 0
-                  
+
                   for pod in pods.items:
                       if pod.status.container_statuses:
                           for status in pod.status.container_statuses:
@@ -108,16 +121,16 @@
                                   image_id = status.image_id
                                   actual_digest = image_id.split("@")[-1] if "@" in image_id else image_id
                                   evidence["runtimeDigests"].append(actual_digest)
-                                  
+
                                   if actual_digest == evidence["expectedDigest"] or evidence["expectedDigest"] in status.image:
                                       match_count += 1
 
                   if match_count == len(pods.items) and len(pods.items) > 0:
                       evidence["digestMatch"] = True
 
-                  if (evidence["syncStatus"] == "Synced" and 
-                      evidence["healthStatus"] == "Healthy" and 
-                      evidence["readyReplicas"] == evidence["desiredReplicas"] and 
+                  if (evidence["syncStatus"] == "Synced" and
+                      evidence["healthStatus"] == "Healthy" and
+                      evidence["readyReplicas"] == evidence["desiredReplicas"] and
                       evidence["digestMatch"]):
                       evidence["deploymentVerified"] = True
 
@@ -131,16 +144,16 @@
               if github_token and commit_sha and commit_sha != "COMMIT_SHA_PLACEHOLDER":
                   state = "success" if evidence["deploymentVerified"] else "failure"
                   description = f"Pods: {evidence['readyReplicas']}/{evidence['desiredReplicas']} healthy. Sync: {evidence['syncStatus']}."
-                  
+
                   # Target repository hardcoded dynamically or configured via vars
                   github_url = f"https://github.com{commit_sha}"
-                  
+
                   status_payload = {
                       "state": state,
                       "description": description[:140], # GitHub limits descriptions to 140 chars
                       "context": "ArgoCD/In-Cluster-Verifier"
                   }
-                  
+
                   print(f"Sending commit status '{state}' back to GitHub...")
                   try:
                       github_req = urllib.request.Request(
@@ -160,7 +173,7 @@
                       print(f"Failed to post status update to GitHub: {gh_err}")
               else:
                   print("Skipping status update: GITHUB_TOKEN or VALID COMMIT_SHA missing.")
-              
+
               if not evidence["deploymentVerified"]:
                   exit(1)
               EOF

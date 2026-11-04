@@ -118,6 +118,46 @@ EOF
 echo "Restarting Alertmanager to apply configuration changes..."
 kubectl rollout restart statefulset/alertmanager-monitoring-kube-prometheus-alertmanager -n monitoring
 
-echo "=============================================="
-echo "ALL KUBERNETES SECRETS CONFIGURATION COMPLETED"
-echo "=============================================="
+# =========================================================================
+# Configure Argo CD RBAC and Deployment Verifier
+# =========================================================================
+echo "Setting up Argo CD RBAC and Deployment Verifier..."
+
+# Navigate to kubernetes directory if it exists
+if [ -d "kubernetes" ]; then
+  cd kubernetes
+fi
+
+# 1. Apply the Argo CD RBAC setup manifest
+echo "Applying argocd-rbac-setup.yaml..."
+kubectl apply -f argocd-rbac-setup.yaml
+
+# 2. Create or apply the deployment verifier service account idempotently
+kubectl create serviceaccount argocd-deployment-verifier -n argocd --dry-run=client -o yaml | kubectl apply -f -
+
+# 3. Create the Role in the default namespace allowing read-only access to pods and deployments
+kubectl create role verifier-reader \
+  --namespace=default \
+  --verb=get,list,watch \
+  --resource=deployments,pods \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# 4. Bind that Role to your verifier ServiceAccount located in the argocd namespace
+kubectl create rolebinding verifier-reader-binding \
+  --namespace=default \
+  --role=verifier-reader \
+  --serviceaccount=argocd:argocd-deployment-verifier \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+# 5. Apply the deployment verifier job manifest
+echo "Applying argocd-deployment-verifier.yaml..."
+kubectl apply -f argocd-deployment-verifier.yaml
+
+# Return to root directory if we changed directory earlier
+if [ -d "../kubernetes" ] || [ "$PWD" != "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" ]; then
+  cd - > /dev/null
+fi
+
+echo "====================================================="
+echo "ALL KUBERNETES SECRETS AND VERIFIER CONFIG COMPLETED"
+echo "====================================================="
