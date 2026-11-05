@@ -1344,14 +1344,9 @@ jobs:
           ls -lh reports/docker/
 
 
-      # ==========================================================
+# ==========================================================
       # PROMOTE VERIFIED IMMUTABLE IMAGE TO GITOPS MANIFEST (ARGO CD)
       # ==========================================================
-      # This is intentionally AFTER all signature, SBOM, attestation,
-      # and evidence verification steps. The digest was loaded from
-      # the Stage 1 artifact and is now available in this job via
-      # GITHUB_ENV. No manifest change is pushed before the security gate.
-
       - name: Update Kubernetes Manifest with Verified Image Digest
         if: success()
         run: |
@@ -1372,7 +1367,6 @@ jobs:
 
           echo "Promoting verified immutable image digest: $IMAGE_DIGEST"
 
-          # Configure Git identity locally for this repository only.
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
@@ -1386,19 +1380,14 @@ jobs:
             exit 1
           fi
 
-          # Replace only the application image reference and pin it to the
-          # exact immutable digest that passed the security verification gate.
           sed -i "s|image: $IMAGE_REPOSITORY[:@].*|image: $IMAGE_REPOSITORY@$IMAGE_DIGEST|g" "$MANIFEST_PATH"
 
-          # Fail closed if the expected image reference was not updated.
           EXPECTED_IMAGE="image: $IMAGE_REPOSITORY@$IMAGE_DIGEST"
           if ! grep -Fq "$EXPECTED_IMAGE" "$MANIFEST_PATH"; then
             echo "ERROR: Kubernetes manifest does not contain the expected immutable image reference."
-            echo "Expected: $EXPECTED_IMAGE"
             exit 1
           fi
 
-          # Show the exact manifest change for auditability.
           git diff -- "$MANIFEST_PATH"
 
           if git diff --quiet -- "$MANIFEST_PATH"; then
@@ -1413,9 +1402,23 @@ jobs:
           echo "=============================================="
           echo "VERIFIED GITOPS MANIFEST UPDATED & PUSHED"
           echo "=============================================="
-          echo "Manifest : $MANIFEST_PATH"
-          echo "Image    : $EXPECTED_IMAGE"
-          echo "=============================================="
+
+
+      # ==========================================================
+      # DEPLOY ARGO CD DEPLOYMENT VERIFIER JOB
+      # ==========================================================
+
+      - name: Deploy Argo CD Verifier Job
+        if: success()
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+          REPO_SLUG: ${{ github.repository }}
+        run: |
+          # Clean up any previous completed/failed job instance first
+          kubectl delete job argocd-deployment-verifier-job -n argocd --ignore-not-found=true
+
+          # Substitute environment variables in the manifest and apply them
+          envsubst '$COMMIT_SHA $REPO_SLUG' < kubernetes/argocd-deployment-verifier.yaml | kubectl apply -f -
 
       # ==========================================================
       # CREATE RAW SECURITY EVIDENCE ZIP
