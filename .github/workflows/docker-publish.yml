@@ -1436,8 +1436,15 @@ jobs:
           # Clean up any previous completed/failed job instance first
           kubectl delete job argocd-deployment-verifier-job -n argocd --ignore-not-found=true
 
-          # Substitute environment variables in the manifest and apply them
-          envsubst '$COMMIT_SHA $REPO_SLUG' < kubernetes/argocd-deployment-verifier.yaml | kubectl apply -f -
+          # Substitute environment variables securely using Python
+          python3 -c '
+          import os
+          content = open("kubernetes/argocd-deployment-verifier.yaml", "r", encoding="utf-8").read()
+          content = content.replace("${COMMIT_SHA}", os.environ["COMMIT_SHA"])
+          content = content.replace("${REPO_SLUG}", os.environ["REPO_SLUG"])
+          import subprocess
+          subprocess.run(["kubectl", "apply", "-f", "-"], input=content.encode("utf-8"), check=True)
+          '
 
 
       # ==========================================================
