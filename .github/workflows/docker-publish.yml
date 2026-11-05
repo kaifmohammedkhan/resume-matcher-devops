@@ -1359,7 +1359,7 @@ jobs:
           kubectl get nodes
 
 
-# ==========================================================
+      # ==========================================================
       # PROMOTE VERIFIED IMMUTABLE IMAGE TO GITOPS MANIFEST (ARGO CD)
       # ==========================================================
 
@@ -1385,7 +1385,6 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git config core.autocrlf false
 
           MANIFEST_PATH=(
             "kubernetes/resume-matcher-ghcr.yaml"
@@ -1414,22 +1413,38 @@ jobs:
 
           git add "$MANIFEST_PATH"
           git commit -m "ci(argocd): update resume-matcher image digest to ${IMAGE_DIGEST} [skip ci]"
-          
-          # Stash all modified/untracked files (like reports) to clear the working tree for rebase
-          git stash --include-untracked || true
-          
-          # Pull latest remote changes and rebase safely
-          git pull --rebase origin main || (git rebase --abort; exit 1)
-          
-          # Restore stashed local reports/files back into the workspace
-          git stash pop || true
-          
-          # Push the updated manifest safely to main
           git push origin main
 
           echo "=============================================="
           echo "VERIFIED GITOPS MANIFEST UPDATED & PUSHED"
           echo "=============================================="
+
+
+      # ==========================================================
+      # DEPLOY ARGO CD DEPLOYMENT VERIFIER JOB
+      # ==========================================================
+
+      - name: Deploy Argo CD Verifier Job
+        if: success()
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+          REPO_SLUG: ${{ github.repository }}
+        run: |
+          # Ensure the argocd namespace exists in the fresh Kind cluster
+          kubectl create namespace argocd --dry-run=client -o yaml | kubectl apply -f -
+
+          # Clean up any previous completed/failed job instance first
+          kubectl delete job argocd-deployment-verifier-job -n argocd --ignore-not-found=true
+
+          # Substitute environment variables securely using Python
+          python3 -c '
+          import os, subprocess
+          with open("kubernetes/argocd-deployment-verifier.yaml", "r", encoding="utf-8") as f:
+              content = f.read()
+          content = content.replace("${COMMIT_SHA}", os.environ["COMMIT_SHA"])
+          content = content.replace("${REPO_SLUG}", os.environ["REPO_SLUG"])
+          subprocess.run(["kubectl", "apply", "-f", "-"], input=content.encode("utf-8"), check=True)
+          '
 
 
       # ==========================================================
