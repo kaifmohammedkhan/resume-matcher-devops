@@ -1415,11 +1415,14 @@ jobs:
           git add "$MANIFEST_PATH"
           git commit -m "ci(argocd): update resume-matcher image digest to ${IMAGE_DIGEST} [skip ci]"
           
-          # Discard any automatic line-ending changes on helper scripts to keep working tree clean
-          git checkout -- keda/ kind/ scripts/ || true
+          # Stash all modified/untracked files (like reports) to clear the working tree for rebase
+          git stash --include-untracked || true
           
           # Pull latest remote changes and rebase safely
-          git pull --rebase origin main
+          git pull --rebase origin main || (git rebase --abort; exit 1)
+          
+          # Restore stashed local reports/files back into the workspace
+          git stash pop || true
           
           # Push the updated manifest safely to main
           git push origin main
