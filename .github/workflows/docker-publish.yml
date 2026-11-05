@@ -1385,6 +1385,7 @@ jobs:
 
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
+          git config core.autocrlf false
 
           MANIFEST_PATH=(
             "kubernetes/resume-matcher-ghcr.yaml"
@@ -1414,10 +1415,11 @@ jobs:
           git add "$MANIFEST_PATH"
           git commit -m "ci(argocd): update resume-matcher image digest to ${IMAGE_DIGEST} [skip ci]"
           
-          # Stash any other untracked or modified report files temporarily, pull, and reapply
-          git stash --include-untracked || true
-          git pull --rebase origin main || git rebase --abort
-          git stash pop || true
+          # Discard any automatic line-ending changes on helper scripts to keep working tree clean
+          git checkout -- keda/ kind/ scripts/ || true
+          
+          # Pull latest remote changes and rebase safely
+          git pull --rebase origin main
           
           # Push the updated manifest safely to main
           git push origin main
