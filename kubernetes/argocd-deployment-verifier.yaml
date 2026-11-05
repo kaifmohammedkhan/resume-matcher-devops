@@ -34,8 +34,6 @@ spec:
                 secretKeyRef:
                   name: github-verifier-token
                   key: ARGO_GITHUB
-            - name: COMMIT_SHA
-              value: "${COMMIT_SHA}"
             - name: REPO_SLUG
               value: "kaifmohammedkhan/resume-matcher-devops"
             - name: ARGOCD_SERVER
@@ -96,14 +94,8 @@ spec:
               argocd_token = os.environ["ARGOCD_TOKEN"]
               argocd_server = os.environ["ARGOCD_SERVER"].rstrip("/")
               github_token = os.environ["GITHUB_TOKEN"]
-              commit_sha = os.environ["COMMIT_SHA"]
               repo_slug = os.environ["REPO_SLUG"]
               report_path = os.environ["REPORT_PATH"]
-
-              if not commit_sha or commit_sha == "${COMMIT_SHA}":
-                  raise SystemExit("COMMIT_SHA was not injected correctly by environment substitution")
-              if len(commit_sha) != 40 or any(c not in "0123456789abcdef" for c in commit_sha.lower()):
-                  raise SystemExit("COMMIT_SHA must be a full 40-character Git commit SHA")
 
               ca_file = os.environ.get("ARGOCD_CA_CERT", "").strip()
               argo_context = ssl.create_default_context(cafile=ca_file or None)
@@ -111,7 +103,7 @@ spec:
 
               evidence = {
                   "application": app_name,
-                  "sourceCommit": commit_sha,
+                  "sourceCommit": "Unknown",
                   "checkedAtUtc": datetime.datetime.now(datetime.timezone.utc).isoformat(),
                   "syncStatus": "Unknown",
                   "healthStatus": "Unknown",
@@ -149,6 +141,15 @@ spec:
                   except Exception as exc:
                       evidence["errors"].append(f"Argo CD check attempt {attempt + 1}: {exc}")
                   time.sleep(15)
+
+              # Use the revision reported by Argo CD for this synced application.
+              # Kubernetes does not expand shell-style placeholders in Job env values.
+              commit_sha = evidence["argoRevision"]
+              if not commit_sha or commit_sha == "Unknown":
+                  raise SystemExit("Argo CD did not report a synced Git revision; cannot identify the deployed commit")
+              if len(commit_sha) != 40 or any(c not in "0123456789abcdef" for c in commit_sha.lower()):
+                  raise SystemExit(f"Argo CD revision is not a full 40-character Git commit SHA: {commit_sha}")
+              evidence["sourceCommit"] = commit_sha
 
               try:
                   config.load_incluster_config()
@@ -224,7 +225,7 @@ spec:
                   ("Namespace", evidence["namespace"]),
                   ("Expected image", evidence["expectedImage"]),
                   ("Expected immutable digest", evidence["expectedDigest"]),
-                  ("Ready / desired replicas", f"{evidence['readyReplicas']} / {evidence['desiredReplicas']}[cite: 1]"),
+                  ("Ready / desired replicas", f"{evidence['readyReplicas']} / {evidence['desiredReplicas']}"),
                   ("Matching running Pods", f"{evidence['readyTargetContainers']} / {evidence['podCount']}"),
                   ("All Pods use the pinned image reference", evidence["digestPinnedOnAllPods"]),
                   ("Runtime image IDs", "<br>".join(esc(x) for x in evidence["runtimeImageIDs"]) or "Not available"),
@@ -278,7 +279,7 @@ spec:
               status_url = f"https://api.github.com/repos/{repo_slug}/statuses/{commit_sha}"
               status_payload = {
                   "state": "success" if evidence["deploymentVerified"] else "failure",
-                  "description": f"Argo CD: {evidence['syncStatus']}/{evidence['healthStatus']}; replicas {evidence['readyReplicas']}/{evidence['desiredReplicas']}[cite: 1]",
+                  "description": f"Argo CD: {evidence['syncStatus']}/{evidence['healthStatus']}; replicas {evidence['readyReplicas']}/{evidence['desiredReplicas']}",
                   "context": "ArgoCD/In-Cluster-Verifier",
               }
               try:
