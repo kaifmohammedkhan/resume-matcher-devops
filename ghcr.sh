@@ -45,7 +45,6 @@ kubectl create secret generic github-verifier-token \
 
 # Create or update the Alertmanager SMTP credentials secret idempotently in the monitoring namespace
 echo "Creating/updating Kubernetes secret 'alertmanager-smtp-credentials'..."
-# FIXED: Removed duplicate 'smtp-username' argument line flagged by the state engine validation checker
 kubectl create secret generic alertmanager-smtp-credentials \
   --namespace=monitoring \
   --from-literal=smtp-username="$EMAIL_USER" \
@@ -150,9 +149,9 @@ kubectl create rolebinding verifier-reader-binding \
   --serviceaccount=argocd:argocd-deployment-verifier \
   --dry-run=client -o yaml | kubectl apply -f -
 
-# 5. Apply the deployment verifier job manifest using force replacement to bypass immutability checks
-echo "Forcibly replacing argocd-deployment-verifier.yaml..."
-kubectl replace --force -f argocd-deployment-verifier.yaml
+# 5. Apply the deployment verifier job manifest
+echo "Applying argocd-deployment-verifier.yaml..."
+kubectl apply -f argocd-deployment-verifier.yaml
 
 # Return to root directory if we changed directory earlier
 if [ -d "../kubernetes" ] || [ "$PWD" != "$(git rev-parse --show-toplevel 2>/dev/null || pwd)" ]; then
