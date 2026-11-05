@@ -1414,10 +1414,12 @@ jobs:
           git add "$MANIFEST_PATH"
           git commit -m "ci(argocd): update resume-matcher image digest to ${IMAGE_DIGEST} [skip ci]"
           
-          # Pull latest remote changes and rebase our commit on top
-          git pull --rebase origin main
+          # Stash any other untracked or modified report files temporarily, pull, and reapply
+          git stash --include-untracked || true
+          git pull --rebase origin main || git rebase --abort
+          git stash pop || true
           
-          # Push the updated manifest safely
+          # Push the updated manifest safely to main
           git push origin main
 
           echo "=============================================="
