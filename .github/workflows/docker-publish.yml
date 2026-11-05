@@ -1438,11 +1438,11 @@ jobs:
 
           # Substitute environment variables securely using Python
           python3 -c '
-          import os
-          content = open("kubernetes/argocd-deployment-verifier.yaml", "r", encoding="utf-8").read()
+          import os, subprocess
+          with open("kubernetes/argocd-deployment-verifier.yaml", "r", encoding="utf-8") as f:
+              content = f.read()
           content = content.replace("${COMMIT_SHA}", os.environ["COMMIT_SHA"])
           content = content.replace("${REPO_SLUG}", os.environ["REPO_SLUG"])
-          import subprocess
           subprocess.run(["kubectl", "apply", "-f", "-"], input=content.encode("utf-8"), check=True)
           '
 
