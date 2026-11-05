@@ -1344,7 +1344,22 @@ jobs:
           ls -lh reports/docker/
 
 
-# ==========================================================
+      # ==========================================================
+      # SET UP LOCAL KIND CLUSTER FOR VERIFICATION
+      # ==========================================================
+
+      - name: Set up local Kubernetes (Kind) cluster
+        uses: helm/kind-action@v1.10.0
+        with:
+          cluster_name: kind-argocd-verifier
+
+      - name: Test cluster connectivity
+        run: |
+          kubectl cluster-info
+          kubectl get nodes
+
+
+      # ==========================================================
       # PROMOTE VERIFIED IMMUTABLE IMAGE TO GITOPS MANIFEST (ARGO CD)
       # ==========================================================
       - name: Update Kubernetes Manifest with Verified Image Digest
@@ -1419,6 +1434,7 @@ jobs:
 
           # Substitute environment variables in the manifest and apply them
           envsubst '$COMMIT_SHA $REPO_SLUG' < kubernetes/argocd-deployment-verifier.yaml | kubectl apply -f -
+
 
       # ==========================================================
       # CREATE RAW SECURITY EVIDENCE ZIP
@@ -2325,9 +2341,9 @@ jobs:
             "reports/docker-build/docker-build-push-report.html";
 
 
-          // ======================================================
-          // REQUIRED FILES
-          // ======================================================
+          # ======================================================
+          # REQUIRED FILES
+          # ======================================================
 
           const requiredFiles = [
 
@@ -2357,9 +2373,9 @@ jobs:
           }
 
 
-          // ======================================================
-          // CREATE TRANSPORTER
-          // ======================================================
+          # ======================================================
+          # CREATE TRANSPORTER
+          # ======================================================
 
           const transporter =
             nodemailer.createTransport({
@@ -2379,9 +2395,9 @@ jobs:
             });
 
 
-          // ======================================================
-          // EMAIL BODY
-          // ======================================================
+          # ======================================================
+          # EMAIL BODY
+          # ======================================================
 
           const summaryHtml = `
 
@@ -2596,9 +2612,9 @@ jobs:
           `;
 
 
-          // ======================================================
-          // SEND EMAIL
-          // ======================================================
+          # ======================================================
+          # SEND EMAIL
+          # ======================================================
 
           (async () => {
 
