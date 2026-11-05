@@ -1359,7 +1359,7 @@ jobs:
           kubectl get nodes
 
 
-      # ==========================================================
+# ==========================================================
       # PROMOTE VERIFIED IMMUTABLE IMAGE TO GITOPS MANIFEST (ARGO CD)
       # ==========================================================
 
@@ -1413,12 +1413,16 @@ jobs:
 
           git add "$MANIFEST_PATH"
           git commit -m "ci(argocd): update resume-matcher image digest to ${IMAGE_DIGEST} [skip ci]"
+          
+          # Pull latest remote changes and rebase our commit on top
+          git pull --rebase origin main
+          
+          # Push the updated manifest safely
           git push origin main
 
           echo "=============================================="
           echo "VERIFIED GITOPS MANIFEST UPDATED & PUSHED"
           echo "=============================================="
-
 
 
       # ==========================================================
