@@ -1,4 +1,3 @@
-
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -59,7 +58,7 @@ spec:
               set -eu
 
               echo "============================================================"
-              echo "       ARGO CD DEPLOYMENT VERIFICATION"
+              echo "             ARGO CD DEPLOYMENT VERIFICATION"
               echo "============================================================"
               echo "Installing Kubernetes Python client..."
 
@@ -128,9 +127,14 @@ spec:
 
               ca_file = os.environ.get("ARGOCD_CA_CERT", "").strip()
 
-              argo_context = ssl.create_default_context(
-                  cafile=ca_file or None
-              )
+              # Fixed Argo SSL Context to handle self-signed cluster certificates
+              if ca_file:
+                  argo_context = ssl.create_default_context(cafile=ca_file)
+              else:
+                  argo_context = ssl.create_default_context()
+                  argo_context.check_hostname = False
+                  argo_context.verify_mode = ssl.CERT_NONE
+
               github_context = ssl.create_default_context()
 
               evidence = {
@@ -366,8 +370,6 @@ spec:
                       label_selector=label_selector,
                   ).items
 
-                  # Ignore terminating Pods so old rollout Pods do not
-                  # cause a false failure during their deletion.
                   active_pods = [
                       pod
                       for pod in pods
@@ -479,7 +481,6 @@ spec:
 
               # ------------------------------------------------------
               # 4. Generate the HTML report locally.
-              #    This happens even if GitHub API publication fails.
               # ------------------------------------------------------
 
               log("STEP 4/5: Generating HTML verification report...")
@@ -641,7 +642,6 @@ spec:
 
               # ------------------------------------------------------
               # 5. Publish report and commit status independently.
-              #    GitHub failures MUST NOT block pipeline execution.
               # ------------------------------------------------------
 
               log("STEP 5/5: Publishing report to GitHub (non-blocking)...")
@@ -723,7 +723,6 @@ spec:
                       f"{type(exc).__name__}: {exc}"
                   )
 
-              # Publish commit status only when a valid SHA exists.
               if valid_commit_sha:
                   status_url = (
                       f"https://api.github.com/repos/{repo_slug}"
@@ -763,8 +762,7 @@ spec:
                       evidence["commitStatusPublished"] = False
                       log(
                           "WARNING: GitHub commit status publication "
-                          "failed; continuing: "
-                          f"{type(exc).__name__}: {exc}"
+                          f"failed; continuing: {type(exc).__name__}: {exc}"
                       )
               else:
                   log(
@@ -772,7 +770,6 @@ spec:
                       "the Argo CD revision is not a valid commit SHA."
                   )
 
-              # Print final evidence regardless of GitHub API results.
               log("============================================================")
               log("FINAL VERIFICATION EVIDENCE")
               log("============================================================")
