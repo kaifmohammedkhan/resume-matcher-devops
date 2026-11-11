@@ -24,10 +24,6 @@ pipeline {
         // ============================================================
         // PARALLEL JOBS
         // Each branch gets its own Jenkins-managed workspace.
-        // IMPORTANT:
-        // Do NOT use customWorkspace here.
-        // GitHub Actions Cloud agents provide their own writable
-        // workspace under /home/runner/agent/...
         // ============================================================
 
         stage('Parallel Jobs') {
@@ -36,9 +32,7 @@ pipeline {
                 // CI JOB
                 // ====================================================
                 stage('CI Job') {
-                    agent {
-                        label 'gha-runner'
-                    }
+                    agent any
 
                     stages {
                         stage('Checkout Code') {
@@ -240,9 +234,7 @@ pipeline {
                 // OWASP JOB
                 // ====================================================
                 stage('OWASP Job') {
-                    agent {
-                        label 'gha-runner'
-                    }
+                    agent any
 
                     stages {
                         stage('Checkout Code') {
@@ -331,9 +323,7 @@ pipeline {
                 // QA JOB
                 // ====================================================
                 stage('QA Job') {
-                    agent {
-                        label 'gha-runner'
-                    }
+                    agent any
 
                     stages {
                         stage('Checkout Code') {
