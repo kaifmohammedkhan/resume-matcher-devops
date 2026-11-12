@@ -23,7 +23,7 @@ pipeline {
     stages {
         // ============================================================
         // PARALLEL JOBS
-        // Each branch gets its own Jenkins-managed workspace.
+        // Isolated customWorkspaces prevent deleteDir() collisions
         // ============================================================
 
         stage('Parallel Jobs') {
@@ -32,7 +32,12 @@ pipeline {
                 // CI JOB
                 // ====================================================
                 stage('CI Job') {
-                    agent any
+                    agent {
+                        node {
+                            label 'built-in'
+                            customWorkspace 'workspace/resume-matcher-premain-ci'
+                        }
+                    }
 
                     stages {
                         stage('Checkout Code') {
@@ -98,7 +103,6 @@ pipeline {
                                         export JAVA_HOME="$CI_JAVA_HOME"
                                         export PATH="$JAVA_HOME/bin:$PATH"
 
-                                        # Clear cached scanner directory to prevent interactive overwrite blockades
                                         rm -rf /var/jenkins_home/sonar-scanner-5.0.1.3006
 
                                         ./scripts/ci-sonarcloud.sh
@@ -132,7 +136,7 @@ pipeline {
                                         --template '@html.tpl' \
                                         -o trivy-fs-report.html \
                                         --ignore-unfixed \
-                                        --vuln-type os,library
+                                        --pkg-types os,library
                                 '''
                             }
                         }
@@ -160,7 +164,10 @@ pipeline {
 
                         stage('Security Checks') {
                             steps {
-                                sh './scripts/ci-security-checks.sh'
+                                sh '''
+                                    export PATH="$PWD/bin:$PATH"
+                                    ./scripts/ci-security-checks.sh
+                                '''
                             }
                         }
 
@@ -226,7 +233,12 @@ pipeline {
                 // OWASP JOB
                 // ====================================================
                 stage('OWASP Job') {
-                    agent any
+                    agent {
+                        node {
+                            label 'built-in'
+                            customWorkspace 'workspace/resume-matcher-premain-owasp'
+                        }
+                    }
 
                     stages {
                         stage('Checkout Code') {
@@ -321,7 +333,12 @@ pipeline {
                 // QA JOB
                 // ====================================================
                 stage('QA Job') {
-                    agent any
+                    agent {
+                        node {
+                            label 'built-in'
+                            customWorkspace 'workspace/resume-matcher-premain-qa'
+                        }
+                    }
 
                     stages {
                         stage('Checkout Code') {
@@ -344,6 +361,30 @@ pipeline {
                         }
                     }
                 }
+            }
+        }
+
+        // ============================================================
+        // CONSOLIDATE & SEND EMAIL REPORT
+        // ============================================================
+        stage('Send Email Report') {
+            steps {
+                deleteDir()
+                checkout scm
+                sh 'sed -i "s/\r$//" scripts/*.sh && chmod +x scripts/*.sh'
+                sh 'npm install'
+
+                unstash 'ci-reports-premain'
+                unstash 'owasp-report-premain'
+
+                sh '''
+                    mkdir -p reports/security
+                    cp security-report.html reports/security/security-report.html 2>/dev/null || true
+                    cp sonar-summary.html reports/sonar-summary.html 2>/dev/null || true
+                    cp dependency-check-report.html reports/dependency-check-report.html 2>/dev/null || true
+
+                    ./scripts/ci-email.sh
+                '''
             }
         }
     }
