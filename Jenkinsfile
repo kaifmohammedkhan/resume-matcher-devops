@@ -137,39 +137,22 @@ pipeline {
                             }
                         }
 
-                        stage('Build Local Image for Trivy Scan') {
-                            steps {
-                                sh 'docker build -t app-local:latest .'
-                            }
-                        }
-
-                        stage('Run Trivy Image Scan') {
-                            steps {
-                                sh '''
-                                    export PATH="$PWD/bin:$PATH"
-
-                                    trivy image app-local:latest \
-                                        --format template \
-                                        --template '@html.tpl' \
-                                        -o trivy-img-report.html \
-                                        --ignore-unfixed \
-                                        --vuln-type os,library
-                                '''
-                            }
-                        }
-
                         stage('Install & Run Gitleaks') {
                             steps {
                                 withCredentials([
                                     string(credentialsId: 'GITHUB_TOKEN', variable: 'GITHUB_TOKEN')
                                 ]) {
                                     sh '''
-                                        docker run --rm \
-                                            -v "$PWD:/repo" \
-                                            zricethezav/gitleaks:latest \
-                                            detect \
-                                            --source /repo \
-                                            --verbose || true
+                                        mkdir -p bin
+                                        if ! command -v gitleaks &> /dev/null; then
+                                            curl -sSL https://github.com/gitleaks/gitleaks/releases/download/v8.18.2/gitleaks_8.18.2_linux_x64.tar.gz -o gitleaks.tar.gz
+                                            tar -xzf gitleaks.tar.gz -C ./bin gitleaks
+                                            rm gitleaks.tar.gz
+                                        fi
+
+                                        export PATH="$PWD/bin:$PATH"
+
+                                        gitleaks detect --source . --verbose || true
                                     '''
                                 }
                             }
@@ -205,7 +188,7 @@ pipeline {
                                         > trivy-fs-report.html
 
                                     [ -f trivy-img-report.html ] || \
-                                        echo "<html><body><h1>Trivy Image Scan Missing</h1></body></html>" \
+                                        echo "<html><body><h1>Trivy Image Scan Skipped (Docker Unavailable)</h1></body></html>" \
                                         > trivy-img-report.html
 
                                     [ -f security-report.html ] || \
