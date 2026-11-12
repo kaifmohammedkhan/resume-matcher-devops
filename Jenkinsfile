@@ -229,8 +229,7 @@ pipeline {
                         }
                     }
                 }
-
-                // ====================================================
+// ====================================================
                 // OWASP JOB
                 // ====================================================
                 stage('OWASP Job') {
@@ -253,6 +252,13 @@ pipeline {
                         stage('Ensure Scripts Executable') {
                             steps {
                                 sh 'chmod +x scripts/*.sh'
+                            }
+                        }
+
+                        // ---> ADD THIS STAGE TO INSTALL DEPENDENCIES <---
+                        stage('Install Dependencies') {
+                            steps {
+                                sh 'npm install'
                             }
                         }
 
