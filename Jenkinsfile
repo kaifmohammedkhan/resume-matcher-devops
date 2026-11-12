@@ -120,11 +120,12 @@ pipeline {
                         stage('Run Trivy FS Scan') {
                             steps {
                                 sh '''
-                                    docker run --rm \
-                                        -v "$PWD:/work" \
-                                        -w /work \
-                                        aquasec/trivy:latest \
-                                        fs . \
+                                    # Install Trivy locally if not present
+                                    if ! command -v trivy &> /dev/null; then
+                                        curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+                                    fi
+
+                                    trivy fs . \
                                         --format template \
                                         --template '@html.tpl' \
                                         -o trivy-fs-report.html \
@@ -143,12 +144,7 @@ pipeline {
                         stage('Run Trivy Image Scan') {
                             steps {
                                 sh '''
-                                    docker run --rm \
-                                        -v /var/run/docker.sock:/var/run/docker.sock \
-                                        -v "$PWD:/work" \
-                                        -w /work \
-                                        aquasec/trivy:latest \
-                                        image app-local:latest \
+                                    trivy image app-local:latest \
                                         --format template \
                                         --template '@html.tpl' \
                                         -o trivy-img-report.html \
@@ -218,7 +214,7 @@ pipeline {
                                         test-summary.html,
                                         sonar-summary.html,
                                         trivy-fs-report.html,
-                                        trivy-img-prompt.html,
+                                        trivy-img-report.html,
                                         security-report.html
                                     ''',
                                     allowEmptyArchive: true
