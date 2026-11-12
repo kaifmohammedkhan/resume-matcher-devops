@@ -1,0 +1,117 @@
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          # --- DockerHub Credentials ---
+          - string:
+              scope: GLOBAL
+              id: "DOCKERHUB_TOKEN"
+              secret: "${DOCKERHUB_TOKEN}"
+              description: "DockerHub Token"
+          - string:
+              scope: GLOBAL
+              id: "DOCKERHUB_USERNAME"
+              secret: "${DOCKERHUB_USERNAME}"
+              description: "DockerHub Username"
+
+          # --- Email Credentials ---
+          - string:
+              scope: GLOBAL
+              id: "EMAIL_PASS"
+              secret: "${EMAIL_PASS}"
+              description: "Email Password"
+          - string:
+              scope: GLOBAL
+              id: "EMAIL_USER"
+              secret: "${EMAIL_USER}"
+              description: "Email User"
+          - string:
+              scope: GLOBAL
+              id: "QA_EMAIL_CC"
+              secret: "${QA_EMAIL_CC}"
+              description: "QA Email CC List"
+          - string:
+              scope: GLOBAL
+              id: "QA_EMAIL_TO"
+              secret: "${QA_EMAIL_TO}"
+              description: "QA Email To List"
+
+          # --- Security & Vulnerability API Keys ---
+          - string:
+              scope: GLOBAL
+              id: "GOOGLE_API_KEY"
+              secret: "${GOOGLE_API_KEY}"
+              description: "Google API Key"
+          - string:
+              scope: GLOBAL
+              id: "NVD_API_KEY"
+              secret: "${NVD_API_KEY}"
+              description: "NVD API Key"
+
+          # --- SonarQube Credentials ---
+          - string:
+              scope: GLOBAL
+              id: "SONAR_HOST"
+              secret: "${SONAR_HOST}"
+              description: "SonarQube Host URL"
+          - string:
+              scope: GLOBAL
+              id: "SONAR_ORG"
+              secret: "${SONAR_ORG}"
+              description: "SonarQube Organization"
+          - string:
+              scope: GLOBAL
+              id: "SONAR_PROJECT_KEY"
+              secret: "${SONAR_PROJECT_KEY}"
+              description: "SonarQube Project Key"
+          - string:
+              scope: GLOBAL
+              id: "SONAR_TOKEN"
+              secret: "${SONAR_TOKEN}"
+              description: "SonarQube Access Token"
+
+          # --- GitHub & Container Registry Credentials ---
+          - usernamePassword:
+              scope: GLOBAL
+              id: "GITHUB_CRED"
+              username: "kaifmohammedkhan"
+              password: "${GITHUB_CRED_TOKEN}"
+              description: "GitHub Account Credentials"
+          - string:
+              scope: GLOBAL
+              id: "github-agent-token"
+              secret: "${GITHUB_AGENT_TOKEN}"
+              description: "GitHub Agent Token"
+          - string:
+              scope: GLOBAL
+              id: "GITHUB_TOKEN"
+              secret: "${GITHUB_TOKEN}"
+              description: "GitHub Personal Access Token"
+          - string:
+              scope: GLOBAL
+              id: "GHCR_TOKEN"
+              secret: "${GHCR_TOKEN}"
+              description: "GitHub Container Registry Token"
+          - string:
+              scope: GLOBAL
+              id: "GITHUB_REF_NAME"
+              secret: "${GITHUB_REF_NAME}"
+              description: "GitHub Ref Name"
+          - string:
+              scope: GLOBAL
+              id: "GITHUB_REF_NAMEE"
+              secret: "${GITHUB_REF_NAMEE}"
+              description: "GitHub Ref Name Alternate"
+
+          # --- Cosign Signing Keys ---
+          - string:
+              scope: GLOBAL
+              id: "COSIGN_PASSPHRASE"
+              secret: "${COSIGN_PASSPHRASE}"
+              description: "Cosign Key Passphrase"
+          - file:
+              scope: GLOBAL
+              id: "COSIGN_PRIVATE_KEY"
+              secretBytes: "${COSIGN_PRIVATE_KEY_BASE64}"
+              fileName: "cosign.key"
+              description: "Cosign Private Key File"
