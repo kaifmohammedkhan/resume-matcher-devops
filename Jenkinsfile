@@ -54,6 +54,12 @@ pipeline {
                             }
                         }
 
+                        stage('Install Dependencies') {
+                            steps {
+                                sh 'npm install'
+                            }
+                        }
+
                         stage('Run Tests') {
                             steps {
                                 sh './scripts/ci-test.sh'
@@ -91,6 +97,9 @@ pipeline {
                                     sh '''
                                         export JAVA_HOME="$CI_JAVA_HOME"
                                         export PATH="$JAVA_HOME/bin:$PATH"
+
+                                        # Clear cached scanner directory to prevent interactive overwrite blockades
+                                        rm -rf /var/jenkins_home/sonar-scanner-5.0.1.3006
 
                                         ./scripts/ci-sonarcloud.sh
                                     '''
@@ -209,7 +218,7 @@ pipeline {
                                         test-summary.html,
                                         sonar-summary.html,
                                         trivy-fs-report.html,
-                                        trivy-img-report.html,
+                                        trivy-img-prompt.html,
                                         security-report.html
                                     ''',
                                     allowEmptyArchive: true
@@ -229,7 +238,8 @@ pipeline {
                         }
                     }
                 }
-/// ====================================================
+
+                // ====================================================
                 // OWASP JOB
                 // ====================================================
                 stage('OWASP Job') {
@@ -255,7 +265,6 @@ pipeline {
                             }
                         }
 
-                        // Add this stage here so nodemailer is available in the OWASP workspace
                         stage('Install Dependencies') {
                             steps {
                                 sh 'npm install'
@@ -324,6 +333,7 @@ pipeline {
                         }
                     }
                 }
+
                 // ====================================================
                 // QA JOB
                 // ====================================================
