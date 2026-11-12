@@ -229,7 +229,7 @@ pipeline {
                         }
                     }
                 }
-// ====================================================
+/// ====================================================
                 // OWASP JOB
                 // ====================================================
                 stage('OWASP Job') {
@@ -255,7 +255,7 @@ pipeline {
                             }
                         }
 
-                        // ---> ADD THIS STAGE TO INSTALL DEPENDENCIES <---
+                        // Add this stage here so nodemailer is available in the OWASP workspace
                         stage('Install Dependencies') {
                             steps {
                                 sh 'npm install'
@@ -324,7 +324,6 @@ pipeline {
                         }
                     }
                 }
-
                 // ====================================================
                 // QA JOB
                 // ====================================================
