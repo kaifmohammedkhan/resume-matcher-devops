@@ -120,10 +120,12 @@ pipeline {
                         stage('Run Trivy FS Scan') {
                             steps {
                                 sh '''
-                                    # Install Trivy locally if not present
+                                    mkdir -p bin
                                     if ! command -v trivy &> /dev/null; then
-                                        curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b /usr/local/bin
+                                        curl -sfL https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh | sh -s -- -b ./bin
                                     fi
+
+                                    export PATH="$PWD/bin:$PATH"
 
                                     trivy fs . \
                                         --format template \
@@ -144,6 +146,8 @@ pipeline {
                         stage('Run Trivy Image Scan') {
                             steps {
                                 sh '''
+                                    export PATH="$PWD/bin:$PATH"
+
                                     trivy image app-local:latest \
                                         --format template \
                                         --template '@html.tpl' \
