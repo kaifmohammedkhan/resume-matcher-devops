@@ -29,12 +29,14 @@ pipeline {
                         }
                     }
                     stages {
-                        // Invokes the shared library script
-                        runCi()
+                        stage('Execute CI Pipeline') {
+                            steps {
+                                // Wrap the shared library call inside steps
+                                runCi()
+                            }
+                        }
                     }
                 }
-                
-                // Add OWASP or other parallel jobs here or via similar library methods
             }
         }
     }
