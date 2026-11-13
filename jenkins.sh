@@ -3,7 +3,8 @@
 ZROK="/c/zrok/zrok.exe"
 NAME="my-jenkins-local"
 NAMESPACE="public"
-TARGET="http://host.docker.internal:8080"
+# Changed from host.docker.internal to 127.0.0.1
+TARGET="http://127.0.0.1:8082"
 
 echo "=========================================="
 echo "Starting zrok share reset sequence..."
