@@ -19,7 +19,7 @@ pipeline {
     }
 
     stages {
-        stage('Parallel Jobs') {
+        stage('Parallel CI Jobs') {
             parallel {
                 stage('CI Job') {
                     agent {
@@ -35,7 +35,7 @@ pipeline {
             }
         }
 
-        stage('Send Email Report') {
+        stage('Send CI Email Report') {
             steps {
                 deleteDir()
                 checkout scm
@@ -50,8 +50,34 @@ pipeline {
                     cp sonar-summary.html reports/sonar-summary.html 2>/dev/null || true
                     cp dependency-check-report.html reports/dependency-check-report.html 2>/dev/null || true
 
-                    echo "Triggering email notification script..."
+                    echo "Triggering CI email notification script..."
                     ./scripts/ci-email.sh
+                '''
+            }
+        }
+
+        stage('Continuous Deployment (CD) Pipeline') {
+            when {
+                branch 'main'
+            }
+            steps {
+                script {
+                    runCd()
+                }
+            }
+        }
+
+        stage('Send CD Security & Build Report Email') {
+            when {
+                branch 'main'
+            }
+            steps {
+                sh '''
+                    mkdir -p reports/docker
+                    unstash 'cd-reports'
+
+                    echo "Triggering CD Docker build & security email dispatch..."
+                    # Add your custom CD email notification script or reuse node mailer here
                 '''
             }
         }
