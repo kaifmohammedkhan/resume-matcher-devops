@@ -28,21 +28,14 @@ pipeline {
                             customWorkspace 'workspace/resume-matcher-premain-ci'
                         }
                     }
-                    stages {
-                        stage('Execute CI Pipeline') {
-                            steps {
-                                // Calls runCi.groovy from your shared library
-                                runCi()
-                            }
-                        }
+                    steps {
+                        // Directly invoke the shared library function here
+                        runCi()
                     }
                 }
             }
         }
 
-        // ============================================================
-        // CONSOLIDATE & SEND EMAIL REPORT
-        // ============================================================
         stage('Send Email Report') {
             steps {
                 deleteDir()
