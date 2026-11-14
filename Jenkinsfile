@@ -25,8 +25,14 @@ pipeline {
                 checkout scm
                 
                 script {
-                    def currentBranch = env.BRANCH_NAME ?: sh(returnStdout: true, script: 'git rev-parse --abbrev-ref HEAD').trim()
-                    echo "Current detected branch: ${currentBranch}"
+                    // Resolve branch name from Jenkins GIT_BRANCH env or fallback to git command
+                    def rawBranch = env.GIT_BRANCH ?: sh(returnStdout: true, script: 'git rev-parse --abbrev-ref HEAD').trim()
+                    
+                    // Strip 'origin/' prefix if present (e.g., origin/main -> main)
+                    def currentBranch = rawBranch.replaceAll('^origin/', '').trim()
+                    
+                    echo "Raw detected branch/ref: ${rawBranch}"
+                    echo "Normalized current branch: ${currentBranch}"
 
                     if (currentBranch == 'pre-main') {
                         echo "Executing CI Pipeline for pre-main..."
@@ -59,7 +65,7 @@ pipeline {
                         runCd()
 
                     } else {
-                        echo "Branch ${currentBranch} is neither pre-main nor main. Skipping automated CI/CD."
+                        echo "Branch '${currentBranch}' is neither pre-main nor main. Skipping automated CI/CD."
                     }
                 }
             }
