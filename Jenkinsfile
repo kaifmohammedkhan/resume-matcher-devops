@@ -20,66 +20,61 @@ pipeline {
 
     stages {
         // ==========================================
-        // CI PIPELINE (Triggers on pre-main branch)
+        // CI PIPELINE (Runs ONLY on pre-main)
         // ==========================================
-        stage('CI Pipeline Group') {
+        stage('Parallel CI Jobs') {
             when {
                 branch 'pre-main'
             }
-            stages {
-                stage('Parallel CI Jobs') {
-                    parallel {
-                        stage('CI Job') {
-                            agent {
-                                node {
-                                    label 'built-in'
-                                    customWorkspace 'workspace/resume-matcher-premain-ci'
-                                }
-                            }
-                            steps {
-                                runCi()
-                            }
+            parallel {
+                stage('CI Job') {
+                    agent {
+                        node {
+                            label 'built-in'
+                            customWorkspace 'workspace/resume-matcher-premain-ci'
                         }
                     }
-                }
-
-                stage('Send CI Email Report') {
                     steps {
-                        deleteDir()
-                        checkout scm
-                        sh 'sed -i "s/\r$//" scripts/*.sh && chmod +x scripts/*.sh'
-                        sh 'npm install'
-
-                        sh 'mkdir -p reports/security'
-                        unstash 'ci-reports-premain'
-
-                        sh '''
-                            cp security-report.html reports/security/security-report.html 2>/dev/null || true
-                            cp sonar-summary.html reports/sonar-summary.html 2>/dev/null || true
-                            cp dependency-check-report.html reports/dependency-check-report.html 2>/dev/null || true
-
-                            echo "Triggering CI email notification script..."
-                            ./scripts/ci-email.sh
-                        '''
+                        runCi()
                     }
                 }
             }
         }
 
+        stage('Send CI Email Report') {
+            when {
+                branch 'pre-main'
+            }
+            steps {
+                deleteDir()
+                checkout scm
+                sh 'sed -i "s/\r$//" scripts/*.sh && chmod +x scripts/*.sh'
+                sh 'npm install'
+
+                sh 'mkdir -p reports/security'
+                unstash 'ci-reports-premain'
+
+                sh '''
+                    cp security-report.html reports/security/security-report.html 2>/dev/null || true
+                    cp sonar-summary.html reports/sonar-summary.html 2>/dev/null || true
+                    cp dependency-check-report.html reports/dependency-check-report.html 2>/dev/null || true
+
+                    echo "Triggering CI email notification script..."
+                    ./scripts/ci-email.sh
+                '''
+            }
+        }
+
         // ==========================================
-        // CD PIPELINE (Triggers on main branch)
+        // CD PIPELINE (Runs ONLY on main)
         // ==========================================
-        stage('CD Pipeline Group') {
+        stage('Continuous Deployment (CD)') {
             when {
                 branch 'main'
             }
-            stages {
-                stage('Continuous Deployment (CD)') {
-                    steps {
-                        script {
-                            runCd()
-                        }
-                    }
+            steps {
+                script {
+                    runCd()
                 }
             }
         }
