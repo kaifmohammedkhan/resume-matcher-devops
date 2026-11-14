@@ -25,14 +25,16 @@ pipeline {
                 checkout scm
                 
                 script {
-                    // Resolve branch name from Jenkins GIT_BRANCH env or fallback to git command
-                    def rawBranch = env.GIT_BRANCH ?: sh(returnStdout: true, script: 'git rev-parse --abbrev-ref HEAD').trim()
-                    
-                    // Strip 'origin/' prefix if present (e.g., origin/main -> main)
+                    // Robustly resolve the branch name even in detached HEAD state
+                    def rawBranch = env.GIT_BRANCH ?: sh(
+                        returnStdout: true, 
+                        script: "git branch -r --contains HEAD | grep -v 'HEAD' | head -n 1"
+                    ).trim()
+
+                    // Clean up output (strip 'origin/' prefix and whitespace)
                     def currentBranch = rawBranch.replaceAll('^origin/', '').trim()
                     
-                    echo "Raw detected branch/ref: ${rawBranch}"
-                    echo "Normalized current branch: ${currentBranch}"
+                    echo "Resolved branch: '${currentBranch}'"
 
                     if (currentBranch == 'pre-main') {
                         echo "Executing CI Pipeline for pre-main..."
@@ -65,7 +67,7 @@ pipeline {
                         runCd()
 
                     } else {
-                        echo "Branch '${currentBranch}' is neither pre-main nor main. Skipping automated CI/CD."
+                        error("Deployment halted: Branch '${currentBranch}' could not be matched to 'pre-main' or 'main'.")
                     }
                 }
             }
