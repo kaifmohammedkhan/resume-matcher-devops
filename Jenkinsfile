@@ -31,7 +31,7 @@ pipeline {
                     stages {
                         stage('Execute CI Pipeline') {
                             steps {
-                                // Wrap the shared library call inside steps
+                                // Calls runCi.groovy from your shared library
                                 runCi()
                             }
                         }
