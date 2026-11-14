@@ -29,8 +29,9 @@ pipeline {
                         }
                     }
                     steps {
-                        // Directly invoke the shared library function here
-                        runCi()
+                        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                            runCi()
+                        }
                     }
                 }
             }
@@ -43,13 +44,15 @@ pipeline {
                 sh 'sed -i "s/\r$//" scripts/*.sh && chmod +x scripts/*.sh'
                 sh 'npm install'
 
+                sh 'mkdir -p reports/security'
                 unstash 'ci-reports-premain'
 
                 sh '''
-                    mkdir -p reports/security
                     cp security-report.html reports/security/security-report.html 2>/dev/null || true
                     cp sonar-summary.html reports/sonar-summary.html 2>/dev/null || true
+                    cp dependency-check-report.html reports/dependency-check-report.html 2>/dev/null || true
 
+                    echo "Triggering email notification script..."
                     ./scripts/ci-email.sh
                 '''
             }
