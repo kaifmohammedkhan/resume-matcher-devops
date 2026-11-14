@@ -19,62 +19,48 @@ pipeline {
     }
 
     stages {
-        // ==========================================
-        // CI PIPELINE (Runs ONLY on pre-main)
-        // ==========================================
-        stage('Parallel CI Jobs') {
-            when {
-                branch 'pre-main'
-            }
-            parallel {
-                stage('CI Job') {
-                    agent {
-                        node {
-                            label 'built-in'
-                            customWorkspace 'workspace/resume-matcher-premain-ci'
-                        }
-                    }
-                    steps {
-                        runCi()
-                    }
-                }
-            }
-        }
-
-        stage('Send CI Email Report') {
-            when {
-                branch 'pre-main'
-            }
+        stage('Determine Branch & Execute Workflow') {
             steps {
                 deleteDir()
                 checkout scm
-                sh 'sed -i "s/\r$//" scripts/*.sh && chmod +x scripts/*.sh'
-                sh 'npm install'
-
-                sh 'mkdir -p reports/security'
-                unstash 'ci-reports-premain'
-
-                sh '''
-                    cp security-report.html reports/security/security-report.html 2>/dev/null || true
-                    cp sonar-summary.html reports/sonar-summary.html 2>/dev/null || true
-                    cp dependency-check-report.html reports/dependency-check-report.html 2>/dev/null || true
-
-                    echo "Triggering CI email notification script..."
-                    ./scripts/ci-email.sh
-                '''
-            }
-        }
-
-        // ==========================================
-        // CD PIPELINE (Runs ONLY on main)
-        // ==========================================
-        stage('Continuous Deployment (CD)') {
-            when {
-                branch 'main'
-            }
-            steps {
+                
                 script {
-                    runCd()
+                    def currentBranch = env.BRANCH_NAME ?: sh(returnStdout: true, script: 'git rev-parse --abbrev-ref HEAD').trim()
+                    echo "Current detected branch: ${currentBranch}"
+
+                    if (currentBranch == 'pre-main') {
+                        echo "Executing CI Pipeline for pre-main..."
+                        
+                        // Run CI Job
+                        node('built-in') {
+                            ws('workspace/resume-matcher-premain-ci') {
+                                runCi()
+                            }
+                        }
+
+                        // Send CI Email Report
+                        sh 'sed -i "s/\r$//" scripts/*.sh && chmod +x scripts/*.sh'
+                        sh 'npm install'
+                        sh 'mkdir -p reports/security'
+                        
+                        unstash 'ci-reports-premain'
+
+                        sh '''
+                            cp security-report.html reports/security/security-report.html 2>/dev/null || true
+                            cp sonar-summary.html reports/sonar-summary.html 2>/dev/null || true
+                            cp dependency-check-report.html reports/dependency-check-report.html 2>/dev/null || true
+
+                            echo "Triggering CI email notification script..."
+                            ./scripts/ci-email.sh
+                        '''
+
+                    } else if (currentBranch == 'main') {
+                        echo "Executing CD Pipeline for main..."
+                        runCd()
+
+                    } else {
+                        echo "Branch ${currentBranch} is neither pre-main nor main. Skipping automated CI/CD."
+                    }
                 }
             }
         }
