@@ -29,9 +29,7 @@ pipeline {
                         }
                     }
                     steps {
-                        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-                            runCi()
-                        }
+                        runCi()
                     }
                 }
             }
