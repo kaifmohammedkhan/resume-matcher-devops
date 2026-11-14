@@ -39,5 +39,27 @@ pipeline {
                 }
             }
         }
+
+        // ============================================================
+        // CONSOLIDATE & SEND EMAIL REPORT
+        // ============================================================
+        stage('Send Email Report') {
+            steps {
+                deleteDir()
+                checkout scm
+                sh 'sed -i "s/\r$//" scripts/*.sh && chmod +x scripts/*.sh'
+                sh 'npm install'
+
+                unstash 'ci-reports-premain'
+
+                sh '''
+                    mkdir -p reports/security
+                    cp security-report.html reports/security/security-report.html 2>/dev/null || true
+                    cp sonar-summary.html reports/sonar-summary.html 2>/dev/null || true
+
+                    ./scripts/ci-email.sh
+                '''
+            }
+        }
     }
 }
